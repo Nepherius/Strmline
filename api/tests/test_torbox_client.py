@@ -1,0 +1,143 @@
+import httpx
+import pytest
+
+from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
+
+
+@pytest.mark.asyncio
+async def test_torbox_client_sends_auth_and_user_agent_headers() -> None:
+    seen_headers: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_headers["authorization"] = request.headers["authorization"]
+        seen_headers["user-agent"] = request.headers["user-agent"]
+        return httpx.Response(200, json={"data": [{"id": 1}]})
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        client = TorBoxClient(api_key="secret-token", http_client=http_client)
+
+        payload = await client.get_json("/torrents/mylist")
+
+    assert payload == {"data": [{"id": 1}]}
+    assert seen_headers == {
+        "authorization": "Bearer secret-token",
+        "user-agent": "Strmline/0.1.0",
+    }
+
+
+@pytest.mark.asyncio
+async def test_torbox_client_joins_base_url_and_relative_paths() -> None:
+    seen_urls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_urls.append(str(request.url))
+        return httpx.Response(200, json={"ok": True})
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        client = TorBoxClient(
+            api_key="secret-token",
+            base_url="https://api.example.test/v1/api",
+            http_client=http_client,
+        )
+
+        _ = await client.get_json("torrents/mylist", params={"page": 1})
+
+    assert seen_urls == ["https://api.example.test/v1/api/torrents/mylist?page=1"]
+
+
+@pytest.mark.asyncio
+async def test_torbox_client_error_does_not_expose_api_key() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"detail": "upstream failed"})
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        client = TorBoxClient(api_key="secret-token", http_client=http_client)
+
+        with pytest.raises(TorBoxAPIError) as error:
+            _ = await client.get_json("/torrents/mylist")
+
+    assert "500" in str(error.value)
+    assert "secret-token" not in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_torbox_client_error_includes_safe_api_detail() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            json={
+                "success": False,
+                "error": "BAD_TOKEN",
+                "detail": "Your token is invalid or has expired.",
+                "data": None,
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        client = TorBoxClient(api_key="secret-token", http_client=http_client)
+
+        with pytest.raises(TorBoxAPIError) as error:
+            _ = await client.get_json("/torrents/mylist")
+
+    assert "BAD_TOKEN" in str(error.value)
+    assert "invalid" in str(error.value)
+    assert "secret-token" not in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_torbox_client_rejects_failed_standard_response() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "success": False,
+                "error": "UNKNOWN_ERROR",
+                "detail": "Something went wrong.",
+                "data": None,
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        client = TorBoxClient(api_key="secret-token", http_client=http_client)
+
+        with pytest.raises(TorBoxAPIError, match="Something went wrong"):
+            _ = await client.get_json("/torrents/mylist")
+
+
+@pytest.mark.asyncio
+async def test_torbox_client_can_be_used_as_context_manager() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"ok": True})
+
+    transport = httpx.MockTransport(handler)
+    client = TorBoxClient(api_key="secret-token", transport=transport)
+
+    async with client as torbox:
+        payload = await torbox.get_json("/torrents/mylist")
+
+    assert payload == {"ok": True}
+
+
+@pytest.mark.asyncio
+async def test_torbox_client_lists_all_download_pages() -> None:
+    seen_offsets: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_offsets.append(request.url.params["offset"])
+        if request.url.params["offset"] == "0":
+            return httpx.Response(200, json={"data": [{"id": 1}, {"id": 2}]})
+        return httpx.Response(200, json={"data": [{"id": 3}]})
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        client = TorBoxClient(api_key="test-token", http_client=http_client)
+
+        downloads = await client.list_downloads("torrents", limit=2)
+
+    assert seen_offsets == ["0", "2"]
+    assert downloads == [{"id": 1}, {"id": 2}, {"id": 3}]

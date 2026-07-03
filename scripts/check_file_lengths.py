@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 DEFAULT_MAX_LINES = 500
 DOC_DIRS = {"docs"}
 DOC_SUFFIXES = {".md", ".mdx", ".rst", ".txt"}
 SKIP_FILES = {
+    ".coverage",
     "package-lock.json",
     "pnpm-lock.yaml",
     "poetry.lock",
@@ -46,11 +48,7 @@ def count_lines(path: Path) -> int:
 
 
 def iter_files(root: Path) -> list[Path]:
-    return [
-        path
-        for path in root.rglob("*")
-        if path.is_file() and not should_skip(path, root)
-    ]
+    return [path for path in root.rglob("*") if path.is_file() and not should_skip(path, root)]
 
 
 def oversized_files(root: Path, max_lines: int) -> list[tuple[Path, int]]:
@@ -88,9 +86,9 @@ def main() -> int:
     if not oversized:
         return 0
 
-    print(f"Files over {args.max_lines} lines:")
+    _ = sys.stdout.write(f"Files over {args.max_lines} lines:\n")
     for path, line_count in oversized:
-        print(f"- {path.relative_to(root)}: {line_count}")
+        _ = sys.stdout.write(f"- {path.relative_to(root)}: {line_count}\n")
     return 1
 
 
