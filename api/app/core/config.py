@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     library_root: Path | None = None
     tmdb_api_key: SecretStr | None = None
     torbox_api_key: SecretStr | None = None
+    resolver_token: SecretStr | None = None
     torbox_base_url: str = Field(default="https://api.torbox.app/v1/api")
     outbound_timeout_seconds: float = Field(default=20.0, gt=0)
 

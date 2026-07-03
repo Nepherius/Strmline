@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import sys
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
@@ -11,7 +12,18 @@ from app.core.config import get_settings
 from app.library.strm_probe import StrmProbeError, probe_strm_file
 from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
 from app.providers.torbox.files import DOWNLOAD_KINDS, DownloadKind
-from app.sync.torbox_strm import DirectTorBoxStrmSync, TorBoxStrmSyncResult
+from app.sync.torbox_strm import DirectTorBoxStrmSync, ResolverUrlConfig, TorBoxStrmSyncResult
+
+
+@dataclass(frozen=True, slots=True)
+class SyncTorBoxStrmOptions:
+    allow_direct_urls: bool
+    library_root: Path | None
+    resolver_base_url: str | None
+    resolver_token: str | None
+    kinds: tuple[DownloadKind, ...]
+    max_files: int | None
+    probe_first_url: bool
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -21,11 +33,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         kinds = tuple(args.kinds) if args.kinds else DOWNLOAD_KINDS
         return asyncio.run(
             _sync_torbox_strm(
-                allow_direct_urls=args.allow_direct_urls,
-                library_root=args.library_root,
-                kinds=cast(tuple[DownloadKind, ...], kinds),
-                max_files=args.max_files,
-                probe_first_url=args.probe_first_url,
+                SyncTorBoxStrmOptions(
+                    allow_direct_urls=args.allow_direct_urls,
+                    library_root=args.library_root,
+                    resolver_base_url=args.resolver_base_url,
+                    resolver_token=args.resolver_token,
+                    kinds=cast(tuple[DownloadKind, ...], kinds),
+                    max_files=args.max_files,
+                    probe_first_url=args.probe_first_url,
+                )
             )
         )
     parser.print_help()
@@ -44,6 +60,16 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="allow_direct_urls",
         action="store_true",
         help="Write TorBox request-download URLs directly into .strm files for local testing.",
+    )
+    _ = sync_parser.add_argument(
+        "--resolver-base-url",
+        default=None,
+        help="Base URL used for generated resolver .strm files. Overrides STRMLINE_BASE_URL.",
+    )
+    _ = sync_parser.add_argument(
+        "--resolver-token",
+        default=None,
+        help="Resolver token used in generated .strm files. Overrides STRMLINE_RESOLVER_TOKEN.",
     )
     _ = sync_parser.add_argument(
         "--library-root",
@@ -80,31 +106,35 @@ def positive_int(value: str) -> int:
     return parsed
 
 
-async def _sync_torbox_strm(
-    *,
-    allow_direct_urls: bool,
-    library_root: Path | None,
-    kinds: tuple[DownloadKind, ...],
-    max_files: int | None,
-    probe_first_url: bool,
-) -> int:
-    if not allow_direct_urls:
-        message = " ".join(
-            (
-                "Direct TorBox URL generation must be explicit.",
-                "Re-run with --direct-torbox-urls for the current local test mode.",
-            )
-        )
-        _write_error(message)
-        return 2
-
+async def _sync_torbox_strm(options: SyncTorBoxStrmOptions) -> int:
     settings = get_settings()
     if settings.torbox_api_key is None:
         _write_error("STRMLINE_TORBOX_API_KEY is required.")
         return 2
-    output_root = _output_root(library_root, settings.library_root)
+    output_root = _output_root(options.library_root, settings.library_root)
     if output_root is None:
         _write_error("STRMLINE_LIBRARY_ROOT or --library-root is required.")
+        return 2
+    resolver = _resolver_config(
+        allow_direct_urls=options.allow_direct_urls,
+        resolver_base_url=options.resolver_base_url,
+        resolver_token=options.resolver_token,
+        settings_base_url=settings.base_url,
+        settings_resolver_token=(
+            settings.resolver_token.get_secret_value()
+            if settings.resolver_token is not None
+            else None
+        ),
+    )
+    if resolver is None and not options.allow_direct_urls:
+        _write_error(
+            " ".join(
+                (
+                    "Resolver mode requires STRMLINE_BASE_URL and STRMLINE_RESOLVER_TOKEN",
+                    "or --resolver-base-url and --resolver-token.",
+                )
+            ),
+        )
         return 2
 
     api_key = settings.torbox_api_key.get_secret_value()
@@ -119,19 +149,21 @@ async def _sync_torbox_strm(
                 api_key=api_key,
                 torbox_base_url=settings.torbox_base_url,
                 library_root=output_root,
+                resolver=resolver,
             )
-            result = await sync.run(kinds=kinds, max_files=max_files)
+            result = await sync.run(kinds=options.kinds, max_files=options.max_files)
     except (OSError, TorBoxAPIError, ValueError) as error:
         _write_error(f"TorBox STRM sync failed: {error}")
         return 1
 
     lines = _sync_summary_lines(
-        kinds=kinds,
-        max_files=max_files,
+        kinds=options.kinds,
+        max_files=options.max_files,
         output_root=output_root,
         result=result,
+        resolver_enabled=resolver is not None,
     )
-    if probe_first_url and result.written_paths:
+    if options.probe_first_url and result.written_paths:
         probe_line = await _probe_summary_line(
             result.written_paths[0],
             request_timeout=settings.outbound_timeout_seconds,
@@ -147,15 +179,34 @@ def _output_root(override: Path | None, configured: Path | None) -> Path | None:
     return override or configured
 
 
+def _resolver_config(
+    *,
+    allow_direct_urls: bool,
+    resolver_base_url: str | None,
+    resolver_token: str | None,
+    settings_base_url: str | None,
+    settings_resolver_token: str | None,
+) -> ResolverUrlConfig | None:
+    if allow_direct_urls:
+        return None
+    base_url = resolver_base_url or settings_base_url
+    token = resolver_token or settings_resolver_token
+    if base_url is None or token is None:
+        return None
+    return ResolverUrlConfig(base_url=base_url, token=token)
+
+
 def _sync_summary_lines(
     *,
     kinds: tuple[DownloadKind, ...],
     max_files: int | None,
     output_root: Path,
     result: TorBoxStrmSyncResult,
+    resolver_enabled: bool,
 ) -> list[str]:
     lines = [
         "TorBox STRM sync complete.",
+        f"Playback mode: {'resolver' if resolver_enabled else 'direct TorBox URLs'}",
         f"Synced kinds: {', '.join(kinds)}",
         f"Scanned video files: {result.scanned_files}",
         f"Written STRM files: {result.written_files}",
@@ -167,6 +218,8 @@ def _sync_summary_lines(
     ]
     if max_files is not None:
         lines.append(f"Smoke-test file cap: {max_files}")
+    if result.manifest_path is not None:
+        lines.append(f"Resolver manifest: {result.manifest_path}")
     if not result.written_paths:
         lines.append("No .strm files were written from the selected TorBox content.")
         return lines
