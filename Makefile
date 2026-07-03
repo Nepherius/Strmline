@@ -1,5 +1,7 @@
 .PHONY: check format lint test file-lines api-format api-lint api-typecheck api-test web-format web-lint web-check web-test
 
+API_PYTHON ?= .venv/bin/python
+
 check: file-lines api-lint api-typecheck api-test web-lint web-check web-test
 
 format: api-format web-format
@@ -12,18 +14,18 @@ file-lines:
 	python3 scripts/check_file_lengths.py
 
 api-format:
-	cd api && python -m ruff format .
-	cd api && python -m ruff check --fix .
+	cd api && $(API_PYTHON) -m ruff format .
+	cd api && $(API_PYTHON) -m ruff check --fix .
 
 api-lint:
-	cd api && python -m ruff check .
-	cd api && python -m ruff format --check .
+	cd api && $(API_PYTHON) -m ruff check .
+	cd api && $(API_PYTHON) -m ruff format --check .
 
 api-typecheck:
-	cd api && python -m pyright
+	cd api && $(API_PYTHON) -m pyright
 
 api-test:
-	cd api && python -m pytest
+	cd api && $(API_PYTHON) -m pytest
 
 web-format:
 	cd web && npm run format

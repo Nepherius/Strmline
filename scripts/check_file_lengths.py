@@ -6,6 +6,13 @@ from pathlib import Path
 DEFAULT_MAX_LINES = 500
 DOC_DIRS = {"docs"}
 DOC_SUFFIXES = {".md", ".mdx", ".rst", ".txt"}
+SKIP_FILES = {
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "poetry.lock",
+    "uv.lock",
+    "yarn.lock",
+}
 SKIP_DIRS = {
     ".git",
     ".mypy_cache",
@@ -24,6 +31,8 @@ SKIP_DIRS = {
 
 def should_skip(path: Path, root: Path) -> bool:
     relative = path.relative_to(root)
+    if path.name in SKIP_FILES:
+        return True
     if any(part in SKIP_DIRS for part in relative.parts):
         return True
     if relative.parts and relative.parts[0] in DOC_DIRS:

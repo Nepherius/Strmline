@@ -1,5 +1,4 @@
 {
-  "$schema": "https://raw.githubusercontent.com/microsoft/pyright/main/packages/vscode-pyright/schemas/pyrightconfig.schema.json",
   "include": ["app", "tests"],
   "exclude": [
     "**/__pycache__",
@@ -8,6 +7,8 @@
   ],
   "pythonVersion": "3.12",
   "typeCheckingMode": "strict",
+  "venvPath": ".",
+  "venv": ".venv",
   "reportCallInDefaultInitializer": "error",
   "reportImplicitOverride": "error",
   "reportImplicitStringConcatenation": "error",

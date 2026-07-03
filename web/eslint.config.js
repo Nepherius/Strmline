@@ -15,7 +15,9 @@ export default ts.config(
       "build/**",
       "coverage/**",
       "dist/**",
+      "eslint.config.js",
       "node_modules/**",
+      "svelte.config.js",
     ],
   },
   js.configs.recommended,
@@ -30,7 +32,9 @@ export default ts.config(
         ...globals.node,
       },
       parserOptions: {
-        projectService: true,
+        projectService: {
+          allowDefaultProject: ["*.js"],
+        },
         tsconfigRootDir,
       },
     },
