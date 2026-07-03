@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+.coverage
+coverage.xml
+htmlcov/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Node / SvelteKit
+node_modules/
+web/.svelte-kit/
+web/build/
+web/dist/
+
+# Databases and generated state
+*.db
+*.sqlite
+*.sqlite3
+/postgres-data/
+/data/
+/library/
+
+# Logs
+*.log
+logs/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Docker/build artifacts
+build/
+dist/
+.docker/
+
+# Secrets
+*.key
+*.pem
+*.crt
