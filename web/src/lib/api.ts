@@ -1,9 +1,5 @@
-export function normalizeApiBase(apiBase: string): string {
-  return apiBase.trim().replace(/\/$/, "");
-}
-
-export async function fetchJson<T>(apiBase: string, path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${normalizeApiBase(apiBase)}${path}`, init);
+export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, init);
   if (!response.ok) {
     throw new Error(await errorMessage(response));
   }

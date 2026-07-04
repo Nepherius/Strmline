@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
 
   import { loadLibrarySummary } from "$lib/libraryApi";
-  import { runSyncNow, type SyncRunResult } from "$lib/syncApi";
+  import { loadSyncStatus, runSyncNow, type SyncRunResult, type SyncStatus } from "$lib/syncApi";
   import {
     duplicateFileCount,
     filterFiles,
@@ -17,7 +17,6 @@
 
   const categories: (LibraryCategory | "all")[] = ["all", "movies", "shows", "anime"];
 
-  let apiBase = "http://localhost:8000";
   let category: LibraryCategory | "all" = "all";
   let query = "";
   let sortKey: SortKey = "title";
@@ -27,6 +26,7 @@
   let syncing = false;
   let error = "";
   let syncResult: SyncRunResult | null = null;
+  let syncStatus: SyncStatus | null = null;
 
   $: visibleFiles = summary
     ? sortFiles(filterFiles(summary.files, query, category), sortKey, sortDirection)
@@ -34,22 +34,22 @@
   $: duplicateCount = summary ? duplicateFileCount(summary) : 0;
 
   onMount(() => {
-    const savedApiBase = window.localStorage.getItem("strmline-api-base");
-    if (savedApiBase) {
-      apiBase = savedApiBase;
-    }
-    void loadSummary();
+    void loadDashboard();
   });
 
-  async function loadSummary() {
+  async function loadDashboard() {
     loading = true;
     error = "";
     try {
-      summary = await loadLibrarySummary(apiBase);
-      window.localStorage.setItem("strmline-api-base", apiBase);
+      const [nextSummary, nextSyncStatus] = await Promise.all([
+        loadLibrarySummary(),
+        loadSyncStatus(),
+      ]);
+      summary = nextSummary;
+      syncStatus = nextSyncStatus;
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
-      error = `Library summary unavailable. ${message}`;
+      error = `Dashboard unavailable. ${message}`;
     } finally {
       loading = false;
     }
@@ -60,8 +60,8 @@
     error = "";
     syncResult = null;
     try {
-      syncResult = await runSyncNow(apiBase);
-      await loadSummary();
+      syncResult = await runSyncNow();
+      await loadDashboard();
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
       error = `Sync failed. ${message}`;
@@ -90,8 +90,9 @@
   {syncing}
   {summary}
   {syncResult}
+  {syncStatus}
   {visibleFiles}
-  onRefresh={loadSummary}
+  onRefresh={loadDashboard}
   onRunSync={runManualSync}
   onSort={sortBy}
 />

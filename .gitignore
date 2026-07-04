@@ -49,3 +49,6 @@ dist/
 *.key
 *.pem
 *.crt
+
+# Docs
+docs/

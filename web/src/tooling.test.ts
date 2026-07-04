@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { fetchJson, normalizeApiBase } from "./lib/api";
+import { fetchJson } from "./lib/api";
 import {
   duplicateFileCount,
   filterFiles,
@@ -14,6 +14,7 @@ import {
   settingsToFormValues,
 } from "./lib/settings";
 import { buildTmdbConnectionTestPayload, buildTorboxConnectionTestPayload } from "./lib/setupApi";
+import { syncStatusLabel, syncStatusVariant } from "./lib/syncPresentation";
 
 describe("frontend tooling", () => {
   it("runs the Vitest suite", () => {
@@ -62,8 +63,24 @@ describe("library summary helpers", () => {
 });
 
 describe("api helpers", () => {
-  it("normalizes API base URLs", () => {
-    expect(normalizeApiBase(" http://127.0.0.1:8001/ ")).toBe("http://127.0.0.1:8001");
+  it("uses same-origin API paths", async () => {
+    const originalFetch = globalThis.fetch;
+    let requestedPath = "";
+    globalThis.fetch = (input: RequestInfo | URL) => {
+      requestedPath = requestPath(input);
+      return Promise.resolve(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    };
+    try {
+      await fetchJson("/api/health");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    expect(requestedPath).toBe("/api/health");
   });
 
   it("surfaces API error detail messages", async () => {
@@ -76,9 +93,7 @@ describe("api helpers", () => {
         }),
       );
     try {
-      await expect(fetchJson("http://127.0.0.1:8001", "/api/sync/run")).rejects.toThrow(
-        "Resolver token is required.",
-      );
+      await expect(fetchJson("/api/sync/run")).rejects.toThrow("Resolver token is required.");
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -98,6 +113,12 @@ describe("api helpers", () => {
     expect(buildTmdbConnectionTestPayload(" ")).toEqual({});
   });
 });
+
+function requestPath(input: RequestInfo | URL): string {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
 
 describe("settings helpers", () => {
   it("builds update payloads without empty secret fields", () => {
@@ -167,5 +188,16 @@ describe("settings helpers", () => {
     expect(settingSourceLabel("database")).toBe("Saved");
     expect(settingSourceLabel("environment")).toBe("Env");
     expect(settingSourceLabel(null)).toBe("Missing");
+  });
+});
+
+describe("sync presentation helpers", () => {
+  it("formats sync status labels and variants", () => {
+    expect(syncStatusLabel("success")).toBe("Success");
+    expect(syncStatusVariant("success")).toBe("ready");
+    expect(syncStatusLabel("failed")).toBe("Failed");
+    expect(syncStatusVariant("failed")).toBe("warn");
+    expect(syncStatusLabel("")).toBe("Unknown");
+    expect(syncStatusVariant("running")).toBe("default");
   });
 });

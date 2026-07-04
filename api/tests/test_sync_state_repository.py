@@ -4,7 +4,7 @@ from typing import cast
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import GeneratedFile, LibraryEntry, MediaItem, SyncRun
+from app.db.models import GeneratedFile, LibraryEntry, MediaItem, SyncError, SyncRun, utc_now
 from app.db.repositories.sync_state import SyncStateRepository
 from app.sync.torbox_strm import SyncedStrmFile, TorBoxStrmSyncResult
 
@@ -38,7 +38,7 @@ class FakeSession:
 
     async def flush(self) -> None:
         for instance in self.added:
-            if isinstance(instance, (GeneratedFile, LibraryEntry, MediaItem, SyncRun)):
+            if isinstance(instance, (GeneratedFile, LibraryEntry, MediaItem, SyncError, SyncRun)):
                 instance.id = instance.id or self._next_id
                 self._next_id += 1
 
@@ -91,6 +91,62 @@ async def test_sync_state_repository_records_generated_library_state(tmp_path: P
     generated_file = next(item for item in session.added if isinstance(item, GeneratedFile))
     assert generated_file.relative_path == "movies/Movie Name (2024)/Movie Name (2024).strm"
     assert generated_file.content_hash == "abc123"
+    sync_run = next(item for item in session.added if isinstance(item, SyncRun))
+    assert sync_run.status == "success"
+    assert sync_run.finished_at is not None
+    assert sync_run.started_at <= sync_run.finished_at
+
+
+@pytest.mark.asyncio
+async def test_sync_state_repository_records_failed_runs() -> None:
+    session = FakeSession([])
+
+    sync_run_id = await SyncStateRepository(cast(AsyncSession, session)).record_failure(
+        phase="torbox_sync",
+        message="TorBox request failed with status 503.",
+    )
+
+    assert sync_run_id == 1
+    assert session.committed is True
+    sync_run = next(item for item in session.added if isinstance(item, SyncRun))
+    sync_error = next(item for item in session.added if isinstance(item, SyncError))
+    assert sync_run.status == "failed"
+    assert sync_run.finished_at is not None
+    assert sync_run.started_at <= sync_run.finished_at
+    assert sync_error.sync_run_id == sync_run_id
+    assert sync_error.phase == "torbox_sync"
+    assert sync_error.message == "TorBox request failed with status 503."
+
+
+@pytest.mark.asyncio
+async def test_sync_state_repository_reads_latest_status() -> None:
+    started_at = utc_now()
+    sync_run = SyncRun(
+        id=8,
+        status="failed",
+        started_at=started_at,
+        finished_at=started_at,
+        scanned_count=3,
+        written_count=2,
+        skipped_count=1,
+    )
+    sync_error = SyncError(
+        id=9,
+        sync_run_id=8,
+        phase="torbox_sync",
+        message="TorBox request failed with status 503.",
+        created_at=started_at,
+    )
+    session = FakeSession([FakeResult(scalar=sync_run), FakeResult(scalars=[sync_error])])
+
+    status = await SyncStateRepository(cast(AsyncSession, session)).status()
+
+    assert status.last_run is not None
+    assert status.last_run.id == 8
+    assert status.last_run.status == "failed"
+    assert status.last_run.skipped_count == 1
+    assert len(status.recent_errors) == 1
+    assert status.recent_errors[0].message == "TorBox request failed with status 503."
 
 
 @pytest.mark.asyncio

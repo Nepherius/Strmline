@@ -83,12 +83,14 @@ async def test_play_rejects_invalid_resolver_token(
 async def test_play_redirects_from_database_resolver(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_token_is_valid(settings: object, token: str) -> bool:
+    async def fake_token_is_valid(settings: object, token: str, session: object) -> bool:
         _ = settings
+        _ = session
         return token == "saved-token"  # noqa: S105
 
-    async def fake_database_target(settings: object, entry_id: str) -> str:
+    async def fake_database_target(settings: object, entry_id: str, session: object) -> str:
         _ = settings
+        _ = session
         assert entry_id == "entry-id"
         return "https://example.test/final"
 

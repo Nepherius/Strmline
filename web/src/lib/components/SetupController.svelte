@@ -13,7 +13,6 @@
 
   import SetupView from "./SetupView.svelte";
 
-  let apiBase = "http://localhost:8000";
   let settings: AppSettings | null = null;
   let setupStatus: SetupStatus | null = null;
   let values: SettingsFormValues = settingsToFormValues(null);
@@ -27,10 +26,6 @@
   let torboxTestResult: ConnectionTestResult | null = null;
 
   onMount(() => {
-    const savedApiBase = window.localStorage.getItem("strmline-api-base");
-    if (savedApiBase) {
-      apiBase = savedApiBase;
-    }
     void loadSetup();
   });
 
@@ -41,14 +36,10 @@
     tmdbTestResult = null;
     torboxTestResult = null;
     try {
-      const [nextSettings, nextStatus] = await Promise.all([
-        loadSettings(apiBase),
-        loadSetupStatus(apiBase),
-      ]);
+      const [nextSettings, nextStatus] = await Promise.all([loadSettings(), loadSetupStatus()]);
       settings = nextSettings;
       setupStatus = nextStatus;
       values = settingsToFormValues(settings);
-      window.localStorage.setItem("strmline-api-base", apiBase);
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
       error = `Setup status unavailable. ${message}`;
@@ -64,7 +55,7 @@
     tmdbTestResult = null;
     torboxTestResult = null;
     try {
-      settings = await saveSettings(apiBase, values);
+      settings = await saveSettings(values);
       values = settingsToFormValues(settings);
       saved = true;
       await loadSetup();
@@ -83,7 +74,7 @@
     tmdbTestResult = null;
     torboxTestResult = null;
     try {
-      settings = await clearSavedSettings(apiBase);
+      settings = await clearSavedSettings();
       values = settingsToFormValues(settings);
       await loadSetup();
     } catch (caughtError) {
@@ -99,8 +90,7 @@
     error = "";
     torboxTestResult = null;
     try {
-      torboxTestResult = await testTorboxConnection(apiBase, values.torboxApiKey);
-      window.localStorage.setItem("strmline-api-base", apiBase);
+      torboxTestResult = await testTorboxConnection(values.torboxApiKey);
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
       torboxTestResult = {
@@ -117,8 +107,7 @@
     error = "";
     tmdbTestResult = null;
     try {
-      tmdbTestResult = await testTmdbConnection(apiBase, values.tmdbApiKey);
-      window.localStorage.setItem("strmline-api-base", apiBase);
+      tmdbTestResult = await testTmdbConnection(values.tmdbApiKey);
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
       tmdbTestResult = {

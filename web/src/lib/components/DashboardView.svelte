@@ -14,7 +14,8 @@
     type LibrarySummary,
     type SortKey,
   } from "$lib/librarySummary";
-  import type { SyncRunResult } from "$lib/syncApi";
+  import type { SyncRunResult, SyncStatus } from "$lib/syncApi";
+  import { syncStatusLabel, syncStatusVariant } from "$lib/syncPresentation";
 
   export let category: LibraryCategory | "all";
   export let query: string;
@@ -25,10 +26,22 @@
   export let syncing: boolean;
   export let summary: LibrarySummary | null;
   export let syncResult: SyncRunResult | null;
+  export let syncStatus: SyncStatus | null;
   export let visibleFiles: LibraryFile[];
   export let onRefresh: () => Promise<void>;
   export let onRunSync: () => Promise<void>;
   export let onSort: (sortKey: SortKey) => void;
+
+  $: lastRun = syncStatus?.last_run ?? null;
+  $: recentErrors = syncStatus?.recent_errors ?? [];
+
+  function formatDateTime(value: string | null): string {
+    if (!value) return "Not finished";
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date(value));
+  }
 </script>
 
 <svelte:head>
@@ -61,6 +74,48 @@
       Sync #{syncResult.sync_run_id}: {syncResult.written_files} files written,
       {syncResult.skipped_files} skipped.
     </Notice>
+  {/if}
+
+  {#if lastRun}
+    <MetricGrid ariaLabel="Sync status" columns={4}>
+      <MetricCard
+        label="Last sync"
+        value={syncStatusLabel(lastRun.status)}
+        variant={syncStatusVariant(lastRun.status)}
+      />
+      <MetricCard label="Scanned" value={lastRun.scanned_count} />
+      <MetricCard label="Written" value={lastRun.written_count} />
+      <MetricCard
+        label="Skipped"
+        value={lastRun.skipped_count}
+        variant={lastRun.skipped_count > 0 ? "warn" : "default"}
+      />
+    </MetricGrid>
+
+    <section class="sync-detail" aria-label="Last sync details">
+      <span>Run #{lastRun.id}</span>
+      <code>Started {formatDateTime(lastRun.started_at)}</code>
+      <code>Finished {formatDateTime(lastRun.finished_at)}</code>
+    </section>
+  {/if}
+
+  {#if recentErrors.length > 0}
+    <section class="sync-errors" aria-label="Recent sync errors">
+      <h2>Recent sync errors</h2>
+      <div class="error-list">
+        {#each recentErrors as syncError (syncError.id)}
+          <article>
+            <div>
+              <strong>{syncError.phase}</strong>
+              <span
+                >Run #{syncError.sync_run_id} &middot; {formatDateTime(syncError.created_at)}</span
+              >
+            </div>
+            <p>{syncError.message}</p>
+          </article>
+        {/each}
+      </div>
+    </section>
   {/if}
 
   {#if summary}
@@ -196,6 +251,61 @@
   code {
     font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
     font-size: 12px;
+  }
+
+  .sync-detail {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    align-items: center;
+    margin-top: 10px;
+    border: 1px solid #d7ded9;
+    border-radius: 6px;
+    padding: 10px 12px;
+    background: #ffffff;
+  }
+
+  .sync-detail span {
+    color: #24352d;
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  .sync-errors {
+    display: grid;
+    gap: 10px;
+    margin-top: 18px;
+  }
+
+  .error-list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .error-list article {
+    display: grid;
+    gap: 8px;
+    border: 1px solid #d9b66c;
+    border-radius: 6px;
+    padding: 10px 12px;
+    background: #fff9ea;
+  }
+
+  .error-list div {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .error-list strong {
+    color: #3d3321;
+  }
+
+  .error-list span,
+  .error-list p {
+    margin: 0;
+    color: #765d1d;
   }
 
   .workbench {

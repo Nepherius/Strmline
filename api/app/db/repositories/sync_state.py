@@ -1,13 +1,42 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import GeneratedFile, LibraryEntry, MediaItem, SyncRun
+from app.db.models import GeneratedFile, LibraryEntry, MediaItem, SyncError, SyncRun, utc_now
 from app.library.paths import ensure_within_root
 from app.sync.torbox_strm import SyncedStrmFile, TorBoxStrmSyncResult
+
+
+@dataclass(frozen=True, slots=True)
+class SyncRunRecord:
+    id: int
+    status: str
+    started_at: datetime
+    finished_at: datetime | None
+    scanned_count: int
+    written_count: int
+    skipped_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class SyncErrorRecord:
+    id: int
+    sync_run_id: int
+    phase: str
+    item_ref: str | None
+    message: str
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class SyncStatusSnapshot:
+    last_run: SyncRunRecord | None
+    recent_errors: tuple[SyncErrorRecord, ...]
 
 
 class SyncStateRepository:
@@ -15,8 +44,11 @@ class SyncStateRepository:
         self._session = session
 
     async def record_success(self, result: TorBoxStrmSyncResult, library_root: Path) -> int:
+        started_at = utc_now()
         sync_run = SyncRun(
             status="success",
+            started_at=started_at,
+            finished_at=utc_now(),
             scanned_count=result.scanned_files,
             written_count=result.written_files,
             skipped_count=result.skipped_files,
@@ -34,6 +66,53 @@ class SyncStateRepository:
 
         await self._session.commit()
         return sync_run.id
+
+    async def record_failure(
+        self,
+        *,
+        phase: str,
+        message: str,
+        item_ref: str | None = None,
+        scanned_count: int = 0,
+        written_count: int = 0,
+        skipped_count: int = 0,
+    ) -> int:
+        started_at = utc_now()
+        sync_run = SyncRun(
+            status="failed",
+            started_at=started_at,
+            finished_at=utc_now(),
+            scanned_count=scanned_count,
+            written_count=written_count,
+            skipped_count=skipped_count,
+        )
+        self._session.add(sync_run)
+        await self._session.flush()
+        self._session.add(
+            SyncError(
+                sync_run_id=sync_run.id,
+                phase=phase,
+                item_ref=item_ref,
+                message=message,
+            )
+        )
+        await self._session.commit()
+        return sync_run.id
+
+    async def status(self, *, error_limit: int = 5) -> SyncStatusSnapshot:
+        last_run_result = await self._session.execute(
+            select(SyncRun).order_by(SyncRun.started_at.desc(), SyncRun.id.desc()).limit(1)
+        )
+        errors_result = await self._session.execute(
+            select(SyncError)
+            .order_by(SyncError.created_at.desc(), SyncError.id.desc())
+            .limit(error_limit)
+        )
+        last_run = last_run_result.scalar_one_or_none()
+        return SyncStatusSnapshot(
+            last_run=_sync_run_record(last_run) if last_run is not None else None,
+            recent_errors=tuple(_sync_error_record(error) for error in errors_result.scalars()),
+        )
 
     async def _media_item(self, synced_file: SyncedStrmFile) -> MediaItem:
         result = await self._session.execute(
@@ -136,3 +215,26 @@ class SyncStateRepository:
 def _relative_generated_path(library_root: Path, path: Path) -> str:
     safe_path = ensure_within_root(library_root, path)
     return safe_path.relative_to(library_root.resolve(strict=False)).as_posix()
+
+
+def _sync_run_record(sync_run: SyncRun) -> SyncRunRecord:
+    return SyncRunRecord(
+        id=sync_run.id,
+        status=sync_run.status,
+        started_at=sync_run.started_at,
+        finished_at=sync_run.finished_at,
+        scanned_count=sync_run.scanned_count,
+        written_count=sync_run.written_count,
+        skipped_count=sync_run.skipped_count,
+    )
+
+
+def _sync_error_record(error: SyncError) -> SyncErrorRecord:
+    return SyncErrorRecord(
+        id=error.id,
+        sync_run_id=error.sync_run_id,
+        phase=error.phase,
+        item_ref=error.item_ref,
+        message=error.message,
+        created_at=error.created_at,
+    )

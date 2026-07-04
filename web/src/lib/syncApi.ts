@@ -9,8 +9,36 @@ export interface SyncRunResult {
   skipped_files: number;
 }
 
-export function runSyncNow(apiBase: string): Promise<SyncRunResult> {
-  return fetchJson<SyncRunResult>(apiBase, "/api/sync/run", {
+export interface SyncRunStatus {
+  id: number;
+  status: string;
+  started_at: string;
+  finished_at: string | null;
+  scanned_count: number;
+  written_count: number;
+  skipped_count: number;
+}
+
+export interface SyncError {
+  id: number;
+  sync_run_id: number;
+  phase: string;
+  item_ref: string | null;
+  message: string;
+  created_at: string;
+}
+
+export interface SyncStatus {
+  last_run: SyncRunStatus | null;
+  recent_errors: SyncError[];
+}
+
+export function runSyncNow(): Promise<SyncRunResult> {
+  return fetchJson<SyncRunResult>("/api/sync/run", {
     method: "POST",
   });
+}
+
+export function loadSyncStatus(): Promise<SyncStatus> {
+  return fetchJson<SyncStatus>("/api/sync/status");
 }

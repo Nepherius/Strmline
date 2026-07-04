@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     torbox_base_url: str = Field(default="https://api.torbox.app/v1/api")
     tmdb_base_url: str = Field(default="https://api.themoviedb.org/3")
     outbound_timeout_seconds: float = Field(default=20.0, gt=0)
+    cors_origins: tuple[str, ...] = (
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    )
+    cors_methods: tuple[str, ...] = ("GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS")
+    cors_headers: tuple[str, ...] = ("content-type", "authorization")
 
     def missing_setup_fields(self) -> list[str]:
         return [

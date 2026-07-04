@@ -165,9 +165,10 @@ class TorBoxStrmSync:
         manifest_path = None
         if manifest_entries:
             manifest_path = write_manifest_entries(self._library_root, manifest_entries)
+        unique_written_paths = set(written_paths)
         return TorBoxStrmSyncResult(
             scanned_files=scanned_files,
-            written_files=len(written_paths),
+            written_files=len(unique_written_paths),
             skipped_files=skipped_files,
             written_paths=tuple(written_paths),
             synced_files=tuple(synced_files),

@@ -1,13 +1,14 @@
 from pathlib import Path
-from typing import cast
+from typing import cast, override
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.db.repositories.settings import SettingsSnapshot
+from app.providers.torbox.client import TorBoxAPIError
 from app.sync import service as sync_service
-from app.sync.service import run_torbox_account_sync
+from app.sync.service import SyncExecutionError, run_torbox_account_sync
 from app.sync.torbox_strm import ResolverUrlConfig, TorBoxStrmSyncResult
 
 
@@ -19,6 +20,10 @@ class FakeSyncStateRepository:
         _ = result
         _ = library_root
         return 12
+
+    async def record_failure(self, **kwargs: object) -> int:
+        _ = kwargs
+        return 13
 
 
 class FakeClient:
@@ -54,6 +59,49 @@ async def test_sync_service_uses_saved_resolver_token(
     assert isinstance(resolver, ResolverUrlConfig)
     assert resolver.token == "saved-resolver-token"  # noqa: S105
     assert summary.sync_run_id == 12
+
+
+@pytest.mark.asyncio
+async def test_sync_service_records_provider_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    failures: list[dict[str, object]] = []
+
+    def fake_client_factory(**kwargs: object) -> FakeClient:
+        _ = kwargs
+        return FakeClient()
+
+    class CapturingSyncStateRepository(FakeSyncStateRepository):
+        @override
+        async def record_failure(self, **kwargs: object) -> int:
+            failures.append(kwargs)
+            return 13
+
+    class FailingTorBoxStrmSync:
+        def __init__(self, **kwargs: object) -> None:
+            _ = kwargs
+
+        async def run(self) -> TorBoxStrmSyncResult:
+            raise TorBoxAPIError("TorBox request failed with status 503.")
+
+    monkeypatch.setattr(sync_service, "AppSettingsRepository", fake_settings_repository(tmp_path))
+    monkeypatch.setattr(sync_service, "SyncStateRepository", CapturingSyncStateRepository)
+    monkeypatch.setattr(sync_service, "TorBoxStrmSync", FailingTorBoxStrmSync)
+
+    with pytest.raises(SyncExecutionError):
+        _ = await run_torbox_account_sync(
+            cast(AsyncSession, object()),
+            Settings(),
+            client_factory=cast(sync_service.TorBoxClientFactory, fake_client_factory),
+        )
+
+    assert failures == [
+        {
+            "phase": "torbox_sync",
+            "message": "TorBox request failed with status 503.",
+        }
+    ]
 
 
 def fake_settings_repository(library_root: Path) -> type:

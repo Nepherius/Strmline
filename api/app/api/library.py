@@ -3,16 +3,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated
 
+from anyio.to_thread import run_sync
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_settings
+from app.db.dependencies import get_session_factory
 from app.db.repositories.settings import AppSettingsRepository
-from app.db.session import build_session_factory
 from app.library.summary import (
     LibraryDuplicateGroup,
     LibraryFile,
+    LibrarySummary,
     summarize_library,
 )
 
@@ -47,7 +49,7 @@ async def get_library_root() -> Path | None:
     if settings.database_url is None:
         return None
     try:
-        session_factory = build_session_factory(settings.database_url)
+        session_factory = get_session_factory()
         async with session_factory() as session:
             snapshot = await AppSettingsRepository(session, settings).snapshot_with_env()
     except (OSError, SQLAlchemyError):
@@ -63,7 +65,7 @@ async def library_summary(
 ) -> LibrarySummaryResponse:
     if library_root is None:
         return _empty_response()
-    summary = summarize_library(library_root)
+    summary = await _summarize_library(library_root)
     return LibrarySummaryResponse(
         configured=True,
         root=str(summary.root),
@@ -100,3 +102,7 @@ def _file_response(file: LibraryFile) -> LibraryFileResponse:
         title=file.title,
         relative_path=file.relative_path,
     )
+
+
+async def _summarize_library(library_root: Path) -> LibrarySummary:
+    return await run_sync(summarize_library, library_root)

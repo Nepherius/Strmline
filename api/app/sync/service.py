@@ -65,15 +65,19 @@ async def _run_torbox_account_sync(
     *,
     client_factory: TorBoxClientFactory,
 ) -> SyncRunSummary:
+    sync_state = SyncStateRepository(session)
     settings_repository = AppSettingsRepository(session, settings)
     snapshot = await settings_repository.snapshot_with_env()
     api_key = await settings_repository.provider_api_key("torbox")
-    if api_key is None:
-        raise SyncConfigurationError("TorBox API key is not configured.")
-    resolver_token = await settings_repository.resolver_token_value()
+    try:
+        api_key = _require_torbox_api_key(api_key)
+        resolver_token = await settings_repository.resolver_token_value()
+        library_root = _library_root(snapshot)
+        resolver = _resolver_config(snapshot, resolver_token)
+    except SyncConfigurationError as error:
+        _ = await sync_state.record_failure(phase="configuration", message=str(error))
+        raise
 
-    library_root = _library_root(snapshot)
-    resolver = _resolver_config(snapshot, resolver_token)
     try:
         async with client_factory(
             api_key=api_key,
@@ -88,9 +92,12 @@ async def _run_torbox_account_sync(
                 resolver=resolver,
             ).run()
     except (OSError, TorBoxAPIError, ValueError) as error:
+        _ = await sync_state.record_failure(
+            phase="torbox_sync", message=_safe_failure_message(error)
+        )
         raise SyncExecutionError("TorBox sync failed.") from error
 
-    sync_run_id = await SyncStateRepository(session).record_success(result, library_root)
+    sync_run_id = await sync_state.record_success(result, library_root)
     return SyncRunSummary(
         sync_run_id=sync_run_id,
         playback_mode=snapshot.playback_mode,
@@ -107,6 +114,12 @@ def _library_root(snapshot: SettingsSnapshot) -> Path:
     return Path(snapshot.library_root)
 
 
+def _require_torbox_api_key(api_key: str | None) -> str:
+    if api_key is None:
+        raise SyncConfigurationError("TorBox API key is not configured.")
+    return api_key
+
+
 def _resolver_config(
     snapshot: SettingsSnapshot,
     resolver_token: str | None,
@@ -121,3 +134,13 @@ def _resolver_config(
         base_url=snapshot.base_url,
         token=resolver_token,
     )
+
+
+def _safe_failure_message(error: Exception) -> str:
+    if isinstance(error, TorBoxAPIError):
+        return str(error) or "TorBox API request failed."
+    if isinstance(error, OSError):
+        return "Filesystem error while writing generated STRM files."
+    if isinstance(error, ValueError):
+        return str(error) or "Sync input validation failed."
+    return "TorBox sync failed."

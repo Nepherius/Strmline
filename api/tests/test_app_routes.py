@@ -5,6 +5,8 @@ import pytest
 
 from app.api import library as library_api, setup as setup_api
 from app.core.config import get_settings
+from app.db.dependencies import get_optional_db_session
+from app.library.summary import LibrarySummary
 from app.main import create_app
 
 
@@ -20,6 +22,29 @@ async def test_health_endpoint_returns_service_status() -> None:
         "status": "ok",
         "version": "0.1.0",
     }
+
+
+@pytest.mark.asyncio
+async def test_cors_preflight_uses_explicit_allowed_methods() -> None:
+    transport = httpx.ASGITransport(app=create_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        allowed_response = await client.options(
+            "/api/settings",
+            headers={
+                "origin": "http://127.0.0.1:5173",
+                "access-control-request-method": "POST",
+            },
+        )
+        rejected_response = await client.options(
+            "/api/settings",
+            headers={
+                "origin": "http://127.0.0.1:5173",
+                "access-control-request-method": "PATCH",
+            },
+        )
+
+    assert allowed_response.status_code == httpx.codes.OK
+    assert rejected_response.status_code == httpx.codes.BAD_REQUEST
 
 
 @pytest.mark.asyncio
@@ -55,12 +80,12 @@ async def test_setup_status_can_use_database_saved_settings(
     monkeypatch.setenv("STRMLINE_DATABASE_URL", "postgresql://example")
     get_settings.cache_clear()
 
-    monkeypatch.setattr(setup_api, "build_session_factory", fake_session_factory)
     monkeypatch.setattr(
         setup_api, "AppSettingsRepository", fake_complete_settings_repository(tmp_path)
     )
 
     app = create_app()
+    app.dependency_overrides[get_optional_db_session] = fake_optional_session
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         response = await client.get("/api/setup/status")
@@ -79,10 +104,11 @@ async def test_library_summary_reports_configured_library(
     library_file.parent.mkdir(parents=True)
     _ = library_file.write_text("https://example.test/video\n", encoding="utf-8")
     monkeypatch.setenv("STRMLINE_BASE_URL", "http://strmline.test")
-    monkeypatch.setenv("STRMLINE_DATABASE_URL", "postgresql://example")
+    monkeypatch.delenv("STRMLINE_DATABASE_URL", raising=False)
     monkeypatch.setenv("STRMLINE_LIBRARY_ROOT", str(tmp_path))
     monkeypatch.setenv("STRMLINE_TMDB_API_KEY", "tmdb")
     monkeypatch.setenv("STRMLINE_TORBOX_API_KEY", "torbox")
+    monkeypatch.setattr(library_api, "_summarize_library", fake_library_summary)
     get_settings.cache_clear()
 
     app = create_app()
@@ -108,7 +134,7 @@ async def test_library_root_can_come_from_database_settings(
     monkeypatch.setenv("STRMLINE_DATABASE_URL", "postgresql://example")
     get_settings.cache_clear()
 
-    monkeypatch.setattr(library_api, "build_session_factory", fake_session_factory)
+    monkeypatch.setattr(library_api, "get_session_factory", fake_session_factory)
     monkeypatch.setattr(library_api, "AppSettingsRepository", fake_settings_repository(tmp_path))
 
     try:
@@ -117,6 +143,10 @@ async def test_library_root_can_come_from_database_settings(
         get_settings.cache_clear()
 
     assert library_root == tmp_path
+
+
+async def fake_optional_session() -> object:
+    yield object()
 
 
 class FakeSessionContext:
@@ -134,9 +164,7 @@ class FakeSessionContext:
         _ = traceback
 
 
-def fake_session_factory(database_url: str) -> object:
-    _ = database_url
-
+def fake_session_factory() -> object:
     class FakeSessionFactory:
         def __call__(self) -> FakeSessionContext:
             return FakeSessionContext()
@@ -154,6 +182,17 @@ def fake_settings_repository(library_root: Path) -> object:
             return type("Snapshot", (), {"library_root": str(library_root)})()
 
     return FakeSettingsRepository
+
+
+async def fake_library_summary(library_root: Path) -> LibrarySummary:
+    return LibrarySummary(
+        root=library_root,
+        exists=True,
+        total_files=1,
+        category_counts={"movies": 1, "shows": 0, "anime": 0},
+        files=(),
+        duplicate_groups=(),
+    )
 
 
 def fake_complete_settings_repository(library_root: Path) -> object:

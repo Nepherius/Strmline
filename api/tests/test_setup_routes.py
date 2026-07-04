@@ -14,8 +14,9 @@ async def test_torbox_connection_test_reports_success(
 ) -> None:
     captured: dict[str, object] = {}
 
-    async def fake_api_key(provider: object) -> str:
+    async def fake_api_key(provider: object, session: object) -> str:
         _ = provider
+        _ = session
         return "torbox-secret"
 
     async def fake_check_torbox_connection(**kwargs: object) -> None:
@@ -39,8 +40,9 @@ async def test_torbox_connection_test_reports_success(
 async def test_torbox_connection_test_reports_missing_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_api_key(provider: object) -> str | None:
+    async def fake_api_key(provider: object, session: object) -> str | None:
         _ = provider
+        _ = session
         return None
 
     monkeypatch.setattr(setup_api, "_effective_provider_api_key", fake_api_key)
@@ -58,8 +60,9 @@ async def test_torbox_connection_test_reports_missing_key(
 async def test_torbox_connection_test_uses_safe_failure_message(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_api_key(provider: object) -> str:
+    async def fake_api_key(provider: object, session: object) -> str:
         _ = provider
+        _ = session
         return "torbox-secret"
 
     async def fake_check_torbox_connection(**kwargs: object) -> None:
@@ -85,8 +88,9 @@ async def test_tmdb_connection_test_reports_success(
 ) -> None:
     captured: dict[str, object] = {}
 
-    async def fake_api_key(provider: object) -> str:
+    async def fake_api_key(provider: object, session: object) -> str:
         _ = provider
+        _ = session
         return "tmdb-secret"
 
     async def fake_check_tmdb_connection(**kwargs: object) -> None:
@@ -111,8 +115,9 @@ async def test_tmdb_connection_test_reports_success(
 async def test_tmdb_connection_test_reports_missing_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_api_key(provider: object) -> str | None:
+    async def fake_api_key(provider: object, session: object) -> str | None:
         _ = provider
+        _ = session
         return None
 
     monkeypatch.setattr(setup_api, "_effective_provider_api_key", fake_api_key)
@@ -130,8 +135,9 @@ async def test_tmdb_connection_test_reports_missing_key(
 async def test_tmdb_connection_test_uses_safe_failure_message(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_api_key(provider: object) -> str:
+    async def fake_api_key(provider: object, session: object) -> str:
         _ = provider
+        _ = session
         return "tmdb-secret"
 
     async def fake_check_tmdb_connection(**kwargs: object) -> None:

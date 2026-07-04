@@ -6,8 +6,8 @@ export interface ConnectionTestResult {
   message: string;
 }
 
-export function loadSetupStatus(apiBase: string): Promise<SetupStatus> {
-  return fetchJson<SetupStatus>(apiBase, "/api/setup/status");
+export function loadSetupStatus(): Promise<SetupStatus> {
+  return fetchJson<SetupStatus>("/api/setup/status");
 }
 
 export function buildTorboxConnectionTestPayload(apiKey: string): Record<string, string> {
@@ -20,19 +20,16 @@ export function buildTmdbConnectionTestPayload(apiKey: string): Record<string, s
   return trimmedApiKey ? { tmdb_api_key: trimmedApiKey } : {};
 }
 
-export function testTorboxConnection(
-  apiBase: string,
-  apiKey: string,
-): Promise<ConnectionTestResult> {
-  return fetchJson<ConnectionTestResult>(apiBase, "/api/setup/test/torbox", {
+export function testTorboxConnection(apiKey: string): Promise<ConnectionTestResult> {
+  return fetchJson<ConnectionTestResult>("/api/setup/test/torbox", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(buildTorboxConnectionTestPayload(apiKey)),
   });
 }
 
-export function testTmdbConnection(apiBase: string, apiKey: string): Promise<ConnectionTestResult> {
-  return fetchJson<ConnectionTestResult>(apiBase, "/api/setup/test/tmdb", {
+export function testTmdbConnection(apiKey: string): Promise<ConnectionTestResult> {
+  return fetchJson<ConnectionTestResult>("/api/setup/test/tmdb", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(buildTmdbConnectionTestPayload(apiKey)),
