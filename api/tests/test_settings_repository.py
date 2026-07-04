@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -127,6 +128,9 @@ async def test_settings_repository_saves_public_values_and_secrets() -> None:
     assert all("secret" not in credential.encrypted_value for credential in credentials)
     assert resolver_tokens[0].token_hash == sha256_hex("resolver-secret")
     assert snapshot.torbox_configured is True
+    assert snapshot.torbox_source == "database"
+    assert snapshot.tmdb_source == "database"
+    assert snapshot.resolver_source == "database"
 
 
 @pytest.mark.asyncio
@@ -156,3 +160,35 @@ async def test_settings_repository_reads_database_values_when_env_is_missing() -
     assert snapshot.torbox_configured is True
     assert snapshot.tmdb_configured is False
     assert snapshot.resolver_configured is True
+    assert snapshot.base_url_source == "database"
+    assert snapshot.library_root_source == "database"
+    assert snapshot.torbox_source == "database"
+    assert snapshot.tmdb_source is None
+    assert snapshot.resolver_source == "database"
+
+
+@pytest.mark.asyncio
+async def test_settings_repository_reports_environment_sources() -> None:
+    session = FakeSession(
+        [
+            FakeResult(scalars=[]),
+        ]
+    )
+    repository = AppSettingsRepository(
+        cast(AsyncSession, session),
+        Settings(
+            base_url="http://env.test",
+            library_root=Path("/env-library"),
+            torbox_api_key=SecretStr("torbox"),
+            tmdb_api_key=SecretStr("tmdb"),
+            resolver_token=SecretStr("resolver"),
+        ),
+    )
+
+    snapshot = await repository.snapshot_with_env()
+
+    assert snapshot.base_url_source == "environment"
+    assert snapshot.library_root_source == "environment"
+    assert snapshot.torbox_source == "environment"
+    assert snapshot.tmdb_source == "environment"
+    assert snapshot.resolver_source == "environment"

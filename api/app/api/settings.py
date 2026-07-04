@@ -20,6 +20,11 @@ class SettingsResponse(BaseModel):
     torbox_configured: bool
     tmdb_configured: bool
     resolver_configured: bool
+    base_url_source: str | None
+    library_root_source: str | None
+    torbox_source: str | None
+    tmdb_source: str | None
+    resolver_source: str | None
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -63,4 +68,12 @@ async def update_settings(
         )
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+    return SettingsResponse.model_validate(snapshot, from_attributes=True)
+
+
+@router.delete("", response_model=SettingsResponse)
+async def clear_saved_settings(
+    repository: Annotated[AppSettingsRepository, Depends(get_settings_repository)],
+) -> SettingsResponse:
+    snapshot = await repository.clear_saved_setup()
     return SettingsResponse.model_validate(snapshot, from_attributes=True)

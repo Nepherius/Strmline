@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -11,6 +12,8 @@ from app.db.models import AppSetting, ProviderCredential, ResolverToken
 from app.security.secrets import SecretBox
 
 SECRET_HINT_SUFFIX_LENGTH = 4
+
+SettingSource = Literal["database", "environment"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +23,11 @@ class SettingsSnapshot:
     torbox_configured: bool
     tmdb_configured: bool
     resolver_configured: bool
+    base_url_source: SettingSource | None = None
+    library_root_source: SettingSource | None = None
+    torbox_source: SettingSource | None = None
+    tmdb_source: SettingSource | None = None
+    resolver_source: SettingSource | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,25 +46,42 @@ class AppSettingsRepository:
 
     async def snapshot_with_env(self) -> SettingsSnapshot:
         rows = await self._app_settings()
+        database_base_url = _setting_value(rows, "base_url")
+        database_library_root = _setting_value(rows, "library_root")
+        torbox_source = await self._secret_source(
+            env_configured=self._settings.torbox_api_key is not None,
+            provider="torbox",
+            name="api_key",
+        )
+        tmdb_source = await self._secret_source(
+            env_configured=self._settings.tmdb_api_key is not None,
+            provider="tmdb",
+            name="api_key",
+        )
+        resolver_source = await self._resolver_source(
+            env_configured=self._settings.resolver_token is not None,
+        )
         return SettingsSnapshot(
-            base_url=self._settings.base_url or _setting_value(rows, "base_url"),
+            base_url=self._settings.base_url or database_base_url,
             library_root=(
                 str(self._settings.library_root)
                 if self._settings.library_root is not None
-                else _setting_value(rows, "library_root")
+                else database_library_root
             ),
-            torbox_configured=(
-                self._settings.torbox_api_key is not None
-                or await self._provider_secret_exists("torbox", "api_key")
+            torbox_configured=torbox_source is not None,
+            tmdb_configured=tmdb_source is not None,
+            resolver_configured=resolver_source is not None,
+            base_url_source=_plain_setting_source(
+                env_configured=self._settings.base_url is not None,
+                database_configured=database_base_url is not None,
             ),
-            tmdb_configured=(
-                self._settings.tmdb_api_key is not None
-                or await self._provider_secret_exists("tmdb", "api_key")
+            library_root_source=_plain_setting_source(
+                env_configured=self._settings.library_root is not None,
+                database_configured=database_library_root is not None,
             ),
-            resolver_configured=(
-                self._settings.resolver_token is not None
-                or await self._active_resolver_token_exists()
-            ),
+            torbox_source=torbox_source,
+            tmdb_source=tmdb_source,
+            resolver_source=resolver_source,
         )
 
     async def save(self, update: AppSettingsUpdate) -> SettingsSnapshot:
@@ -70,6 +95,20 @@ class AppSettingsRepository:
             await self._save_provider_secret("tmdb", "api_key", update.tmdb_api_key)
         if update.resolver_token is not None:
             await self._save_resolver_token(update.resolver_token)
+        await self._session.commit()
+        return await self.snapshot_with_env()
+
+    async def clear_saved_setup(self) -> SettingsSnapshot:
+        _ = await self._session.execute(
+            delete(AppSetting).where(AppSetting.key.in_(("base_url", "library_root")))
+        )
+        _ = await self._session.execute(
+            delete(ProviderCredential).where(
+                ProviderCredential.provider.in_(("torbox", "tmdb")),
+                ProviderCredential.credential_name == "api_key",
+            )
+        )
+        _ = await self._session.execute(delete(ResolverToken))
         await self._session.commit()
         return await self.snapshot_with_env()
 
@@ -127,6 +166,26 @@ class AppSettingsRepository:
         )
         return result.scalar_one_or_none() is not None
 
+    async def _secret_source(
+        self,
+        *,
+        env_configured: bool,
+        provider: str,
+        name: str,
+    ) -> SettingSource | None:
+        if env_configured:
+            return "environment"
+        if await self._provider_secret_exists(provider, name):
+            return "database"
+        return None
+
+    async def _resolver_source(self, *, env_configured: bool) -> SettingSource | None:
+        if env_configured:
+            return "environment"
+        if await self._active_resolver_token_exists():
+            return "database"
+        return None
+
     def _secret_box(self) -> SecretBox:
         if self._settings.app_secret_key is None:
             msg = "STRMLINE_APP_SECRET_KEY is required to store provider secrets."
@@ -141,6 +200,18 @@ def _setting_value(rows: dict[str, AppSetting], key: str) -> str | None:
     raw_value = setting.value.get("value")
     if isinstance(raw_value, str) and raw_value.strip():
         return raw_value
+    return None
+
+
+def _plain_setting_source(
+    *,
+    env_configured: bool,
+    database_configured: bool,
+) -> SettingSource | None:
+    if env_configured:
+        return "environment"
+    if database_configured:
+        return "database"
     return None
 
 

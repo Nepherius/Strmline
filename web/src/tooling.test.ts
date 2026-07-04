@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
 
+import { normalizeApiBase } from "./lib/api";
 import {
   duplicateFileCount,
   filterFiles,
   sortFiles,
   type LibrarySummary,
 } from "./lib/librarySummary";
+import {
+  buildSettingsPayload,
+  missingLabels,
+  settingSourceLabel,
+  settingsToFormValues,
+} from "./lib/settings";
 
 describe("frontend tooling", () => {
   it("runs the Vitest suite", () => {
@@ -50,5 +57,62 @@ describe("library summary helpers", () => {
     };
 
     expect(duplicateFileCount(summary)).toBe(2);
+  });
+});
+
+describe("api helpers", () => {
+  it("normalizes API base URLs", () => {
+    expect(normalizeApiBase(" http://127.0.0.1:8001/ ")).toBe("http://127.0.0.1:8001");
+  });
+});
+
+describe("settings helpers", () => {
+  it("builds update payloads without empty secret fields", () => {
+    expect(
+      buildSettingsPayload({
+        baseUrl: " http://127.0.0.1:8001 ",
+        libraryRoot: "/tmp/strmline-library",
+        torboxApiKey: "",
+        tmdbApiKey: "tmdb",
+        resolverToken: "",
+      }),
+    ).toEqual({
+      base_url: "http://127.0.0.1:8001",
+      library_root: "/tmp/strmline-library",
+      tmdb_api_key: "tmdb",
+    });
+  });
+
+  it("keeps persisted secrets out of form values", () => {
+    expect(
+      settingsToFormValues({
+        base_url: "http://127.0.0.1:8001",
+        library_root: "/tmp/strmline-library",
+        torbox_configured: true,
+        tmdb_configured: true,
+        resolver_configured: true,
+        base_url_source: "database",
+        library_root_source: "database",
+        torbox_source: "database",
+        tmdb_source: "database",
+        resolver_source: "database",
+      }),
+    ).toEqual({
+      baseUrl: "http://127.0.0.1:8001",
+      libraryRoot: "/tmp/strmline-library",
+      torboxApiKey: "",
+      tmdbApiKey: "",
+      resolverToken: "",
+    });
+  });
+
+  it("formats setup missing fields", () => {
+    expect(missingLabels(["database_url", "torbox_api_key"])).toEqual(["Database", "TorBox key"]);
+  });
+
+  it("formats settings sources", () => {
+    expect(settingSourceLabel("database")).toBe("Saved");
+    expect(settingSourceLabel("environment")).toBe("Env");
+    expect(settingSourceLabel(null)).toBe("Missing");
   });
 });

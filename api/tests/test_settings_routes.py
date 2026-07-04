@@ -18,6 +18,11 @@ class FakeSettingsRepository:
             torbox_configured=True,
             tmdb_configured=False,
             resolver_configured=True,
+            base_url_source="database",
+            library_root_source="database",
+            torbox_source="environment",
+            tmdb_source=None,
+            resolver_source="environment",
         )
         self.saved_update: AppSettingsUpdate | None = None
 
@@ -34,6 +39,25 @@ class FakeSettingsRepository:
             tmdb_configured=update.tmdb_api_key is not None or self.snapshot.tmdb_configured,
             resolver_configured=update.resolver_token is not None
             or self.snapshot.resolver_configured,
+            tmdb_source="database"
+            if update.tmdb_api_key is not None
+            else self.snapshot.tmdb_source,
+        )
+        return self.snapshot
+
+    async def clear_saved_setup(self) -> SettingsSnapshot:
+        self.snapshot = replace(
+            self.snapshot,
+            base_url=None,
+            library_root=None,
+            torbox_configured=False,
+            tmdb_configured=False,
+            resolver_configured=False,
+            base_url_source=None,
+            library_root_source=None,
+            torbox_source=None,
+            tmdb_source=None,
+            resolver_source=None,
         )
         return self.snapshot
 
@@ -55,6 +79,11 @@ async def test_settings_route_returns_redacted_configuration() -> None:
         "torbox_configured": True,
         "tmdb_configured": False,
         "resolver_configured": True,
+        "base_url_source": "database",
+        "library_root_source": "database",
+        "torbox_source": "environment",
+        "tmdb_source": None,
+        "resolver_source": "environment",
     }
 
 
@@ -82,6 +111,23 @@ async def test_settings_route_saves_secrets_without_returning_them() -> None:
     assert repository.saved_update is not None
     assert repository.saved_update.torbox_api_key == "torbox-secret"
     assert response.json()["tmdb_configured"] is True
+    assert response.json()["tmdb_source"] == "database"
+
+
+@pytest.mark.asyncio
+async def test_settings_route_clears_saved_setup() -> None:
+    repository = FakeSettingsRepository()
+    app = create_app()
+    app.dependency_overrides[get_settings_repository] = _repository_override(repository)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.delete("/api/settings")
+
+    assert response.status_code == httpx.codes.OK
+    assert response.json()["torbox_source"] is None
+    assert response.json()["tmdb_source"] is None
+    assert response.json()["resolver_source"] is None
 
 
 def _repository_override(repository: FakeSettingsRepository) -> Callable[..., Any]:

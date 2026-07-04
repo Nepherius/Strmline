@@ -3,7 +3,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from app.api import library as library_api
+from app.api import library as library_api, setup as setup_api
 from app.core.config import get_settings
 from app.main import create_app
 
@@ -35,10 +35,39 @@ async def test_setup_status_reports_missing_required_settings() -> None:
             "base_url",
             "database_url",
             "library_root",
+            "resolver_token",
             "tmdb_api_key",
             "torbox_api_key",
         ],
     }
+
+
+@pytest.mark.asyncio
+async def test_setup_status_can_use_database_saved_settings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("STRMLINE_BASE_URL", raising=False)
+    monkeypatch.delenv("STRMLINE_LIBRARY_ROOT", raising=False)
+    monkeypatch.delenv("STRMLINE_TMDB_API_KEY", raising=False)
+    monkeypatch.delenv("STRMLINE_TORBOX_API_KEY", raising=False)
+    monkeypatch.delenv("STRMLINE_RESOLVER_TOKEN", raising=False)
+    monkeypatch.setenv("STRMLINE_DATABASE_URL", "postgresql://example")
+    get_settings.cache_clear()
+
+    monkeypatch.setattr(setup_api, "build_session_factory", fake_session_factory)
+    monkeypatch.setattr(
+        setup_api, "AppSettingsRepository", fake_complete_settings_repository(tmp_path)
+    )
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.get("/api/setup/status")
+
+    get_settings.cache_clear()
+    assert response.status_code == httpx.codes.OK
+    assert response.json() == {"configured": True, "missing": []}
 
 
 @pytest.mark.asyncio
@@ -123,5 +152,27 @@ def fake_settings_repository(library_root: Path) -> object:
 
         async def snapshot_with_env(self) -> object:
             return type("Snapshot", (), {"library_root": str(library_root)})()
+
+    return FakeSettingsRepository
+
+
+def fake_complete_settings_repository(library_root: Path) -> object:
+    class FakeSettingsRepository:
+        def __init__(self, session: object, settings: object) -> None:
+            _ = session
+            _ = settings
+
+        async def snapshot_with_env(self) -> object:
+            return type(
+                "Snapshot",
+                (),
+                {
+                    "base_url": "http://127.0.0.1:8001",
+                    "library_root": str(library_root),
+                    "torbox_configured": True,
+                    "tmdb_configured": True,
+                    "resolver_configured": True,
+                },
+            )()
 
     return FakeSettingsRepository
