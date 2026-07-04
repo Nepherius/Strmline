@@ -2,6 +2,7 @@ import httpx
 import pytest
 
 from app.api import setup as setup_api
+from app.core.config import get_settings
 from app.main import create_app
 from app.providers.tmdb.connection import TmdbConnectionError
 from app.providers.torbox.connection import TorBoxConnectionError
@@ -148,6 +149,23 @@ async def test_tmdb_connection_test_uses_safe_failure_message(
         "message": "TMDB connection failed.",
     }
     assert "secret" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_setup_status_does_not_require_resolver_fields_in_direct_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("STRMLINE_PLAYBACK_MODE", "direct")
+    get_settings.cache_clear()
+
+    transport = httpx.ASGITransport(app=create_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.get("/api/setup/status")
+
+    get_settings.cache_clear()
+    assert response.status_code == httpx.codes.OK
+    assert "base_url" not in response.json()["missing"]
+    assert "resolver_token" not in response.json()["missing"]
 
 
 async def _post_torbox_test(payload: dict[str, str] | None = None) -> httpx.Response:

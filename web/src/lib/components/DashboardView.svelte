@@ -14,6 +14,7 @@
     type LibrarySummary,
     type SortKey,
   } from "$lib/librarySummary";
+  import type { SyncRunResult } from "$lib/syncApi";
 
   export let category: LibraryCategory | "all";
   export let query: string;
@@ -21,9 +22,12 @@
   export let duplicateCount: number;
   export let error: string;
   export let loading: boolean;
+  export let syncing: boolean;
   export let summary: LibrarySummary | null;
+  export let syncResult: SyncRunResult | null;
   export let visibleFiles: LibraryFile[];
   export let onRefresh: () => Promise<void>;
+  export let onRunSync: () => Promise<void>;
   export let onSort: (sortKey: SortKey) => void;
 </script>
 
@@ -35,14 +39,28 @@
   <PageHeader ariaLabel="Strmline controls" title="Library dashboard">
     <svelte:fragment slot="actions">
       <UiLink href="/setup">Setup</UiLink>
+      <form class="refresh-form" on:submit|preventDefault={onRunSync}>
+        <UiButton type="submit" disabled={loading || syncing}>
+          {syncing ? "Syncing" : "Run sync"}
+        </UiButton>
+      </form>
       <form class="refresh-form" on:submit|preventDefault={onRefresh}>
-        <UiButton type="submit" disabled={loading}>{loading ? "Loading" : "Refresh"}</UiButton>
+        <UiButton type="submit" disabled={loading || syncing}>
+          {loading ? "Loading" : "Refresh"}
+        </UiButton>
       </form>
     </svelte:fragment>
   </PageHeader>
 
   {#if error}
     <Notice variant="error">{error}</Notice>
+  {/if}
+
+  {#if syncResult}
+    <Notice variant="success">
+      Sync #{syncResult.sync_run_id}: {syncResult.written_files} files written,
+      {syncResult.skipped_files} skipped.
+    </Notice>
   {/if}
 
   {#if summary}

@@ -12,9 +12,12 @@ from app.db.models import AppSetting, ProviderCredential, ResolverToken
 from app.security.secrets import SecretBox
 
 SECRET_HINT_SUFFIX_LENGTH = 4
+DEFAULT_SYNC_INTERVAL_MINUTES = 360
+DEFAULT_PLAYBACK_MODE = "resolver"
 
 SettingSource = Literal["database", "environment"]
 ProviderName = Literal["tmdb", "torbox"]
+PlaybackMode = Literal["resolver", "direct"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +27,8 @@ class SettingsSnapshot:
     movies_enabled: bool
     shows_enabled: bool
     anime_enabled: bool
+    playback_mode: PlaybackMode
+    sync_interval_minutes: int
     torbox_configured: bool
     tmdb_configured: bool
     resolver_configured: bool
@@ -41,6 +46,8 @@ class AppSettingsUpdate:
     movies_enabled: bool | None = None
     shows_enabled: bool | None = None
     anime_enabled: bool | None = None
+    playback_mode: PlaybackMode | None = None
+    sync_interval_minutes: int | None = None
     torbox_api_key: str | None = None
     tmdb_api_key: str | None = None
     resolver_token: str | None = None
@@ -78,6 +85,18 @@ class AppSettingsRepository:
             movies_enabled=_setting_bool(rows, "movies_enabled", default=True),
             shows_enabled=_setting_bool(rows, "shows_enabled", default=True),
             anime_enabled=_setting_bool(rows, "anime_enabled", default=True),
+            playback_mode=(
+                self._settings.playback_mode
+                if self._settings.playback_mode is not None
+                else _setting_playback_mode(rows, "playback_mode")
+            ),
+            sync_interval_minutes=self._settings.sync_interval_minutes
+            if self._settings.sync_interval_minutes is not None
+            else _setting_int(
+                rows,
+                "sync_interval_minutes",
+                default=DEFAULT_SYNC_INTERVAL_MINUTES,
+            ),
             torbox_configured=torbox_source is not None,
             tmdb_configured=tmdb_source is not None,
             resolver_configured=resolver_source is not None,
@@ -102,6 +121,7 @@ class AppSettingsRepository:
             await self._save_provider_secret("tmdb", "api_key", update.tmdb_api_key)
         if update.resolver_token is not None:
             await self._save_resolver_token(update.resolver_token)
+            await self._save_provider_secret("resolver", "token", update.resolver_token)
         await self._session.commit()
         return await self.snapshot_with_env()
 
@@ -114,15 +134,25 @@ class AppSettingsRepository:
                         "base_url",
                         "library_root",
                         "movies_enabled",
+                        "playback_mode",
+                        "pgid",
+                        "puid",
                         "shows_enabled",
+                        "sync_interval_minutes",
                     )
                 )
             )
         )
         _ = await self._session.execute(
             delete(ProviderCredential).where(
-                ProviderCredential.provider.in_(("torbox", "tmdb")),
+                ProviderCredential.provider.in_(("resolver", "torbox", "tmdb")),
                 ProviderCredential.credential_name == "api_key",
+            )
+        )
+        _ = await self._session.execute(
+            delete(ProviderCredential).where(
+                ProviderCredential.provider == "resolver",
+                ProviderCredential.credential_name == "token",
             )
         )
         _ = await self._session.execute(delete(ResolverToken))
@@ -138,23 +168,33 @@ class AppSettingsRepository:
             return None
         return self._secret_box().open(credential.encrypted_value)
 
+    async def resolver_token_value(self) -> str | None:
+        if self._settings.resolver_token is not None:
+            return self._settings.resolver_token.get_secret_value()
+        credential = await self._provider_credential("resolver", "token")
+        if credential is None:
+            return None
+        return self._secret_box().open(credential.encrypted_value)
+
     async def _app_settings(self) -> dict[str, AppSetting]:
         result = await self._session.execute(select(AppSetting))
         return {setting.key: setting for setting in result.scalars()}
 
     async def _save_public_settings(self, update: AppSettingsUpdate) -> None:
-        if update.base_url is not None:
-            await self._save_setting("base_url", value=update.base_url)
-        if update.library_root is not None:
-            await self._save_setting("library_root", value=update.library_root)
-        if update.movies_enabled is not None:
-            await self._save_setting("movies_enabled", value=update.movies_enabled)
-        if update.shows_enabled is not None:
-            await self._save_setting("shows_enabled", value=update.shows_enabled)
-        if update.anime_enabled is not None:
-            await self._save_setting("anime_enabled", value=update.anime_enabled)
+        public_settings: tuple[tuple[str, bool | int | str | None], ...] = (
+            ("base_url", update.base_url),
+            ("library_root", update.library_root),
+            ("movies_enabled", update.movies_enabled),
+            ("shows_enabled", update.shows_enabled),
+            ("anime_enabled", update.anime_enabled),
+            ("playback_mode", update.playback_mode),
+            ("sync_interval_minutes", update.sync_interval_minutes),
+        )
+        for key, value in public_settings:
+            if value is not None:
+                await self._save_setting(key, value=value)
 
-    async def _save_setting(self, key: str, *, value: bool | str) -> None:
+    async def _save_setting(self, key: str, *, value: bool | int | str) -> None:
         _ = await self._session.merge(
             AppSetting(key=key, value={"value": value}, is_secret=False),
         )
@@ -211,12 +251,6 @@ class AppSettingsRepository:
         )
         return result.scalar_one_or_none()
 
-    async def _active_resolver_token_exists(self) -> bool:
-        result = await self._session.execute(
-            select(ResolverToken.id).where(ResolverToken.revoked_at.is_(None))
-        )
-        return result.scalar_one_or_none() is not None
-
     async def _secret_source(
         self,
         *,
@@ -233,7 +267,7 @@ class AppSettingsRepository:
     async def _resolver_source(self, *, env_configured: bool) -> SettingSource | None:
         if env_configured:
             return "environment"
-        if await self._active_resolver_token_exists():
+        if await self._provider_secret_exists("resolver", "token"):
             return "database"
         return None
 
@@ -269,6 +303,26 @@ def _setting_bool(rows: dict[str, AppSetting], key: str, *, default: bool) -> bo
     if isinstance(raw_value, bool):
         return raw_value
     return default
+
+
+def _setting_int(rows: dict[str, AppSetting], key: str, *, default: int) -> int:
+    setting = rows.get(key)
+    if setting is None or setting.value is None:
+        return default
+    raw_value = setting.value.get("value")
+    if isinstance(raw_value, int):
+        return raw_value
+    return default
+
+
+def _setting_playback_mode(rows: dict[str, AppSetting], key: str) -> PlaybackMode:
+    setting = rows.get(key)
+    if setting is None or setting.value is None:
+        return DEFAULT_PLAYBACK_MODE
+    raw_value = setting.value.get("value")
+    if raw_value in ("resolver", "direct"):
+        return raw_value
+    return DEFAULT_PLAYBACK_MODE
 
 
 def _plain_setting_source(

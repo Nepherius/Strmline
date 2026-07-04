@@ -3,8 +3,10 @@
   import CheckboxField from "$lib/components/ui/CheckboxField.svelte";
   import MetricCard from "$lib/components/ui/MetricCard.svelte";
   import MetricGrid from "$lib/components/ui/MetricGrid.svelte";
+  import NumberField from "$lib/components/ui/NumberField.svelte";
   import Notice from "$lib/components/ui/Notice.svelte";
   import PageHeader from "$lib/components/ui/PageHeader.svelte";
+  import SegmentedControl from "$lib/components/ui/SegmentedControl.svelte";
   import TextField from "$lib/components/ui/TextField.svelte";
   import UiButton from "$lib/components/ui/UiButton.svelte";
   import UiLink from "$lib/components/ui/UiLink.svelte";
@@ -36,6 +38,10 @@
   export let onTestTorbox: () => Promise<void>;
 
   $: requiredLabels = setupStatus ? missingLabels(setupStatus.missing) : [];
+  const playbackOptions = [
+    { label: "Resolver", value: "resolver" },
+    { label: "Direct URLs", value: "direct" },
+  ];
 
   function settingVariant(
     configured: boolean | undefined,
@@ -113,6 +119,22 @@
       bind:value={values.libraryRoot}
       label="Library root"
       placeholder="/tmp/strmline-library"
+    />
+    <SegmentedControl
+      bind:value={values.playbackMode}
+      label="Playback mode"
+      options={playbackOptions}
+    />
+    {#if values.playbackMode === "direct"}
+      <div class="wide-field">
+        <Notice variant="warning">Direct mode writes tokenized TorBox URLs into STRM files.</Notice>
+      </div>
+    {/if}
+    <NumberField
+      bind:value={values.syncIntervalMinutes}
+      label="Sync interval minutes"
+      min="1"
+      placeholder="360"
     />
     <TextField
       bind:value={values.torboxApiKey}
@@ -230,6 +252,14 @@
     font-size: 12px;
     font-weight: 700;
     text-transform: uppercase;
+  }
+
+  .wide-field {
+    grid-column: 1 / -1;
+  }
+
+  .wide-field :global(.notice) {
+    margin: 0;
   }
 
   .actions {

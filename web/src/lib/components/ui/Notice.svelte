@@ -1,8 +1,13 @@
 <script lang="ts">
-  export let variant: "default" | "error" | "success" = "default";
+  export let variant: "default" | "error" | "success" | "warning" = "default";
 </script>
 
-<p class:error={variant === "error"} class:success={variant === "success"} class="notice">
+<p
+  class:error={variant === "error"}
+  class:success={variant === "success"}
+  class:warning={variant === "warning"}
+  class="notice"
+>
   <slot />
 </p>
 
@@ -25,5 +30,11 @@
     border-color: #9bc9aa;
     background: #f0fff4;
     color: #1f5b42;
+  }
+
+  .warning {
+    border-color: #d9b66c;
+    background: #fff9ea;
+    color: #765d1d;
   }
 </style>

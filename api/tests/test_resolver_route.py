@@ -3,6 +3,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from app.api import resolver as resolver_api
 from app.core.config import get_settings
 from app.main import create_app
 from app.resolver.manifest import ResolverManifestEntry, write_manifest_entries
@@ -76,6 +77,35 @@ async def test_play_rejects_invalid_resolver_token(
 
     get_settings.cache_clear()
     assert response.status_code == httpx.codes.FORBIDDEN
+
+
+@pytest.mark.asyncio
+async def test_play_redirects_from_database_resolver(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_token_is_valid(settings: object, token: str) -> bool:
+        _ = settings
+        return token == "saved-token"  # noqa: S105
+
+    async def fake_database_target(settings: object, entry_id: str) -> str:
+        _ = settings
+        assert entry_id == "entry-id"
+        return "https://example.test/final"
+
+    monkeypatch.setattr(resolver_api, "_resolver_token_is_valid", fake_token_is_valid)
+    monkeypatch.setattr(resolver_api, "_database_resolver_target", fake_database_target)
+    app = create_app()
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://testserver",
+        follow_redirects=False,
+    ) as client:
+        response = await client.get("/play/entry-id", params={"token": "saved-token"})
+
+    assert response.status_code == httpx.codes.TEMPORARY_REDIRECT
+    assert response.headers["location"] == "https://example.test/final"
 
 
 def _set_resolver_env(monkeypatch: pytest.MonkeyPatch, library_root: Path) -> None:

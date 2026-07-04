@@ -92,20 +92,32 @@ async def test_tmdb(request: TmdbConnectionTestRequest) -> ConnectionTestRespons
 async def setup_missing_fields() -> list[str]:
     settings = get_settings()
     snapshot = await _settings_snapshot()
+    direct_playback = _direct_playback_enabled(settings.playback_mode, snapshot)
     configured = {
         "base_url": settings.base_url is not None
-        or (snapshot is not None and snapshot.base_url is not None),
+        or (snapshot is not None and snapshot.base_url is not None)
+        or direct_playback,
         "database_url": settings.database_url is not None,
         "library_root": settings.library_root is not None
         or (snapshot is not None and snapshot.library_root is not None),
         "resolver_token": settings.resolver_token is not None
-        or (snapshot is not None and snapshot.resolver_configured),
+        or (snapshot is not None and snapshot.resolver_configured)
+        or direct_playback,
         "tmdb_api_key": settings.tmdb_api_key is not None
         or (snapshot is not None and snapshot.tmdb_configured),
         "torbox_api_key": settings.torbox_api_key is not None
         or (snapshot is not None and snapshot.torbox_configured),
     }
     return [field for field in SETUP_FIELDS if not configured[field]]
+
+
+def _direct_playback_enabled(
+    configured_mode: str | None,
+    snapshot: SettingsSnapshot | None,
+) -> bool:
+    if configured_mode == "direct":
+        return True
+    return snapshot is not None and snapshot.playback_mode == "direct"
 
 
 async def _effective_provider_api_key(provider: ProviderName) -> str | None:

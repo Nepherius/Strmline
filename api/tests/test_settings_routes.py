@@ -18,6 +18,8 @@ class FakeSettingsRepository:
             movies_enabled=True,
             shows_enabled=True,
             anime_enabled=False,
+            playback_mode="resolver",
+            sync_interval_minutes=360,
             torbox_configured=True,
             tmdb_configured=False,
             resolver_configured=True,
@@ -53,6 +55,16 @@ class FakeSettingsRepository:
                 if update.anime_enabled is not None
                 else self.snapshot.anime_enabled
             ),
+            playback_mode=(
+                update.playback_mode
+                if update.playback_mode is not None
+                else self.snapshot.playback_mode
+            ),
+            sync_interval_minutes=(
+                update.sync_interval_minutes
+                if update.sync_interval_minutes is not None
+                else self.snapshot.sync_interval_minutes
+            ),
             torbox_configured=update.torbox_api_key is not None or self.snapshot.torbox_configured,
             tmdb_configured=update.tmdb_api_key is not None or self.snapshot.tmdb_configured,
             resolver_configured=update.resolver_token is not None
@@ -71,6 +83,8 @@ class FakeSettingsRepository:
             movies_enabled=True,
             shows_enabled=True,
             anime_enabled=True,
+            playback_mode="resolver",
+            sync_interval_minutes=360,
             torbox_configured=False,
             tmdb_configured=False,
             resolver_configured=False,
@@ -100,6 +114,8 @@ async def test_settings_route_returns_redacted_configuration() -> None:
         "movies_enabled": True,
         "shows_enabled": True,
         "anime_enabled": False,
+        "playback_mode": "resolver",
+        "sync_interval_minutes": 360,
         "torbox_configured": True,
         "tmdb_configured": False,
         "resolver_configured": True,
@@ -127,6 +143,8 @@ async def test_settings_route_saves_secrets_without_returning_them() -> None:
                 "movies_enabled": True,
                 "shows_enabled": False,
                 "anime_enabled": True,
+                "playback_mode": "direct",
+                "sync_interval_minutes": 120,
                 "torbox_api_key": "torbox-secret",
                 "tmdb_api_key": "tmdb-secret",
                 "resolver_token": "resolver-secret",
@@ -138,8 +156,42 @@ async def test_settings_route_saves_secrets_without_returning_them() -> None:
     assert repository.saved_update is not None
     assert repository.saved_update.torbox_api_key == "torbox-secret"
     assert repository.saved_update.shows_enabled is False
+    assert repository.saved_update.playback_mode == "direct"
+    assert repository.saved_update.sync_interval_minutes == 120
     assert response.json()["tmdb_configured"] is True
     assert response.json()["tmdb_source"] == "database"
+
+
+@pytest.mark.asyncio
+async def test_settings_route_rejects_invalid_numeric_settings() -> None:
+    repository = FakeSettingsRepository()
+    app = create_app()
+    app.dependency_overrides[get_settings_repository] = _repository_override(repository)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.put(
+            "/api/settings",
+            json={"sync_interval_minutes": 0},
+        )
+
+    assert response.status_code == httpx.codes.UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.asyncio
+async def test_settings_route_rejects_invalid_playback_mode() -> None:
+    repository = FakeSettingsRepository()
+    app = create_app()
+    app.dependency_overrides[get_settings_repository] = _repository_override(repository)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.put(
+            "/api/settings",
+            json={"playback_mode": "proxy"},
+        )
+
+    assert response.status_code == httpx.codes.UNPROCESSABLE_ENTITY
 
 
 @pytest.mark.asyncio

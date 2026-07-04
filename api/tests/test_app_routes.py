@@ -172,6 +172,7 @@ def fake_complete_settings_repository(library_root: Path) -> object:
                     "torbox_configured": True,
                     "tmdb_configured": True,
                     "resolver_configured": True,
+                    "playback_mode": "resolver",
                 },
             )()
 

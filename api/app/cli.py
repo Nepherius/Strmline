@@ -164,6 +164,7 @@ def _sync_context(
         return "STRMLINE_LIBRARY_ROOT or --library-root is required."
     resolver = _resolver_config(
         allow_direct_urls=options.allow_direct_urls,
+        playback_mode=settings.playback_mode,
         resolver_base_url=options.resolver_base_url,
         resolver_token=options.resolver_token,
         settings_base_url=settings.base_url,
@@ -173,7 +174,8 @@ def _sync_context(
             else None
         ),
     )
-    if resolver is None and not options.allow_direct_urls:
+    direct_urls_enabled = options.allow_direct_urls or settings.playback_mode == "direct"
+    if resolver is None and not direct_urls_enabled:
         return " ".join(
             (
                 "Resolver mode requires STRMLINE_BASE_URL and STRMLINE_RESOLVER_TOKEN",
@@ -231,12 +233,13 @@ def _output_root(override: Path | None, configured: Path | None) -> Path | None:
 def _resolver_config(
     *,
     allow_direct_urls: bool,
+    playback_mode: str | None,
     resolver_base_url: str | None,
     resolver_token: str | None,
     settings_base_url: str | None,
     settings_resolver_token: str | None,
 ) -> ResolverUrlConfig | None:
-    if allow_direct_urls:
+    if allow_direct_urls or playback_mode == "direct":
         return None
     base_url = resolver_base_url or settings_base_url
     token = resolver_token or settings_resolver_token

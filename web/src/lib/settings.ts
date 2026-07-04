@@ -1,4 +1,5 @@
 export type SettingSource = "database" | "environment" | null;
+export type PlaybackMode = "resolver" | "direct";
 
 export interface AppSettings {
   base_url: string | null;
@@ -6,6 +7,8 @@ export interface AppSettings {
   movies_enabled: boolean;
   shows_enabled: boolean;
   anime_enabled: boolean;
+  playback_mode: PlaybackMode;
+  sync_interval_minutes: number;
   torbox_configured: boolean;
   tmdb_configured: boolean;
   resolver_configured: boolean;
@@ -27,12 +30,14 @@ export interface SettingsFormValues {
   moviesEnabled: boolean;
   showsEnabled: boolean;
   animeEnabled: boolean;
+  playbackMode: PlaybackMode;
+  syncIntervalMinutes: string;
   torboxApiKey: string;
   tmdbApiKey: string;
   resolverToken: string;
 }
 
-export type SettingsPayload = Record<string, boolean | string>;
+export type SettingsPayload = Record<string, boolean | number | string>;
 
 export function buildSettingsPayload(values: SettingsFormValues): SettingsPayload {
   const payload: SettingsPayload = {};
@@ -41,6 +46,8 @@ export function buildSettingsPayload(values: SettingsFormValues): SettingsPayloa
   payload["movies_enabled"] = values.moviesEnabled;
   payload["shows_enabled"] = values.showsEnabled;
   payload["anime_enabled"] = values.animeEnabled;
+  payload["playback_mode"] = values.playbackMode;
+  setIntegerIfPresent(payload, "sync_interval_minutes", values.syncIntervalMinutes);
   setIfPresent(payload, "torbox_api_key", values.torboxApiKey);
   setIfPresent(payload, "tmdb_api_key", values.tmdbApiKey);
   setIfPresent(payload, "resolver_token", values.resolverToken);
@@ -54,6 +61,8 @@ export function settingsToFormValues(settings: AppSettings | null): SettingsForm
     moviesEnabled: settings?.movies_enabled ?? true,
     showsEnabled: settings?.shows_enabled ?? true,
     animeEnabled: settings?.anime_enabled ?? true,
+    playbackMode: settings?.playback_mode ?? "resolver",
+    syncIntervalMinutes: String(settings?.sync_interval_minutes ?? 360),
     torboxApiKey: "",
     tmdbApiKey: "",
     resolverToken: "",
@@ -66,6 +75,7 @@ export function missingLabels(missing: string[]): string[] {
     database_url: "Database",
     library_root: "Library root",
     resolver_token: "Resolver token",
+    sync_interval_minutes: "Sync interval",
     tmdb_api_key: "TMDB key",
     torbox_api_key: "TorBox key",
   };
@@ -86,5 +96,16 @@ function setIfPresent(payload: SettingsPayload, key: string, value: string): voi
   const trimmed = value.trim();
   if (trimmed.length > 0) {
     payload[key] = trimmed;
+  }
+}
+
+function setIntegerIfPresent(payload: SettingsPayload, key: string, value: string): void {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return;
+  }
+  const numericValue = Number(trimmed);
+  if (Number.isInteger(numericValue)) {
+    payload[key] = numericValue;
   }
 }

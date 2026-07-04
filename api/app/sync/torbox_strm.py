@@ -39,6 +39,7 @@ class TorBoxStrmSyncResult:
     written_paths: tuple[Path, ...]
     synced_files: tuple[SyncedStrmFile, ...]
     manifest_path: Path | None = None
+    partial: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +108,7 @@ class TorBoxStrmSync:
                         written_paths,
                         synced_files,
                         manifest_entries,
+                        partial=True,
                     )
                 scanned_files += 1
                 entry_id = resolver_entry_id(torbox_file)
@@ -157,6 +159,8 @@ class TorBoxStrmSync:
         written_paths: list[Path],
         synced_files: list[SyncedStrmFile],
         manifest_entries: list[ResolverManifestEntry],
+        *,
+        partial: bool = False,
     ) -> TorBoxStrmSyncResult:
         manifest_path = None
         if manifest_entries:
@@ -168,6 +172,7 @@ class TorBoxStrmSync:
             written_paths=tuple(written_paths),
             synced_files=tuple(synced_files),
             manifest_path=manifest_path,
+            partial=partial,
         )
 
 

@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
 
   import { loadLibrarySummary } from "$lib/libraryApi";
+  import { runSyncNow, type SyncRunResult } from "$lib/syncApi";
   import {
     duplicateFileCount,
     filterFiles,
@@ -23,7 +24,9 @@
   let sortDirection: SortDirection = "asc";
   let summary: LibrarySummary | null = null;
   let loading = false;
+  let syncing = false;
   let error = "";
+  let syncResult: SyncRunResult | null = null;
 
   $: visibleFiles = summary
     ? sortFiles(filterFiles(summary.files, query, category), sortKey, sortDirection)
@@ -52,6 +55,21 @@
     }
   }
 
+  async function runManualSync() {
+    syncing = true;
+    error = "";
+    syncResult = null;
+    try {
+      syncResult = await runSyncNow(apiBase);
+      await loadSummary();
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
+      error = `Sync failed. ${message}`;
+    } finally {
+      syncing = false;
+    }
+  }
+
   function sortBy(nextSortKey: SortKey) {
     if (sortKey === nextSortKey) {
       sortDirection = sortDirection === "asc" ? "desc" : "asc";
@@ -69,8 +87,11 @@
   {duplicateCount}
   {error}
   {loading}
+  {syncing}
   {summary}
+  {syncResult}
   {visibleFiles}
   onRefresh={loadSummary}
+  onRunSync={runManualSync}
   onSort={sortBy}
 />

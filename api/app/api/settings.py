@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.dependencies import get_db_session
-from app.db.repositories.settings import AppSettingsRepository, AppSettingsUpdate
+from app.db.repositories.settings import AppSettingsRepository, AppSettingsUpdate, PlaybackMode
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -20,6 +20,8 @@ class SettingsResponse(BaseModel):
     movies_enabled: bool
     shows_enabled: bool
     anime_enabled: bool
+    playback_mode: PlaybackMode
+    sync_interval_minutes: int
     torbox_configured: bool
     tmdb_configured: bool
     resolver_configured: bool
@@ -36,6 +38,8 @@ class SettingsUpdateRequest(BaseModel):
     movies_enabled: bool | None = None
     shows_enabled: bool | None = None
     anime_enabled: bool | None = None
+    playback_mode: PlaybackMode | None = None
+    sync_interval_minutes: int | None = Field(default=None, ge=1)
     torbox_api_key: str | None = Field(default=None, min_length=1)
     tmdb_api_key: str | None = Field(default=None, min_length=1)
     resolver_token: str | None = Field(default=None, min_length=1)
@@ -70,6 +74,8 @@ async def update_settings(
                 movies_enabled=request.movies_enabled,
                 shows_enabled=request.shows_enabled,
                 anime_enabled=request.anime_enabled,
+                playback_mode=request.playback_mode,
+                sync_interval_minutes=request.sync_interval_minutes,
                 torbox_api_key=request.torbox_api_key,
                 tmdb_api_key=request.tmdb_api_key,
                 resolver_token=request.resolver_token,

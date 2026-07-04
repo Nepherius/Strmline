@@ -42,10 +42,11 @@ class FakeSession:
         self._results = results
         self.added: list[object] = []
         self.merged: list[object] = []
+        self.statements: list[object] = []
         self.committed = False
 
     async def execute(self, statement: object) -> FakeResult:
-        _ = statement
+        self.statements.append(statement)
         return self._results.pop(0)
 
     async def merge(self, instance: object) -> object:
@@ -96,6 +97,7 @@ async def test_settings_repository_saves_public_values_and_secrets() -> None:
             FakeResult(),  # missing torbox credential
             FakeResult(),  # missing tmdb credential
             FakeResult(),  # missing resolver hash
+            FakeResult(),  # missing resolver token credential
             FakeResult(scalars=[]),  # snapshot app settings
             FakeResult(scalar=1),  # torbox configured
             FakeResult(scalar=2),  # tmdb configured
@@ -116,6 +118,8 @@ async def test_settings_repository_saves_public_values_and_secrets() -> None:
             movies_enabled=False,
             shows_enabled=True,
             anime_enabled=True,
+            playback_mode="direct",
+            sync_interval_minutes=120,
             torbox_api_key="torbox-secret",
             tmdb_api_key="tmdb-secret",
             resolver_token=resolver_secret,
@@ -130,12 +134,21 @@ async def test_settings_repository_saves_public_values_and_secrets() -> None:
         "movies_enabled",
         "shows_enabled",
         "anime_enabled",
+        "playback_mode",
+        "sync_interval_minutes",
     ]
     assert merged_settings[2].value == {"value": False}
+    assert merged_settings[5].value == {"value": "direct"}
+    assert merged_settings[6].value == {"value": 120}
     credentials = [item for item in session.added if isinstance(item, ProviderCredential)]
     resolver_tokens = [item for item in session.added if isinstance(item, ResolverToken)]
-    assert len(credentials) == 2
+    assert len(credentials) == 3
     assert all("secret" not in credential.encrypted_value for credential in credentials)
+    assert {credential.provider for credential in credentials} == {
+        "resolver",
+        "tmdb",
+        "torbox",
+    }
     assert resolver_tokens[0].token_hash == sha256_hex("resolver-secret")
     assert snapshot.movies_enabled is True
     assert snapshot.shows_enabled is True
@@ -156,6 +169,8 @@ async def test_settings_repository_reads_database_values_when_env_is_missing() -
                     AppSetting(key="library_root", value={"value": "/library"}),
                     AppSetting(key="movies_enabled", value={"value": False}),
                     AppSetting(key="shows_enabled", value={"value": True}),
+                    AppSetting(key="playback_mode", value={"value": "direct"}),
+                    AppSetting(key="sync_interval_minutes", value={"value": 45}),
                 ]
             ),
             FakeResult(scalar=1),
@@ -175,6 +190,8 @@ async def test_settings_repository_reads_database_values_when_env_is_missing() -
     assert snapshot.movies_enabled is False
     assert snapshot.shows_enabled is True
     assert snapshot.anime_enabled is True
+    assert snapshot.playback_mode == "direct"
+    assert snapshot.sync_interval_minutes == 45
     assert snapshot.torbox_configured is True
     assert snapshot.tmdb_configured is False
     assert snapshot.resolver_configured is True
@@ -183,6 +200,30 @@ async def test_settings_repository_reads_database_values_when_env_is_missing() -
     assert snapshot.torbox_source == "database"
     assert snapshot.tmdb_source is None
     assert snapshot.resolver_source == "database"
+
+
+@pytest.mark.asyncio
+async def test_settings_repository_reports_resolver_source_from_saved_secret() -> None:
+    session = FakeSession(
+        [
+            FakeResult(scalars=[]),
+            FakeResult(scalar=None),
+            FakeResult(scalar=None),
+            FakeResult(scalar=None),
+        ]
+    )
+    repository = AppSettingsRepository(
+        cast(AsyncSession, session),
+        Settings(),
+    )
+
+    snapshot = await repository.snapshot_with_env()
+
+    resolver_statement = str(session.statements[-1])
+    assert "provider_credentials" in resolver_statement
+    assert "resolver_tokens" not in resolver_statement
+    assert snapshot.resolver_configured is False
+    assert snapshot.resolver_source is None
 
 
 @pytest.mark.asyncio
@@ -200,6 +241,8 @@ async def test_settings_repository_reports_environment_sources() -> None:
             torbox_api_key=SecretStr("torbox"),
             tmdb_api_key=SecretStr("tmdb"),
             resolver_token=SecretStr("resolver"),
+            playback_mode="direct",
+            sync_interval_minutes=180,
         ),
     )
 
@@ -210,6 +253,8 @@ async def test_settings_repository_reports_environment_sources() -> None:
     assert snapshot.torbox_source == "environment"
     assert snapshot.tmdb_source == "environment"
     assert snapshot.resolver_source == "environment"
+    assert snapshot.playback_mode == "direct"
+    assert snapshot.sync_interval_minutes == 180
 
 
 @pytest.mark.asyncio
@@ -243,3 +288,25 @@ async def test_settings_repository_prefers_environment_provider_api_key() -> Non
     )
 
     assert await repository.provider_api_key("torbox") == "env-torbox-secret"
+
+
+@pytest.mark.asyncio
+async def test_settings_repository_reads_saved_resolver_token() -> None:
+    box = SecretBox("app-secret")
+    session = FakeSession(
+        [
+            FakeResult(
+                scalar=ProviderCredential(
+                    provider="resolver",
+                    credential_name="token",
+                    encrypted_value=box.seal("resolver-secret"),
+                )
+            ),
+        ]
+    )
+    repository = AppSettingsRepository(
+        cast(AsyncSession, session),
+        Settings(app_secret_key=SecretStr("app-secret")),
+    )
+
+    assert await repository.resolver_token_value() == "resolver-secret"

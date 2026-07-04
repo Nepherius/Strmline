@@ -29,6 +29,9 @@ class SyncStateRepository:
             library_entry = await self._library_entry(media_item, synced_file)
             await self._generated_file(library_entry, synced_file, library_root)
 
+        if not result.partial:
+            await self._remove_stale_generated_files(result, library_root)
+
         await self._session.commit()
         return sync_run.id
 
@@ -108,6 +111,26 @@ class SyncStateRepository:
 
         generated_file.library_entry_id = library_entry.id
         generated_file.content_hash = synced_file.content_hash
+
+    async def _remove_stale_generated_files(
+        self,
+        result: TorBoxStrmSyncResult,
+        library_root: Path,
+    ) -> None:
+        current_paths = {
+            _relative_generated_path(library_root, synced_file.path)
+            for synced_file in result.synced_files
+        }
+        stale_result = await self._session.execute(select(GeneratedFile))
+        for generated_file in stale_result.scalars():
+            if generated_file.relative_path in current_paths:
+                continue
+            stale_path = ensure_within_root(
+                library_root, library_root / generated_file.relative_path
+            )
+            if stale_path.suffix == ".strm" and stale_path.exists():
+                stale_path.unlink()
+            await self._session.delete(generated_file)
 
 
 def _relative_generated_path(library_root: Path, path: Path) -> str:

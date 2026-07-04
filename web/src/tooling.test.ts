@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeApiBase } from "./lib/api";
+import { fetchJson, normalizeApiBase } from "./lib/api";
 import {
   duplicateFileCount,
   filterFiles,
@@ -66,6 +66,24 @@ describe("api helpers", () => {
     expect(normalizeApiBase(" http://127.0.0.1:8001/ ")).toBe("http://127.0.0.1:8001");
   });
 
+  it("surfaces API error detail messages", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = () =>
+      Promise.resolve(
+        new Response(JSON.stringify({ detail: "Resolver token is required." }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    try {
+      await expect(fetchJson("http://127.0.0.1:8001", "/api/sync/run")).rejects.toThrow(
+        "Resolver token is required.",
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("builds TorBox test payloads from typed keys", () => {
     expect(buildTorboxConnectionTestPayload(" typed-key ")).toEqual({
       torbox_api_key: "typed-key",
@@ -90,6 +108,8 @@ describe("settings helpers", () => {
         moviesEnabled: true,
         showsEnabled: false,
         animeEnabled: true,
+        playbackMode: "direct",
+        syncIntervalMinutes: "120",
         torboxApiKey: "",
         tmdbApiKey: "tmdb",
         resolverToken: "",
@@ -100,6 +120,8 @@ describe("settings helpers", () => {
       movies_enabled: true,
       shows_enabled: false,
       anime_enabled: true,
+      playback_mode: "direct",
+      sync_interval_minutes: 120,
       tmdb_api_key: "tmdb",
     });
   });
@@ -112,6 +134,8 @@ describe("settings helpers", () => {
         movies_enabled: true,
         shows_enabled: false,
         anime_enabled: true,
+        playback_mode: "direct",
+        sync_interval_minutes: 120,
         torbox_configured: true,
         tmdb_configured: true,
         resolver_configured: true,
@@ -127,6 +151,8 @@ describe("settings helpers", () => {
       moviesEnabled: true,
       showsEnabled: false,
       animeEnabled: true,
+      playbackMode: "direct",
+      syncIntervalMinutes: "120",
       torboxApiKey: "",
       tmdbApiKey: "",
       resolverToken: "",
