@@ -1,9 +1,15 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from pathlib import Path
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_settings
+from app.db.repositories.settings import AppSettingsRepository
+from app.db.session import build_session_factory
 from app.library.summary import (
     LibraryDuplicateGroup,
     LibraryFile,
@@ -34,12 +40,30 @@ class LibrarySummaryResponse(BaseModel):
     duplicate_groups: list[LibraryDuplicateGroupResponse]
 
 
-@router.get("/summary", response_model=LibrarySummaryResponse)
-async def library_summary() -> LibrarySummaryResponse:
+async def get_library_root() -> Path | None:
     settings = get_settings()
-    if settings.library_root is None:
+    if settings.library_root is not None:
+        return settings.library_root
+    if settings.database_url is None:
+        return None
+    try:
+        session_factory = build_session_factory(settings.database_url)
+        async with session_factory() as session:
+            snapshot = await AppSettingsRepository(session, settings).snapshot_with_env()
+    except (OSError, SQLAlchemyError):
+        return None
+    if snapshot.library_root is None:
+        return None
+    return Path(snapshot.library_root)
+
+
+@router.get("/summary", response_model=LibrarySummaryResponse)
+async def library_summary(
+    library_root: Annotated[Path | None, Depends(get_library_root)],
+) -> LibrarySummaryResponse:
+    if library_root is None:
         return _empty_response()
-    summary = summarize_library(settings.library_root)
+    summary = summarize_library(library_root)
     return LibrarySummaryResponse(
         configured=True,
         root=str(summary.root),

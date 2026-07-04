@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     version: str = "0.1.0"
     base_url: str | None = None
     database_url: str | None = None
+    app_secret_key: SecretStr | None = None
     library_root: Path | None = None
     tmdb_api_key: SecretStr | None = None
     torbox_api_key: SecretStr | None = None

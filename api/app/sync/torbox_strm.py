@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from app.library.entries import LibraryEntry
 from app.library.naming import library_entry_from_file_name
 from app.library.strm_writer import write_strm_file
 from app.providers.torbox.files import (
@@ -35,7 +37,23 @@ class TorBoxStrmSyncResult:
     written_files: int
     skipped_files: int
     written_paths: tuple[Path, ...]
+    synced_files: tuple[SyncedStrmFile, ...]
     manifest_path: Path | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SyncedStrmFile:
+    path: Path
+    entry_id: str
+    category: str
+    title: str
+    year: int | None
+    season_number: int | None
+    episode_number: int | None
+    provider: str
+    provider_item_id: str
+    provider_file_id: str
+    content_hash: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +89,7 @@ class TorBoxStrmSync:
             raise ValueError(msg)
 
         written_paths: list[Path] = []
+        synced_files: list[SyncedStrmFile] = []
         manifest_entries: list[ResolverManifestEntry] = []
         scanned_files = 0
         skipped_files = 0
@@ -83,22 +102,36 @@ class TorBoxStrmSync:
             for torbox_file in extracted.files:
                 if max_files is not None and len(written_paths) >= max_files:
                     return self._result(
-                        scanned_files, skipped_files, written_paths, manifest_entries
+                        scanned_files,
+                        skipped_files,
+                        written_paths,
+                        synced_files,
+                        manifest_entries,
                     )
                 scanned_files += 1
-                playback_url = self._playback_url(torbox_file, manifest_entries)
+                entry_id = resolver_entry_id(torbox_file)
+                playback_url = self._playback_url(torbox_file, entry_id, manifest_entries)
                 entry = library_entry_from_file_name(
                     torbox_file.file_name,
                     playback_url,
                     torbox_file.folder_name,
                 )
-                written_paths.append(write_strm_file(self._library_root, entry))
+                written_path = write_strm_file(self._library_root, entry)
+                written_paths.append(written_path)
+                synced_files.append(_synced_file(written_path, entry_id, entry, torbox_file))
 
-        return self._result(scanned_files, skipped_files, written_paths, manifest_entries)
+        return self._result(
+            scanned_files,
+            skipped_files,
+            written_paths,
+            synced_files,
+            manifest_entries,
+        )
 
     def _playback_url(
         self,
         torbox_file: TorBoxFile,
+        entry_id: str,
         manifest_entries: list[ResolverManifestEntry],
     ) -> str:
         direct_url = request_download_url(
@@ -109,7 +142,6 @@ class TorBoxStrmSync:
         if self._resolver is None:
             return direct_url
 
-        entry_id = resolver_entry_id(torbox_file)
         manifest_entries.append(
             ResolverManifestEntry(
                 entry_id=entry_id,
@@ -123,6 +155,7 @@ class TorBoxStrmSync:
         scanned_files: int,
         skipped_files: int,
         written_paths: list[Path],
+        synced_files: list[SyncedStrmFile],
         manifest_entries: list[ResolverManifestEntry],
     ) -> TorBoxStrmSyncResult:
         manifest_path = None
@@ -133,8 +166,30 @@ class TorBoxStrmSync:
             written_files=len(written_paths),
             skipped_files=skipped_files,
             written_paths=tuple(written_paths),
+            synced_files=tuple(synced_files),
             manifest_path=manifest_path,
         )
+
+
+def _synced_file(
+    path: Path,
+    entry_id: str,
+    entry: LibraryEntry,
+    torbox_file: TorBoxFile,
+) -> SyncedStrmFile:
+    return SyncedStrmFile(
+        path=path,
+        entry_id=entry_id,
+        category=entry.category,
+        title=entry.title,
+        year=entry.year,
+        season_number=entry.season_number,
+        episode_number=entry.episode_number,
+        provider="torbox",
+        provider_item_id=torbox_file.item_id,
+        provider_file_id=torbox_file.file_id,
+        content_hash=hashlib.sha256(entry.resolver_url.encode("utf-8")).hexdigest(),
+    )
 
 
 DirectTorBoxStrmSync = TorBoxStrmSync

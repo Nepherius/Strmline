@@ -3,6 +3,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from app.api import library as library_api
 from app.core.config import get_settings
 from app.main import create_app
 
@@ -67,3 +68,60 @@ async def test_library_summary_reports_configured_library(
     assert payload["exists"] is True
     assert payload["total_files"] == 1
     assert payload["category_counts"]["movies"] == 1
+
+
+@pytest.mark.asyncio
+async def test_library_root_can_come_from_database_settings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("STRMLINE_LIBRARY_ROOT", raising=False)
+    monkeypatch.setenv("STRMLINE_DATABASE_URL", "postgresql://example")
+    get_settings.cache_clear()
+
+    monkeypatch.setattr(library_api, "build_session_factory", fake_session_factory)
+    monkeypatch.setattr(library_api, "AppSettingsRepository", fake_settings_repository(tmp_path))
+
+    try:
+        library_root = await library_api.get_library_root()
+    finally:
+        get_settings.cache_clear()
+
+    assert library_root == tmp_path
+
+
+class FakeSessionContext:
+    async def __aenter__(self) -> object:
+        return object()
+
+    async def __aexit__(
+        self,
+        exc_type: object,
+        exc: object,
+        traceback: object,
+    ) -> None:
+        _ = exc_type
+        _ = exc
+        _ = traceback
+
+
+def fake_session_factory(database_url: str) -> object:
+    _ = database_url
+
+    class FakeSessionFactory:
+        def __call__(self) -> FakeSessionContext:
+            return FakeSessionContext()
+
+    return FakeSessionFactory()
+
+
+def fake_settings_repository(library_root: Path) -> object:
+    class FakeSettingsRepository:
+        def __init__(self, session: object, settings: object) -> None:
+            _ = session
+            _ = settings
+
+        async def snapshot_with_env(self) -> object:
+            return type("Snapshot", (), {"library_root": str(library_root)})()
+
+    return FakeSettingsRepository

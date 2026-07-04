@@ -8,7 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from app.core.config import get_settings
+from sqlalchemy.exc import SQLAlchemyError
+
+from app.core.config import Settings, get_settings
+from app.db.repositories.sync_state import SyncStateRepository
+from app.db.session import build_session_factory
 from app.library.strm_probe import StrmProbeError, probe_strm_file
 from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
 from app.providers.torbox.files import DOWNLOAD_KINDS, DownloadKind
@@ -24,6 +28,13 @@ class SyncTorBoxStrmOptions:
     kinds: tuple[DownloadKind, ...]
     max_files: int | None
     probe_first_url: bool
+
+
+@dataclass(frozen=True, slots=True)
+class SyncTorBoxStrmContext:
+    output_root: Path
+    resolver: ResolverUrlConfig | None
+    api_key: str
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -108,13 +119,49 @@ def positive_int(value: str) -> int:
 
 async def _sync_torbox_strm(options: SyncTorBoxStrmOptions) -> int:
     settings = get_settings()
-    if settings.torbox_api_key is None:
-        _write_error("STRMLINE_TORBOX_API_KEY is required.")
+    context = _sync_context(options, settings)
+    if isinstance(context, str):
+        _write_error(context)
         return 2
+
+    result = await _run_sync(options, settings, context)
+    if result is None:
+        return 1
+
+    sync_run_id = await _database_sync_run_id(settings.database_url, result, context.output_root)
+    if isinstance(sync_run_id, str):
+        _write_error(sync_run_id)
+        return 1
+
+    lines = _sync_summary_lines(
+        kinds=options.kinds,
+        max_files=options.max_files,
+        output_root=context.output_root,
+        result=result,
+        resolver_enabled=context.resolver is not None,
+        sync_run_id=sync_run_id,
+    )
+    if options.probe_first_url and result.written_paths:
+        probe_line = await _probe_summary_line(
+            result.written_paths[0],
+            request_timeout=settings.outbound_timeout_seconds,
+        )
+        if probe_line is None:
+            return 1
+        lines.append(probe_line)
+    _write_output("\n".join(lines) + "\n")
+    return 0
+
+
+def _sync_context(
+    options: SyncTorBoxStrmOptions,
+    settings: Settings,
+) -> SyncTorBoxStrmContext | str:
+    if settings.torbox_api_key is None:
+        return "STRMLINE_TORBOX_API_KEY is required."
     output_root = _output_root(options.library_root, settings.library_root)
     if output_root is None:
-        _write_error("STRMLINE_LIBRARY_ROOT or --library-root is required.")
-        return 2
+        return "STRMLINE_LIBRARY_ROOT or --library-root is required."
     resolver = _resolver_config(
         allow_direct_urls=options.allow_direct_urls,
         resolver_base_url=options.resolver_base_url,
@@ -127,52 +174,54 @@ async def _sync_torbox_strm(options: SyncTorBoxStrmOptions) -> int:
         ),
     )
     if resolver is None and not options.allow_direct_urls:
-        _write_error(
-            " ".join(
-                (
-                    "Resolver mode requires STRMLINE_BASE_URL and STRMLINE_RESOLVER_TOKEN",
-                    "or --resolver-base-url and --resolver-token.",
-                )
-            ),
+        return " ".join(
+            (
+                "Resolver mode requires STRMLINE_BASE_URL and STRMLINE_RESOLVER_TOKEN",
+                "or --resolver-base-url and --resolver-token.",
+            )
         )
-        return 2
+    return SyncTorBoxStrmContext(
+        output_root=output_root,
+        resolver=resolver,
+        api_key=settings.torbox_api_key.get_secret_value(),
+    )
 
-    api_key = settings.torbox_api_key.get_secret_value()
+
+async def _run_sync(
+    options: SyncTorBoxStrmOptions,
+    settings: Settings,
+    context: SyncTorBoxStrmContext,
+) -> TorBoxStrmSyncResult | None:
     try:
         async with TorBoxClient(
-            api_key=api_key,
+            api_key=context.api_key,
             base_url=settings.torbox_base_url,
             timeout=settings.outbound_timeout_seconds,
         ) as client:
             sync = DirectTorBoxStrmSync(
                 client=client,
-                api_key=api_key,
+                api_key=context.api_key,
                 torbox_base_url=settings.torbox_base_url,
-                library_root=output_root,
-                resolver=resolver,
+                library_root=context.output_root,
+                resolver=context.resolver,
             )
-            result = await sync.run(kinds=options.kinds, max_files=options.max_files)
+            return await sync.run(kinds=options.kinds, max_files=options.max_files)
     except (OSError, TorBoxAPIError, ValueError) as error:
         _write_error(f"TorBox STRM sync failed: {error}")
-        return 1
+        return None
 
-    lines = _sync_summary_lines(
-        kinds=options.kinds,
-        max_files=options.max_files,
-        output_root=output_root,
-        result=result,
-        resolver_enabled=resolver is not None,
-    )
-    if options.probe_first_url and result.written_paths:
-        probe_line = await _probe_summary_line(
-            result.written_paths[0],
-            request_timeout=settings.outbound_timeout_seconds,
-        )
-        if probe_line is None:
-            return 1
-        lines.append(probe_line)
-    _write_output("\n".join(lines) + "\n")
-    return 0
+
+async def _database_sync_run_id(
+    database_url: str | None,
+    result: TorBoxStrmSyncResult,
+    output_root: Path,
+) -> int | str | None:
+    if database_url is None:
+        return None
+    try:
+        return await _persist_sync_result(result, output_root, database_url)
+    except SQLAlchemyError as error:
+        return f"TorBox STRM sync state persistence failed: {error}"
 
 
 def _output_root(override: Path | None, configured: Path | None) -> Path | None:
@@ -203,6 +252,7 @@ def _sync_summary_lines(
     output_root: Path,
     result: TorBoxStrmSyncResult,
     resolver_enabled: bool,
+    sync_run_id: int | None,
 ) -> list[str]:
     lines = [
         "TorBox STRM sync complete.",
@@ -220,6 +270,8 @@ def _sync_summary_lines(
         lines.append(f"Smoke-test file cap: {max_files}")
     if result.manifest_path is not None:
         lines.append(f"Resolver manifest: {result.manifest_path}")
+    if sync_run_id is not None:
+        lines.append(f"Database sync run ID: {sync_run_id}")
     if not result.written_paths:
         lines.append("No .strm files were written from the selected TorBox content.")
         return lines
@@ -237,6 +289,16 @@ async def _probe_summary_line(path: Path, *, request_timeout: float) -> str | No
         return None
     response_kind = "redirect" if probe_result.redirected else "direct response"
     return f"First STRM URL probe: status {probe_result.status_code} ({response_kind})."
+
+
+async def _persist_sync_result(
+    result: TorBoxStrmSyncResult,
+    output_root: Path,
+    database_url: str,
+) -> int:
+    session_factory = build_session_factory(database_url)
+    async with session_factory() as session:
+        return await SyncStateRepository(session).record_success(result, output_root)
 
 
 def _write_output(message: str) -> None:

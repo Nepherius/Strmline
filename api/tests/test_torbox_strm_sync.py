@@ -77,6 +77,11 @@ async def test_direct_torbox_strm_sync_writes_playable_strm_files(tmp_path: Path
     assert result.written_files == 1
     assert result.skipped_files == 0
     assert result.written_paths == (expected_path.resolve(strict=False),)
+    assert result.synced_files[0].path == expected_path.resolve(strict=False)
+    assert result.synced_files[0].title == "Movie Name"
+    assert result.synced_files[0].category == "movies"
+    assert result.synced_files[0].provider_item_id == "1"
+    assert result.synced_files[0].provider_file_id == "2"
     assert expected_path.read_text(encoding="utf-8") == (
         "https://api.torbox.app/v1/api/torrents/requestdl?"
         "token=test-token&torrent_id=1&file_id=2&redirect=true\n"
