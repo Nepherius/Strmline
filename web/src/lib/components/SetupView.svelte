@@ -1,5 +1,6 @@
 <script lang="ts">
   import AppShell from "$lib/components/ui/AppShell.svelte";
+  import CheckboxField from "$lib/components/ui/CheckboxField.svelte";
   import MetricCard from "$lib/components/ui/MetricCard.svelte";
   import MetricGrid from "$lib/components/ui/MetricGrid.svelte";
   import Notice from "$lib/components/ui/Notice.svelte";
@@ -131,6 +132,12 @@
       label="Resolver token"
       type="password"
     />
+    <fieldset class="category-options">
+      <legend>Categories</legend>
+      <CheckboxField bind:checked={values.moviesEnabled} label="Movies" />
+      <CheckboxField bind:checked={values.showsEnabled} label="Shows" />
+      <CheckboxField bind:checked={values.animeEnabled} label="Anime" />
+    </fieldset>
     <div class="actions">
       <UiButton type="submit" disabled={saving}>{saving ? "Saving" : "Save settings"}</UiButton>
       <UiButton
@@ -173,6 +180,7 @@
   }
 
   .settings-form,
+  .category-options,
   .missing {
     border: 1px solid #d7ded9;
     border-radius: 6px;
@@ -203,6 +211,25 @@
     gap: 14px;
     margin-top: 18px;
     padding: 14px;
+  }
+
+  .category-options {
+    display: flex;
+    align-items: center;
+    align-self: end;
+    flex-wrap: wrap;
+    gap: 12px;
+    min-height: 38px;
+    margin: 0;
+    padding: 10px 12px;
+  }
+
+  .category-options legend {
+    padding: 0 4px;
+    color: #526057;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
   }
 
   .actions {

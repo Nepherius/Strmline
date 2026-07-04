@@ -113,6 +113,9 @@ async def test_settings_repository_saves_public_values_and_secrets() -> None:
         AppSettingsUpdate(
             base_url="http://strmline.test",
             library_root="/library",
+            movies_enabled=False,
+            shows_enabled=True,
+            anime_enabled=True,
             torbox_api_key="torbox-secret",
             tmdb_api_key="tmdb-secret",
             resolver_token=resolver_secret,
@@ -121,12 +124,22 @@ async def test_settings_repository_saves_public_values_and_secrets() -> None:
 
     assert session.committed is True
     merged_settings = [item for item in session.merged if isinstance(item, AppSetting)]
-    assert [setting.key for setting in merged_settings] == ["base_url", "library_root"]
+    assert [setting.key for setting in merged_settings] == [
+        "base_url",
+        "library_root",
+        "movies_enabled",
+        "shows_enabled",
+        "anime_enabled",
+    ]
+    assert merged_settings[2].value == {"value": False}
     credentials = [item for item in session.added if isinstance(item, ProviderCredential)]
     resolver_tokens = [item for item in session.added if isinstance(item, ResolverToken)]
     assert len(credentials) == 2
     assert all("secret" not in credential.encrypted_value for credential in credentials)
     assert resolver_tokens[0].token_hash == sha256_hex("resolver-secret")
+    assert snapshot.movies_enabled is True
+    assert snapshot.shows_enabled is True
+    assert snapshot.anime_enabled is True
     assert snapshot.torbox_configured is True
     assert snapshot.torbox_source == "database"
     assert snapshot.tmdb_source == "database"
@@ -141,6 +154,8 @@ async def test_settings_repository_reads_database_values_when_env_is_missing() -
                 scalars=[
                     AppSetting(key="base_url", value={"value": "http://db.test"}),
                     AppSetting(key="library_root", value={"value": "/library"}),
+                    AppSetting(key="movies_enabled", value={"value": False}),
+                    AppSetting(key="shows_enabled", value={"value": True}),
                 ]
             ),
             FakeResult(scalar=1),
@@ -157,6 +172,9 @@ async def test_settings_repository_reads_database_values_when_env_is_missing() -
 
     assert snapshot.base_url == "http://db.test"
     assert snapshot.library_root == "/library"
+    assert snapshot.movies_enabled is False
+    assert snapshot.shows_enabled is True
+    assert snapshot.anime_enabled is True
     assert snapshot.torbox_configured is True
     assert snapshot.tmdb_configured is False
     assert snapshot.resolver_configured is True

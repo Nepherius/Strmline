@@ -21,6 +21,9 @@ ProviderName = Literal["tmdb", "torbox"]
 class SettingsSnapshot:
     base_url: str | None
     library_root: str | None
+    movies_enabled: bool
+    shows_enabled: bool
+    anime_enabled: bool
     torbox_configured: bool
     tmdb_configured: bool
     resolver_configured: bool
@@ -35,6 +38,9 @@ class SettingsSnapshot:
 class AppSettingsUpdate:
     base_url: str | None = None
     library_root: str | None = None
+    movies_enabled: bool | None = None
+    shows_enabled: bool | None = None
+    anime_enabled: bool | None = None
     torbox_api_key: str | None = None
     tmdb_api_key: str | None = None
     resolver_token: str | None = None
@@ -69,6 +75,9 @@ class AppSettingsRepository:
                 if self._settings.library_root is not None
                 else database_library_root
             ),
+            movies_enabled=_setting_bool(rows, "movies_enabled", default=True),
+            shows_enabled=_setting_bool(rows, "shows_enabled", default=True),
+            anime_enabled=_setting_bool(rows, "anime_enabled", default=True),
             torbox_configured=torbox_source is not None,
             tmdb_configured=tmdb_source is not None,
             resolver_configured=resolver_source is not None,
@@ -86,10 +95,7 @@ class AppSettingsRepository:
         )
 
     async def save(self, update: AppSettingsUpdate) -> SettingsSnapshot:
-        if update.base_url is not None:
-            await self._save_setting("base_url", update.base_url)
-        if update.library_root is not None:
-            await self._save_setting("library_root", update.library_root)
+        await self._save_public_settings(update)
         if update.torbox_api_key is not None:
             await self._save_provider_secret("torbox", "api_key", update.torbox_api_key)
         if update.tmdb_api_key is not None:
@@ -101,7 +107,17 @@ class AppSettingsRepository:
 
     async def clear_saved_setup(self) -> SettingsSnapshot:
         _ = await self._session.execute(
-            delete(AppSetting).where(AppSetting.key.in_(("base_url", "library_root")))
+            delete(AppSetting).where(
+                AppSetting.key.in_(
+                    (
+                        "anime_enabled",
+                        "base_url",
+                        "library_root",
+                        "movies_enabled",
+                        "shows_enabled",
+                    )
+                )
+            )
         )
         _ = await self._session.execute(
             delete(ProviderCredential).where(
@@ -126,7 +142,19 @@ class AppSettingsRepository:
         result = await self._session.execute(select(AppSetting))
         return {setting.key: setting for setting in result.scalars()}
 
-    async def _save_setting(self, key: str, value: str) -> None:
+    async def _save_public_settings(self, update: AppSettingsUpdate) -> None:
+        if update.base_url is not None:
+            await self._save_setting("base_url", value=update.base_url)
+        if update.library_root is not None:
+            await self._save_setting("library_root", value=update.library_root)
+        if update.movies_enabled is not None:
+            await self._save_setting("movies_enabled", value=update.movies_enabled)
+        if update.shows_enabled is not None:
+            await self._save_setting("shows_enabled", value=update.shows_enabled)
+        if update.anime_enabled is not None:
+            await self._save_setting("anime_enabled", value=update.anime_enabled)
+
+    async def _save_setting(self, key: str, *, value: bool | str) -> None:
         _ = await self._session.merge(
             AppSetting(key=key, value={"value": value}, is_secret=False),
         )
@@ -231,6 +259,16 @@ def _setting_value(rows: dict[str, AppSetting], key: str) -> str | None:
     if isinstance(raw_value, str) and raw_value.strip():
         return raw_value
     return None
+
+
+def _setting_bool(rows: dict[str, AppSetting], key: str, *, default: bool) -> bool:
+    setting = rows.get(key)
+    if setting is None or setting.value is None:
+        return default
+    raw_value = setting.value.get("value")
+    if isinstance(raw_value, bool):
+        return raw_value
+    return default
 
 
 def _plain_setting_source(

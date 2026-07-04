@@ -15,6 +15,9 @@ class FakeSettingsRepository:
         self.snapshot = SettingsSnapshot(
             base_url="http://strmline.test",
             library_root="/library",
+            movies_enabled=True,
+            shows_enabled=True,
+            anime_enabled=False,
             torbox_configured=True,
             tmdb_configured=False,
             resolver_configured=True,
@@ -35,6 +38,21 @@ class FakeSettingsRepository:
             self.snapshot,
             base_url=update.base_url or self.snapshot.base_url,
             library_root=update.library_root or self.snapshot.library_root,
+            movies_enabled=(
+                update.movies_enabled
+                if update.movies_enabled is not None
+                else self.snapshot.movies_enabled
+            ),
+            shows_enabled=(
+                update.shows_enabled
+                if update.shows_enabled is not None
+                else self.snapshot.shows_enabled
+            ),
+            anime_enabled=(
+                update.anime_enabled
+                if update.anime_enabled is not None
+                else self.snapshot.anime_enabled
+            ),
             torbox_configured=update.torbox_api_key is not None or self.snapshot.torbox_configured,
             tmdb_configured=update.tmdb_api_key is not None or self.snapshot.tmdb_configured,
             resolver_configured=update.resolver_token is not None
@@ -50,6 +68,9 @@ class FakeSettingsRepository:
             self.snapshot,
             base_url=None,
             library_root=None,
+            movies_enabled=True,
+            shows_enabled=True,
+            anime_enabled=True,
             torbox_configured=False,
             tmdb_configured=False,
             resolver_configured=False,
@@ -76,6 +97,9 @@ async def test_settings_route_returns_redacted_configuration() -> None:
     assert response.json() == {
         "base_url": "http://strmline.test",
         "library_root": "/library",
+        "movies_enabled": True,
+        "shows_enabled": True,
+        "anime_enabled": False,
         "torbox_configured": True,
         "tmdb_configured": False,
         "resolver_configured": True,
@@ -100,6 +124,9 @@ async def test_settings_route_saves_secrets_without_returning_them() -> None:
             json={
                 "base_url": "http://127.0.0.1:8001",
                 "library_root": "/var/lib/strmline-library",
+                "movies_enabled": True,
+                "shows_enabled": False,
+                "anime_enabled": True,
                 "torbox_api_key": "torbox-secret",
                 "tmdb_api_key": "tmdb-secret",
                 "resolver_token": "resolver-secret",
@@ -110,6 +137,7 @@ async def test_settings_route_saves_secrets_without_returning_them() -> None:
     assert "secret" not in response.text
     assert repository.saved_update is not None
     assert repository.saved_update.torbox_api_key == "torbox-secret"
+    assert repository.saved_update.shows_enabled is False
     assert response.json()["tmdb_configured"] is True
     assert response.json()["tmdb_source"] == "database"
 
@@ -128,6 +156,7 @@ async def test_settings_route_clears_saved_setup() -> None:
     assert response.json()["torbox_source"] is None
     assert response.json()["tmdb_source"] is None
     assert response.json()["resolver_source"] is None
+    assert response.json()["anime_enabled"] is True
 
 
 def _repository_override(repository: FakeSettingsRepository) -> Callable[..., Any]:

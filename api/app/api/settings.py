@@ -17,6 +17,9 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 class SettingsResponse(BaseModel):
     base_url: str | None
     library_root: str | None
+    movies_enabled: bool
+    shows_enabled: bool
+    anime_enabled: bool
     torbox_configured: bool
     tmdb_configured: bool
     resolver_configured: bool
@@ -30,6 +33,9 @@ class SettingsResponse(BaseModel):
 class SettingsUpdateRequest(BaseModel):
     base_url: str | None = Field(default=None, min_length=1)
     library_root: str | None = Field(default=None, min_length=1)
+    movies_enabled: bool | None = None
+    shows_enabled: bool | None = None
+    anime_enabled: bool | None = None
     torbox_api_key: str | None = Field(default=None, min_length=1)
     tmdb_api_key: str | None = Field(default=None, min_length=1)
     resolver_token: str | None = Field(default=None, min_length=1)
@@ -61,6 +67,9 @@ async def update_settings(
             AppSettingsUpdate(
                 base_url=request.base_url,
                 library_root=request.library_root,
+                movies_enabled=request.movies_enabled,
+                shows_enabled=request.shows_enabled,
+                anime_enabled=request.anime_enabled,
                 torbox_api_key=request.torbox_api_key,
                 tmdb_api_key=request.tmdb_api_key,
                 resolver_token=request.resolver_token,

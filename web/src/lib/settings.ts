@@ -3,6 +3,9 @@ export type SettingSource = "database" | "environment" | null;
 export interface AppSettings {
   base_url: string | null;
   library_root: string | null;
+  movies_enabled: boolean;
+  shows_enabled: boolean;
+  anime_enabled: boolean;
   torbox_configured: boolean;
   tmdb_configured: boolean;
   resolver_configured: boolean;
@@ -21,15 +24,23 @@ export interface SetupStatus {
 export interface SettingsFormValues {
   baseUrl: string;
   libraryRoot: string;
+  moviesEnabled: boolean;
+  showsEnabled: boolean;
+  animeEnabled: boolean;
   torboxApiKey: string;
   tmdbApiKey: string;
   resolverToken: string;
 }
 
-export function buildSettingsPayload(values: SettingsFormValues): Record<string, string> {
-  const payload: Record<string, string> = {};
+export type SettingsPayload = Record<string, boolean | string>;
+
+export function buildSettingsPayload(values: SettingsFormValues): SettingsPayload {
+  const payload: SettingsPayload = {};
   setIfPresent(payload, "base_url", values.baseUrl);
   setIfPresent(payload, "library_root", values.libraryRoot);
+  payload["movies_enabled"] = values.moviesEnabled;
+  payload["shows_enabled"] = values.showsEnabled;
+  payload["anime_enabled"] = values.animeEnabled;
   setIfPresent(payload, "torbox_api_key", values.torboxApiKey);
   setIfPresent(payload, "tmdb_api_key", values.tmdbApiKey);
   setIfPresent(payload, "resolver_token", values.resolverToken);
@@ -40,6 +51,9 @@ export function settingsToFormValues(settings: AppSettings | null): SettingsForm
   return {
     baseUrl: settings?.base_url ?? "",
     libraryRoot: settings?.library_root ?? "",
+    moviesEnabled: settings?.movies_enabled ?? true,
+    showsEnabled: settings?.shows_enabled ?? true,
+    animeEnabled: settings?.anime_enabled ?? true,
     torboxApiKey: "",
     tmdbApiKey: "",
     resolverToken: "",
@@ -68,7 +82,7 @@ export function settingSourceLabel(source: SettingSource): string {
   return "Missing";
 }
 
-function setIfPresent(payload: Record<string, string>, key: string, value: string): void {
+function setIfPresent(payload: SettingsPayload, key: string, value: string): void {
   const trimmed = value.trim();
   if (trimmed.length > 0) {
     payload[key] = trimmed;

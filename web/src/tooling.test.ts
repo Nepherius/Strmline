@@ -87,6 +87,9 @@ describe("settings helpers", () => {
       buildSettingsPayload({
         baseUrl: " http://127.0.0.1:8001 ",
         libraryRoot: "/tmp/strmline-library",
+        moviesEnabled: true,
+        showsEnabled: false,
+        animeEnabled: true,
         torboxApiKey: "",
         tmdbApiKey: "tmdb",
         resolverToken: "",
@@ -94,6 +97,9 @@ describe("settings helpers", () => {
     ).toEqual({
       base_url: "http://127.0.0.1:8001",
       library_root: "/tmp/strmline-library",
+      movies_enabled: true,
+      shows_enabled: false,
+      anime_enabled: true,
       tmdb_api_key: "tmdb",
     });
   });
@@ -103,6 +109,9 @@ describe("settings helpers", () => {
       settingsToFormValues({
         base_url: "http://127.0.0.1:8001",
         library_root: "/tmp/strmline-library",
+        movies_enabled: true,
+        shows_enabled: false,
+        anime_enabled: true,
         torbox_configured: true,
         tmdb_configured: true,
         resolver_configured: true,
@@ -115,6 +124,9 @@ describe("settings helpers", () => {
     ).toEqual({
       baseUrl: "http://127.0.0.1:8001",
       libraryRoot: "/tmp/strmline-library",
+      moviesEnabled: true,
+      showsEnabled: false,
+      animeEnabled: true,
       torboxApiKey: "",
       tmdbApiKey: "",
       resolverToken: "",
