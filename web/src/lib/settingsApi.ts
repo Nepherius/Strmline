@@ -1,17 +1,8 @@
 import { fetchJson } from "$lib/api";
-import {
-  buildSettingsPayload,
-  type AppSettings,
-  type SettingsFormValues,
-  type SetupStatus,
-} from "$lib/settings";
+import { buildSettingsPayload, type AppSettings, type SettingsFormValues } from "$lib/settings";
 
 export function loadSettings(apiBase: string): Promise<AppSettings> {
   return fetchJson<AppSettings>(apiBase, "/api/settings");
-}
-
-export function loadSetupStatus(apiBase: string): Promise<SetupStatus> {
-  return fetchJson<SetupStatus>(apiBase, "/api/setup/status");
 }
 
 export function saveSettings(apiBase: string, values: SettingsFormValues): Promise<AppSettings> {

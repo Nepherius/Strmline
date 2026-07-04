@@ -1,12 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
 
-  import {
-    clearSavedSettings,
-    loadSettings,
-    loadSetupStatus,
-    saveSettings,
-  } from "$lib/settingsApi";
+  import { clearSavedSettings, loadSettings, saveSettings } from "$lib/settingsApi";
+  import { loadSetupStatus, testTorboxConnection } from "$lib/setupApi";
+  import type { ConnectionTestResult } from "$lib/setupApi";
   import {
     settingsToFormValues,
     type AppSettings,
@@ -22,8 +19,10 @@
   let values: SettingsFormValues = settingsToFormValues(null);
   let loading = false;
   let saving = false;
+  let testingTorbox = false;
   let error = "";
   let saved = false;
+  let torboxTestResult: ConnectionTestResult | null = null;
 
   onMount(() => {
     const savedApiBase = window.localStorage.getItem("strmline-api-base");
@@ -37,6 +36,7 @@
     loading = true;
     error = "";
     saved = false;
+    torboxTestResult = null;
     try {
       const [nextSettings, nextStatus] = await Promise.all([
         loadSettings(apiBase),
@@ -58,6 +58,7 @@
     saving = true;
     error = "";
     saved = false;
+    torboxTestResult = null;
     try {
       settings = await saveSettings(apiBase, values);
       values = settingsToFormValues(settings);
@@ -75,6 +76,7 @@
     saving = true;
     error = "";
     saved = false;
+    torboxTestResult = null;
     try {
       settings = await clearSavedSettings(apiBase);
       values = settingsToFormValues(settings);
@@ -86,10 +88,27 @@
       saving = false;
     }
   }
+
+  async function testTorboxSetup() {
+    testingTorbox = true;
+    error = "";
+    torboxTestResult = null;
+    try {
+      torboxTestResult = await testTorboxConnection(apiBase, values.torboxApiKey);
+      window.localStorage.setItem("strmline-api-base", apiBase);
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
+      torboxTestResult = {
+        ok: false,
+        message: `TorBox test unavailable. ${message}`,
+      };
+    } finally {
+      testingTorbox = false;
+    }
+  }
 </script>
 
 <SetupView
-  bind:apiBase
   bind:values
   {error}
   {loading}
@@ -97,7 +116,10 @@
   {saving}
   {settings}
   {setupStatus}
+  {testingTorbox}
+  {torboxTestResult}
   onClear={clearSavedSetup}
   onRefresh={loadSetup}
   onSave={saveSetup}
+  onTestTorbox={testTorboxSetup}
 />

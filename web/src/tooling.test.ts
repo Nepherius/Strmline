@@ -13,6 +13,7 @@ import {
   settingSourceLabel,
   settingsToFormValues,
 } from "./lib/settings";
+import { buildTorboxConnectionTestPayload } from "./lib/setupApi";
 
 describe("frontend tooling", () => {
   it("runs the Vitest suite", () => {
@@ -63,6 +64,13 @@ describe("library summary helpers", () => {
 describe("api helpers", () => {
   it("normalizes API base URLs", () => {
     expect(normalizeApiBase(" http://127.0.0.1:8001/ ")).toBe("http://127.0.0.1:8001");
+  });
+
+  it("builds TorBox test payloads from typed keys", () => {
+    expect(buildTorboxConnectionTestPayload(" typed-key ")).toEqual({
+      torbox_api_key: "typed-key",
+    });
+    expect(buildTorboxConnectionTestPayload(" ")).toEqual({});
   });
 });
 

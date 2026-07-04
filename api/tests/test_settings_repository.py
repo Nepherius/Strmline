@@ -192,3 +192,36 @@ async def test_settings_repository_reports_environment_sources() -> None:
     assert snapshot.torbox_source == "environment"
     assert snapshot.tmdb_source == "environment"
     assert snapshot.resolver_source == "environment"
+
+
+@pytest.mark.asyncio
+async def test_settings_repository_reads_provider_api_key() -> None:
+    box = SecretBox("app-secret")
+    session = FakeSession(
+        [
+            FakeResult(
+                scalar=ProviderCredential(
+                    provider="torbox",
+                    credential_name="api_key",
+                    encrypted_value=box.seal("torbox-secret"),
+                )
+            ),
+        ]
+    )
+    repository = AppSettingsRepository(
+        cast(AsyncSession, session),
+        Settings(app_secret_key=SecretStr("app-secret")),
+    )
+
+    assert await repository.provider_api_key("torbox") == "torbox-secret"
+
+
+@pytest.mark.asyncio
+async def test_settings_repository_prefers_environment_provider_api_key() -> None:
+    session = FakeSession([])
+    repository = AppSettingsRepository(
+        cast(AsyncSession, session),
+        Settings(torbox_api_key=SecretStr("env-torbox-secret")),
+    )
+
+    assert await repository.provider_api_key("torbox") == "env-torbox-secret"

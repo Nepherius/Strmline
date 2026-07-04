@@ -1,15 +1,22 @@
 <script lang="ts">
-  import { resolve } from "$app/paths";
-
+  import AppShell from "$lib/components/ui/AppShell.svelte";
+  import MetricCard from "$lib/components/ui/MetricCard.svelte";
+  import MetricGrid from "$lib/components/ui/MetricGrid.svelte";
+  import Notice from "$lib/components/ui/Notice.svelte";
+  import PageHeader from "$lib/components/ui/PageHeader.svelte";
+  import TextField from "$lib/components/ui/TextField.svelte";
+  import UiButton from "$lib/components/ui/UiButton.svelte";
+  import UiLink from "$lib/components/ui/UiLink.svelte";
   import {
     missingLabels,
     settingSourceLabel,
+    type SettingSource,
     type AppSettings,
     type SettingsFormValues,
     type SetupStatus,
   } from "$lib/settings";
+  import type { ConnectionTestResult } from "$lib/setupApi";
 
-  export let apiBase: string;
   export let values: SettingsFormValues;
   export let error: string;
   export let loading: boolean;
@@ -17,73 +24,76 @@
   export let saving: boolean;
   export let settings: AppSettings | null;
   export let setupStatus: SetupStatus | null;
+  export let testingTorbox: boolean;
+  export let torboxTestResult: ConnectionTestResult | null;
   export let onClear: () => Promise<void>;
   export let onRefresh: () => Promise<void>;
   export let onSave: () => Promise<void>;
+  export let onTestTorbox: () => Promise<void>;
 
   $: requiredLabels = setupStatus ? missingLabels(setupStatus.missing) : [];
+
+  function settingVariant(
+    configured: boolean | undefined,
+    source: SettingSource | undefined,
+  ): "default" | "ready" | "env" {
+    if (source === "environment") {
+      return "env";
+    }
+    if (configured) {
+      return "ready";
+    }
+    return "default";
+  }
 </script>
 
 <svelte:head>
   <title>Setup - Strmline</title>
 </svelte:head>
 
-<main class="shell">
-  <section class="topbar" aria-label="Setup controls">
-    <div>
-      <p class="eyebrow">Strmline</p>
-      <h1>Setup</h1>
-    </div>
-    <div class="topbar-actions">
-      <a class="home-link" href={resolve("/")}>Home</a>
-      <form class="connection" on:submit|preventDefault={onRefresh}>
-        <label>
-          <span>API</span>
-          <input bind:value={apiBase} aria-label="API base URL" />
-        </label>
-        <button type="submit" disabled={loading}>{loading ? "Loading" : "Refresh"}</button>
+<AppShell>
+  <PageHeader ariaLabel="Setup controls" title="Setup">
+    <svelte:fragment slot="actions">
+      <UiLink href="/">Home</UiLink>
+      <form class="refresh-form" on:submit|preventDefault={onRefresh}>
+        <UiButton type="submit" disabled={loading}>{loading ? "Loading" : "Refresh"}</UiButton>
       </form>
-    </div>
-  </section>
+    </svelte:fragment>
+  </PageHeader>
 
   {#if error}
-    <p class="notice error">{error}</p>
+    <Notice variant="error">{error}</Notice>
   {/if}
 
   {#if saved}
-    <p class="notice success">Settings saved.</p>
+    <Notice variant="success">Settings saved.</Notice>
   {/if}
 
-  <section class="status-grid" aria-label="Setup status">
-    <div class:ready={setupStatus?.configured} class="metric">
-      <span>Status</span>
-      <strong>{setupStatus?.configured ? "Ready" : "Open"}</strong>
-    </div>
-    <div
-      class:env={settings?.torbox_source === "environment"}
-      class:ready={settings?.torbox_configured}
-      class="metric"
-    >
-      <span>TorBox</span>
-      <strong>{settingSourceLabel(settings?.torbox_source ?? null)}</strong>
-    </div>
-    <div
-      class:env={settings?.tmdb_source === "environment"}
-      class:ready={settings?.tmdb_configured}
-      class="metric"
-    >
-      <span>TMDB</span>
-      <strong>{settingSourceLabel(settings?.tmdb_source ?? null)}</strong>
-    </div>
-    <div
-      class:env={settings?.resolver_source === "environment"}
-      class:ready={settings?.resolver_configured}
-      class="metric"
-    >
-      <span>Resolver</span>
-      <strong>{settingSourceLabel(settings?.resolver_source ?? null)}</strong>
-    </div>
-  </section>
+  <MetricGrid ariaLabel="Setup status" columns={4}>
+    <MetricCard
+      label="Status"
+      value={setupStatus?.configured ? "Ready" : "Open"}
+      variant={setupStatus?.configured ? "ready" : "default"}
+    />
+    <MetricCard
+      label="TorBox"
+      value={settingSourceLabel(settings?.torbox_source ?? null)}
+      variant={settingVariant(settings?.torbox_configured, settings?.torbox_source ?? undefined)}
+    />
+    <MetricCard
+      label="TMDB"
+      value={settingSourceLabel(settings?.tmdb_source ?? null)}
+      variant={settingVariant(settings?.tmdb_configured, settings?.tmdb_source ?? undefined)}
+    />
+    <MetricCard
+      label="Resolver"
+      value={settingSourceLabel(settings?.resolver_source ?? null)}
+      variant={settingVariant(
+        settings?.resolver_configured,
+        settings?.resolver_source ?? undefined,
+      )}
+    />
+  </MetricGrid>
 
   {#if requiredLabels.length > 0}
     <section class="missing" aria-label="Missing setup values">
@@ -94,207 +104,63 @@
   {/if}
 
   <form class="settings-form" on:submit|preventDefault={onSave}>
-    <label>
-      <span>Base URL</span>
-      <input bind:value={values.baseUrl} placeholder="http://127.0.0.1:8001" />
-    </label>
-    <label>
-      <span>Library root</span>
-      <input bind:value={values.libraryRoot} placeholder="/tmp/strmline-library" />
-    </label>
-    <label>
-      <span>TorBox API key</span>
-      <input bind:value={values.torboxApiKey} autocomplete="off" type="password" />
-    </label>
-    <label>
-      <span>TMDB API key</span>
-      <input bind:value={values.tmdbApiKey} autocomplete="off" type="password" />
-    </label>
-    <label>
-      <span>Resolver token</span>
-      <input bind:value={values.resolverToken} autocomplete="off" type="password" />
-    </label>
+    <TextField bind:value={values.baseUrl} label="Base URL" placeholder="http://127.0.0.1:8001" />
+    <TextField
+      bind:value={values.libraryRoot}
+      label="Library root"
+      placeholder="/tmp/strmline-library"
+    />
+    <TextField
+      bind:value={values.torboxApiKey}
+      autocomplete="off"
+      label="TorBox API key"
+      type="password"
+    />
+    <TextField
+      bind:value={values.tmdbApiKey}
+      autocomplete="off"
+      label="TMDB API key"
+      type="password"
+    />
+    <TextField
+      bind:value={values.resolverToken}
+      autocomplete="off"
+      label="Resolver token"
+      type="password"
+    />
     <div class="actions">
-      <button type="submit" disabled={saving}>{saving ? "Saving" : "Save settings"}</button>
-      <button class="secondary" type="button" disabled={saving} on:click={onClear}>
+      <UiButton type="submit" disabled={saving}>{saving ? "Saving" : "Save settings"}</UiButton>
+      <UiButton
+        type="button"
+        variant="secondary"
+        disabled={saving || testingTorbox}
+        on:click={onTestTorbox}
+      >
+        {testingTorbox ? "Testing TorBox" : "Test TorBox"}
+      </UiButton>
+      <UiButton type="button" variant="secondary" disabled={saving} on:click={onClear}>
         Clear saved setup
-      </button>
+      </UiButton>
+      {#if torboxTestResult}
+        <span class:ok={torboxTestResult.ok} class:error-text={!torboxTestResult.ok}>
+          {torboxTestResult.message}
+        </span>
+      {/if}
     </div>
   </form>
-</main>
+</AppShell>
 
 <style>
-  :global(body) {
-    margin: 0;
-    background: #f5f7f6;
-    color: #15201b;
-    font-family:
-      Inter,
-      ui-sans-serif,
-      system-ui,
-      -apple-system,
-      BlinkMacSystemFont,
-      "Segoe UI",
-      sans-serif;
-  }
-
-  button,
-  input {
-    font: inherit;
-  }
-
-  .shell {
-    box-sizing: border-box;
-    min-height: 100vh;
-    padding: 24px;
-  }
-
-  .topbar {
+  .refresh-form {
     display: flex;
     align-items: end;
-    justify-content: space-between;
-    gap: 20px;
-    padding-bottom: 18px;
-    border-bottom: 1px solid #d7ded9;
   }
 
-  .eyebrow {
-    margin: 0 0 2px;
-    color: #5b6a61;
-    font-size: 13px;
-    font-weight: 700;
-    text-transform: uppercase;
-  }
-
-  h1 {
-    margin: 0;
-    font-size: 32px;
-    line-height: 1.1;
-    letter-spacing: 0;
-  }
-
-  .connection {
-    display: flex;
-    align-items: end;
-    gap: 10px;
-  }
-
-  .topbar-actions {
-    display: flex;
-    align-items: end;
-    gap: 12px;
-  }
-
-  .home-link {
-    display: inline-flex;
-    align-items: center;
-    height: 36px;
-    border: 1px solid #bdc8c2;
-    border-radius: 6px;
-    padding: 0 12px;
-    background: #ffffff;
-    color: #24352d;
-    font-weight: 700;
-    text-decoration: none;
-  }
-
-  label {
-    display: grid;
-    gap: 6px;
-    color: #526057;
-    font-size: 12px;
-    font-weight: 700;
-    text-transform: uppercase;
-  }
-
-  input {
-    box-sizing: border-box;
-    min-width: 260px;
-    height: 38px;
-    border: 1px solid #bcc8c1;
-    border-radius: 6px;
-    padding: 0 10px;
-    background: #ffffff;
-    color: #15201b;
-  }
-
-  button {
-    height: 38px;
-    border: 1px solid #1c4333;
-    border-radius: 6px;
-    padding: 0 14px;
-    background: #1f5b42;
-    color: #ffffff;
-    cursor: pointer;
-    font-weight: 700;
-  }
-
-  button:disabled {
-    cursor: wait;
-    opacity: 0.6;
-  }
-
-  .notice {
-    margin: 18px 0 0;
-    border: 1px solid #d7ded9;
-    border-radius: 6px;
-    padding: 12px;
-    background: #ffffff;
-  }
-
-  .error {
-    border-color: #e1a2a2;
-    background: #fff5f4;
-    color: #8e251f;
-  }
-
-  .success {
-    border-color: #9bc9aa;
-    background: #f0fff4;
-    color: #1f5b42;
-  }
-
-  .status-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(130px, 1fr));
-    gap: 10px;
-    margin-top: 18px;
-  }
-
-  .metric,
   .settings-form,
   .missing {
     border: 1px solid #d7ded9;
     border-radius: 6px;
     background: #ffffff;
-  }
-
-  .metric {
-    padding: 12px;
-  }
-
-  .metric.ready {
-    border-color: #9bc9aa;
-    background: #f0fff4;
-  }
-
-  .metric.env {
-    border-color: #9ebbd0;
-    background: #f0f8ff;
-  }
-
-  .metric span {
-    display: block;
-    color: #5b6a61;
-    font-size: 12px;
-    font-weight: 700;
-    text-transform: uppercase;
-  }
-
-  .metric strong {
-    display: block;
-    margin-top: 6px;
-    font-size: 24px;
   }
 
   .missing {
@@ -326,40 +192,33 @@
   .actions {
     display: flex;
     align-self: end;
+    align-items: center;
     flex-wrap: wrap;
     gap: 8px;
   }
 
-  .settings-form button {
-    align-self: end;
+  .actions span {
+    color: #526057;
+    font-size: 13px;
+    font-weight: 700;
   }
 
-  .secondary {
-    border-color: #bdc8c2;
-    background: #ffffff;
-    color: #24352d;
+  .actions span.ok {
+    color: #1f5b42;
+  }
+
+  .actions span.error-text {
+    color: #8e251f;
   }
 
   @media (max-width: 760px) {
-    .shell {
-      padding: 16px;
-    }
-
-    .topbar,
-    .topbar-actions,
-    .connection {
+    .refresh-form {
       align-items: stretch;
       flex-direction: column;
     }
 
-    .status-grid,
     .settings-form {
       grid-template-columns: 1fr;
-    }
-
-    input {
-      min-width: 0;
-      width: 100%;
     }
   }
 </style>

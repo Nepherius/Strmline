@@ -14,6 +14,7 @@ from app.security.secrets import SecretBox
 SECRET_HINT_SUFFIX_LENGTH = 4
 
 SettingSource = Literal["database", "environment"]
+ProviderName = Literal["tmdb", "torbox"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +113,15 @@ class AppSettingsRepository:
         await self._session.commit()
         return await self.snapshot_with_env()
 
+    async def provider_api_key(self, provider: ProviderName) -> str | None:
+        env_secret = self._env_provider_secret(provider)
+        if env_secret is not None:
+            return env_secret
+        credential = await self._provider_credential(provider, "api_key")
+        if credential is None:
+            return None
+        return self._secret_box().open(credential.encrypted_value)
+
     async def _app_settings(self) -> dict[str, AppSetting]:
         result = await self._session.execute(select(AppSetting))
         return {setting.key: setting for setting in result.scalars()}
@@ -160,6 +170,19 @@ class AppSettingsRepository:
         )
         return result.scalar_one_or_none() is not None
 
+    async def _provider_credential(
+        self,
+        provider: str,
+        name: str,
+    ) -> ProviderCredential | None:
+        result = await self._session.execute(
+            select(ProviderCredential).where(
+                ProviderCredential.provider == provider,
+                ProviderCredential.credential_name == name,
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def _active_resolver_token_exists(self) -> bool:
         result = await self._session.execute(
             select(ResolverToken.id).where(ResolverToken.revoked_at.is_(None))
@@ -191,6 +214,13 @@ class AppSettingsRepository:
             msg = "STRMLINE_APP_SECRET_KEY is required to store provider secrets."
             raise RuntimeError(msg)
         return SecretBox(self._settings.app_secret_key.get_secret_value())
+
+    def _env_provider_secret(self, provider: ProviderName) -> str | None:
+        if provider == "torbox" and self._settings.torbox_api_key is not None:
+            return self._settings.torbox_api_key.get_secret_value()
+        if provider == "tmdb" and self._settings.tmdb_api_key is not None:
+            return self._settings.tmdb_api_key.get_secret_value()
+        return None
 
 
 def _setting_value(rows: dict[str, AppSetting], key: str) -> str | None:

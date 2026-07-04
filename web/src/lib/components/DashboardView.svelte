@@ -1,6 +1,12 @@
 <script lang="ts">
-  import { resolve } from "$app/paths";
-
+  import AppShell from "$lib/components/ui/AppShell.svelte";
+  import MetricCard from "$lib/components/ui/MetricCard.svelte";
+  import MetricGrid from "$lib/components/ui/MetricGrid.svelte";
+  import Notice from "$lib/components/ui/Notice.svelte";
+  import PageHeader from "$lib/components/ui/PageHeader.svelte";
+  import TextField from "$lib/components/ui/TextField.svelte";
+  import UiButton from "$lib/components/ui/UiButton.svelte";
+  import UiLink from "$lib/components/ui/UiLink.svelte";
   import {
     categoryLabels,
     type LibraryCategory,
@@ -25,47 +31,32 @@
   <title>Strmline</title>
 </svelte:head>
 
-<main class="shell">
-  <section class="topbar" aria-label="Strmline controls">
-    <div>
-      <p class="eyebrow">Strmline</p>
-      <h1>Library dashboard</h1>
-    </div>
-    <div class="topbar-actions">
-      <a class="setup-link" href={resolve("/setup")}>Setup</a>
-      <form class="connection" on:submit|preventDefault={onRefresh}>
-        <button type="submit" disabled={loading}>{loading ? "Loading" : "Refresh"}</button>
+<AppShell>
+  <PageHeader ariaLabel="Strmline controls" title="Library dashboard">
+    <svelte:fragment slot="actions">
+      <UiLink href="/setup">Setup</UiLink>
+      <form class="refresh-form" on:submit|preventDefault={onRefresh}>
+        <UiButton type="submit" disabled={loading}>{loading ? "Loading" : "Refresh"}</UiButton>
       </form>
-    </div>
-  </section>
+    </svelte:fragment>
+  </PageHeader>
 
   {#if error}
-    <p class="notice error">{error}</p>
+    <Notice variant="error">{error}</Notice>
   {/if}
 
   {#if summary}
-    <section class="status-grid" aria-label="Library status">
-      <div class="metric">
-        <span>Total files</span>
-        <strong>{summary.total_files}</strong>
-      </div>
-      <div class="metric">
-        <span>Movies</span>
-        <strong>{summary.category_counts.movies}</strong>
-      </div>
-      <div class="metric">
-        <span>Shows</span>
-        <strong>{summary.category_counts.shows}</strong>
-      </div>
-      <div class="metric">
-        <span>Anime</span>
-        <strong>{summary.category_counts.anime}</strong>
-      </div>
-      <div class:warn={duplicateCount > 0} class="metric">
-        <span>Duplicate files</span>
-        <strong>{duplicateCount}</strong>
-      </div>
-    </section>
+    <MetricGrid ariaLabel="Library status" columns={5}>
+      <MetricCard label="Total files" value={summary.total_files} />
+      <MetricCard label="Movies" value={summary.category_counts.movies} />
+      <MetricCard label="Shows" value={summary.category_counts.shows} />
+      <MetricCard label="Anime" value={summary.category_counts.anime} />
+      <MetricCard
+        label="Duplicate files"
+        value={duplicateCount}
+        variant={duplicateCount > 0 ? "warn" : "default"}
+      />
+    </MetricGrid>
 
     <section class="library-root" aria-label="Library root">
       <span>{summary.exists ? "Library root" : "Missing library root"}</span>
@@ -74,10 +65,7 @@
 
     <section class="workbench" aria-label="Generated library browser">
       <div class="filters">
-        <label>
-          <span>Search</span>
-          <input bind:value={query} placeholder="Title or path" />
-        </label>
+        <TextField bind:value={query} label="Search" placeholder="Title or path" />
         <div class="segments" aria-label="Category filter">
           {#each categories as item (item)}
             <button
@@ -154,174 +142,20 @@
       </div>
     </section>
   {:else if !loading}
-    <p class="notice">No library summary loaded.</p>
+    <Notice>No library summary loaded.</Notice>
   {/if}
-</main>
+</AppShell>
 
 <style>
-  :global(body) {
-    margin: 0;
-    background: #f5f7f6;
-    color: #15201b;
-    font-family:
-      Inter,
-      ui-sans-serif,
-      system-ui,
-      -apple-system,
-      BlinkMacSystemFont,
-      "Segoe UI",
-      sans-serif;
-  }
-
-  button,
-  input {
-    font: inherit;
-  }
-
-  .shell {
-    box-sizing: border-box;
-    min-height: 100vh;
-    padding: 24px;
-  }
-
-  .topbar {
-    display: flex;
-    align-items: end;
-    justify-content: space-between;
-    gap: 20px;
-    padding-bottom: 18px;
-    border-bottom: 1px solid #d7ded9;
-  }
-
-  .eyebrow {
-    margin: 0 0 2px;
-    color: #5b6a61;
-    font-size: 13px;
-    font-weight: 700;
-    text-transform: uppercase;
-  }
-
-  h1,
   h2 {
     margin: 0;
     letter-spacing: 0;
-  }
-
-  h1 {
-    font-size: 32px;
-    line-height: 1.1;
-  }
-
-  h2 {
     font-size: 15px;
   }
 
-  .connection {
+  .refresh-form {
     display: flex;
     align-items: end;
-    gap: 10px;
-  }
-
-  .topbar-actions {
-    display: flex;
-    align-items: end;
-    gap: 12px;
-  }
-
-  .setup-link {
-    display: inline-flex;
-    align-items: center;
-    height: 36px;
-    border: 1px solid #bdc8c2;
-    border-radius: 6px;
-    padding: 0 12px;
-    background: #ffffff;
-    color: #24352d;
-    font-weight: 700;
-    text-decoration: none;
-  }
-
-  label {
-    display: grid;
-    gap: 6px;
-    color: #526057;
-    font-size: 12px;
-    font-weight: 700;
-    text-transform: uppercase;
-  }
-
-  input {
-    box-sizing: border-box;
-    min-width: 260px;
-    height: 38px;
-    border: 1px solid #bcc8c1;
-    border-radius: 6px;
-    padding: 0 10px;
-    background: #ffffff;
-    color: #15201b;
-  }
-
-  button {
-    height: 38px;
-    border: 1px solid #1c4333;
-    border-radius: 6px;
-    padding: 0 14px;
-    background: #1f5b42;
-    color: #ffffff;
-    cursor: pointer;
-    font-weight: 700;
-  }
-
-  button:disabled {
-    cursor: wait;
-    opacity: 0.6;
-  }
-
-  .notice {
-    margin: 18px 0 0;
-    border: 1px solid #d7ded9;
-    border-radius: 6px;
-    padding: 12px;
-    background: #ffffff;
-  }
-
-  .error {
-    border-color: #e1a2a2;
-    background: #fff5f4;
-    color: #8e251f;
-  }
-
-  .status-grid {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(130px, 1fr));
-    gap: 10px;
-    margin-top: 18px;
-  }
-
-  .metric {
-    border: 1px solid #d7ded9;
-    border-radius: 6px;
-    padding: 12px;
-    background: #ffffff;
-  }
-
-  .metric span {
-    display: block;
-    color: #5b6a61;
-    font-size: 12px;
-    font-weight: 700;
-    text-transform: uppercase;
-  }
-
-  .metric strong {
-    display: block;
-    margin-top: 6px;
-    font-size: 26px;
-  }
-
-  .metric.warn {
-    border-color: #d9b66c;
-    background: #fff9ea;
   }
 
   .library-root {
@@ -364,9 +198,14 @@
   }
 
   .segments button {
+    height: 38px;
     border-color: #bdc8c2;
+    border-radius: 6px;
+    padding: 0 14px;
     background: #ffffff;
     color: #24352d;
+    cursor: pointer;
+    font-weight: 700;
   }
 
   .segments button.active {
@@ -448,25 +287,10 @@
   }
 
   @media (max-width: 860px) {
-    .shell {
-      padding: 16px;
-    }
-
-    .topbar,
-    .topbar-actions,
-    .connection,
+    .refresh-form,
     .filters {
       align-items: stretch;
       flex-direction: column;
-    }
-
-    .status-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    input {
-      min-width: 0;
-      width: 100%;
     }
 
     .segments {
