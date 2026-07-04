@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
 
   import { clearSavedSettings, loadSettings, saveSettings } from "$lib/settingsApi";
-  import { loadSetupStatus, testTorboxConnection } from "$lib/setupApi";
+  import { loadSetupStatus, testTmdbConnection, testTorboxConnection } from "$lib/setupApi";
   import type { ConnectionTestResult } from "$lib/setupApi";
   import {
     settingsToFormValues,
@@ -19,9 +19,11 @@
   let values: SettingsFormValues = settingsToFormValues(null);
   let loading = false;
   let saving = false;
+  let testingTmdb = false;
   let testingTorbox = false;
   let error = "";
   let saved = false;
+  let tmdbTestResult: ConnectionTestResult | null = null;
   let torboxTestResult: ConnectionTestResult | null = null;
 
   onMount(() => {
@@ -36,6 +38,7 @@
     loading = true;
     error = "";
     saved = false;
+    tmdbTestResult = null;
     torboxTestResult = null;
     try {
       const [nextSettings, nextStatus] = await Promise.all([
@@ -58,6 +61,7 @@
     saving = true;
     error = "";
     saved = false;
+    tmdbTestResult = null;
     torboxTestResult = null;
     try {
       settings = await saveSettings(apiBase, values);
@@ -76,6 +80,7 @@
     saving = true;
     error = "";
     saved = false;
+    tmdbTestResult = null;
     torboxTestResult = null;
     try {
       settings = await clearSavedSettings(apiBase);
@@ -106,6 +111,24 @@
       testingTorbox = false;
     }
   }
+
+  async function testTmdbSetup() {
+    testingTmdb = true;
+    error = "";
+    tmdbTestResult = null;
+    try {
+      tmdbTestResult = await testTmdbConnection(apiBase, values.tmdbApiKey);
+      window.localStorage.setItem("strmline-api-base", apiBase);
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
+      tmdbTestResult = {
+        ok: false,
+        message: `TMDB test unavailable. ${message}`,
+      };
+    } finally {
+      testingTmdb = false;
+    }
+  }
 </script>
 
 <SetupView
@@ -116,10 +139,13 @@
   {saving}
   {settings}
   {setupStatus}
+  {testingTmdb}
   {testingTorbox}
+  {tmdbTestResult}
   {torboxTestResult}
   onClear={clearSavedSetup}
   onRefresh={loadSetup}
   onSave={saveSetup}
+  onTestTmdb={testTmdbSetup}
   onTestTorbox={testTorboxSetup}
 />

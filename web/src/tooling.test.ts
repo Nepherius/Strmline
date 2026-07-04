@@ -13,7 +13,7 @@ import {
   settingSourceLabel,
   settingsToFormValues,
 } from "./lib/settings";
-import { buildTorboxConnectionTestPayload } from "./lib/setupApi";
+import { buildTmdbConnectionTestPayload, buildTorboxConnectionTestPayload } from "./lib/setupApi";
 
 describe("frontend tooling", () => {
   it("runs the Vitest suite", () => {
@@ -71,6 +71,13 @@ describe("api helpers", () => {
       torbox_api_key: "typed-key",
     });
     expect(buildTorboxConnectionTestPayload(" ")).toEqual({});
+  });
+
+  it("builds TMDB test payloads from typed keys", () => {
+    expect(buildTmdbConnectionTestPayload(" tmdb-key ")).toEqual({
+      tmdb_api_key: "tmdb-key",
+    });
+    expect(buildTmdbConnectionTestPayload(" ")).toEqual({});
   });
 });
 

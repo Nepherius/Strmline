@@ -5,8 +5,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_settings
-from app.db.repositories.settings import AppSettingsRepository, SettingsSnapshot
+from app.db.repositories.settings import AppSettingsRepository, ProviderName, SettingsSnapshot
 from app.db.session import build_session_factory
+from app.providers.tmdb.connection import TmdbConnectionError, check_tmdb_connection
 from app.providers.torbox.connection import TorBoxConnectionError, check_torbox_connection
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
@@ -35,6 +36,10 @@ class TorBoxConnectionTestRequest(BaseModel):
     torbox_api_key: str | None = Field(default=None, min_length=1)
 
 
+class TmdbConnectionTestRequest(BaseModel):
+    tmdb_api_key: str | None = Field(default=None, min_length=1)
+
+
 @router.get("/status", response_model=SetupStatusResponse)
 async def setup_status() -> SetupStatusResponse:
     missing = await setup_missing_fields()
@@ -47,7 +52,7 @@ async def setup_status() -> SetupStatusResponse:
 @router.post("/test/torbox", response_model=ConnectionTestResponse)
 async def test_torbox(request: TorBoxConnectionTestRequest) -> ConnectionTestResponse:
     settings = get_settings()
-    api_key = request.torbox_api_key or await _effective_torbox_api_key()
+    api_key = request.torbox_api_key or await _effective_provider_api_key("torbox")
     if api_key is None:
         return ConnectionTestResponse(
             ok=False,
@@ -62,6 +67,26 @@ async def test_torbox(request: TorBoxConnectionTestRequest) -> ConnectionTestRes
     except TorBoxConnectionError:
         return ConnectionTestResponse(ok=False, message="TorBox connection failed.")
     return ConnectionTestResponse(ok=True, message="TorBox connection succeeded.")
+
+
+@router.post("/test/tmdb", response_model=ConnectionTestResponse)
+async def test_tmdb(request: TmdbConnectionTestRequest) -> ConnectionTestResponse:
+    settings = get_settings()
+    api_key = request.tmdb_api_key or await _effective_provider_api_key("tmdb")
+    if api_key is None:
+        return ConnectionTestResponse(
+            ok=False,
+            message="TMDB API key is not configured.",
+        )
+    try:
+        await check_tmdb_connection(
+            api_key=api_key,
+            base_url=settings.tmdb_base_url,
+            timeout_seconds=settings.outbound_timeout_seconds,
+        )
+    except TmdbConnectionError:
+        return ConnectionTestResponse(ok=False, message="TMDB connection failed.")
+    return ConnectionTestResponse(ok=True, message="TMDB connection succeeded.")
 
 
 async def setup_missing_fields() -> list[str]:
@@ -83,16 +108,18 @@ async def setup_missing_fields() -> list[str]:
     return [field for field in SETUP_FIELDS if not configured[field]]
 
 
-async def _effective_torbox_api_key() -> str | None:
+async def _effective_provider_api_key(provider: ProviderName) -> str | None:
     settings = get_settings()
-    if settings.torbox_api_key is not None:
+    if provider == "torbox" and settings.torbox_api_key is not None:
         return settings.torbox_api_key.get_secret_value()
+    if provider == "tmdb" and settings.tmdb_api_key is not None:
+        return settings.tmdb_api_key.get_secret_value()
     if settings.database_url is None:
         return None
     try:
         session_factory = build_session_factory(settings.database_url)
         async with session_factory() as session:
-            return await AppSettingsRepository(session, settings).provider_api_key("torbox")
+            return await AppSettingsRepository(session, settings).provider_api_key(provider)
     except (RuntimeError, OSError, SQLAlchemyError):
         return None
 

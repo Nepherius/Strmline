@@ -24,11 +24,14 @@
   export let saving: boolean;
   export let settings: AppSettings | null;
   export let setupStatus: SetupStatus | null;
+  export let testingTmdb: boolean;
   export let testingTorbox: boolean;
+  export let tmdbTestResult: ConnectionTestResult | null;
   export let torboxTestResult: ConnectionTestResult | null;
   export let onClear: () => Promise<void>;
   export let onRefresh: () => Promise<void>;
   export let onSave: () => Promise<void>;
+  export let onTestTmdb: () => Promise<void>;
   export let onTestTorbox: () => Promise<void>;
 
   $: requiredLabels = setupStatus ? missingLabels(setupStatus.missing) : [];
@@ -138,12 +141,25 @@
       >
         {testingTorbox ? "Testing TorBox" : "Test TorBox"}
       </UiButton>
+      <UiButton
+        type="button"
+        variant="secondary"
+        disabled={saving || testingTmdb}
+        on:click={onTestTmdb}
+      >
+        {testingTmdb ? "Testing TMDB" : "Test TMDB"}
+      </UiButton>
       <UiButton type="button" variant="secondary" disabled={saving} on:click={onClear}>
         Clear saved setup
       </UiButton>
       {#if torboxTestResult}
         <span class:ok={torboxTestResult.ok} class:error-text={!torboxTestResult.ok}>
           {torboxTestResult.message}
+        </span>
+      {/if}
+      {#if tmdbTestResult}
+        <span class:ok={tmdbTestResult.ok} class:error-text={!tmdbTestResult.ok}>
+          {tmdbTestResult.message}
         </span>
       {/if}
     </div>

@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     torbox_api_key: SecretStr | None = None
     resolver_token: SecretStr | None = None
     torbox_base_url: str = Field(default="https://api.torbox.app/v1/api")
+    tmdb_base_url: str = Field(default="https://api.themoviedb.org/3")
     outbound_timeout_seconds: float = Field(default=20.0, gt=0)
 
     def missing_setup_fields(self) -> list[str]:
