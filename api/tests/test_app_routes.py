@@ -148,6 +148,56 @@ async def test_library_summary_reports_configured_library(
 
 
 @pytest.mark.asyncio
+async def test_library_validation_reports_ready_library(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    library_file = tmp_path / "movies" / "Movie One (2024)" / "Movie One (2024).strm"
+    library_file.parent.mkdir(parents=True)
+    _ = library_file.write_text("https://example.test/video\n", encoding="utf-8")
+    monkeypatch.setenv("STRMLINE_LIBRARY_ROOT", str(tmp_path))
+    get_settings.cache_clear()
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.get("/api/library/validation")
+
+    get_settings.cache_clear()
+    assert response.status_code == httpx.codes.OK
+    payload = response.json()
+    assert payload["configured"] is True
+    assert payload["root"] == str(tmp_path)
+    assert payload["ok"] is True
+    assert payload["total_files"] == 1
+    assert payload["errors"] == []
+
+
+@pytest.mark.asyncio
+async def test_library_validation_reports_curation_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    library_file = tmp_path / "other" / "Loose.strm"
+    library_file.parent.mkdir(parents=True)
+    _ = library_file.write_text("https://example.test/video\n", encoding="utf-8")
+    monkeypatch.setenv("STRMLINE_LIBRARY_ROOT", str(tmp_path))
+    get_settings.cache_clear()
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.get("/api/library/validation")
+
+    get_settings.cache_clear()
+    assert response.status_code == httpx.codes.OK
+    payload = response.json()
+    assert payload["ok"] is False
+    assert payload["errors"][0]["code"] == "strm_outside_category"
+    assert payload["errors"][0]["relative_path"] == "other/Loose.strm"
+
+
+@pytest.mark.asyncio
 async def test_library_root_defaults_to_internal_docker_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -14,6 +14,11 @@ from app.library.summary import (
     LibrarySummary,
     summarize_library,
 )
+from app.library.validation import (
+    LibraryValidationIssue,
+    LibraryValidationReport,
+    validate_jellyfin_library,
+)
 
 router = APIRouter(prefix="/api/library", tags=["library"])
 
@@ -39,6 +44,23 @@ class LibrarySummaryResponse(BaseModel):
     duplicate_groups: list[LibraryDuplicateGroupResponse]
 
 
+class LibraryValidationIssueResponse(BaseModel):
+    code: str
+    message: str
+    relative_path: str | None
+
+
+class LibraryValidationResponse(BaseModel):
+    configured: bool
+    root: str | None
+    exists: bool
+    ok: bool
+    total_files: int
+    category_counts: dict[str, int]
+    warnings: list[LibraryValidationIssueResponse]
+    errors: list[LibraryValidationIssueResponse]
+
+
 async def get_library_root() -> Path:
     return get_settings().library_root
 
@@ -59,6 +81,23 @@ async def library_summary(
     )
 
 
+@router.get("/validation", response_model=LibraryValidationResponse)
+async def library_validation(
+    library_root: Annotated[Path, Depends(get_library_root)],
+) -> LibraryValidationResponse:
+    report = await _validate_library(library_root)
+    return LibraryValidationResponse(
+        configured=True,
+        root=str(report.summary.root),
+        exists=report.summary.exists,
+        ok=report.ok,
+        total_files=report.summary.total_files,
+        category_counts=report.summary.category_counts,
+        warnings=[_issue_response(issue) for issue in report.warnings],
+        errors=[_issue_response(issue) for issue in report.errors],
+    )
+
+
 def _duplicate_response(group: LibraryDuplicateGroup) -> LibraryDuplicateGroupResponse:
     return LibraryDuplicateGroupResponse(
         key=group.key,
@@ -74,5 +113,17 @@ def _file_response(file: LibraryFile) -> LibraryFileResponse:
     )
 
 
+def _issue_response(issue: LibraryValidationIssue) -> LibraryValidationIssueResponse:
+    return LibraryValidationIssueResponse(
+        code=issue.code,
+        message=issue.message,
+        relative_path=issue.relative_path,
+    )
+
+
 async def _summarize_library(library_root: Path) -> LibrarySummary:
     return await run_sync(summarize_library, library_root)
+
+
+async def _validate_library(library_root: Path) -> LibraryValidationReport:
+    return validate_jellyfin_library(library_root)

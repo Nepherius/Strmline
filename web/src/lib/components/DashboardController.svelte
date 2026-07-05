@@ -3,7 +3,7 @@
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
 
-  import { loadLibrarySummary } from "$lib/libraryApi";
+  import { loadLibrarySummary, loadLibraryValidation } from "$lib/libraryApi";
   import { loadSetupStatus } from "$lib/setupApi";
   import { loadSyncStatus, runSyncNow, type SyncRunResult, type SyncStatus } from "$lib/syncApi";
   import {
@@ -12,8 +12,10 @@
     sortFiles,
     type LibraryCategory,
     type LibrarySummary,
+    type LibraryValidation,
     type SortDirection,
     type SortKey,
+    validationIssueCount,
   } from "$lib/librarySummary";
 
   import DashboardView from "./DashboardView.svelte";
@@ -30,11 +32,13 @@
   let error = "";
   let syncResult: SyncRunResult | null = null;
   let syncStatus: SyncStatus | null = null;
+  let validation: LibraryValidation | null = null;
 
   $: visibleFiles = summary
     ? sortFiles(filterFiles(summary.files, query, category), sortKey, sortDirection)
     : [];
   $: duplicateCount = summary ? duplicateFileCount(summary) : 0;
+  $: validationIssues = validation ? validationIssueCount(validation) : 0;
 
   onMount(() => {
     void routeToSetupOrLoadDashboard();
@@ -62,11 +66,13 @@
     loading = true;
     error = "";
     try {
-      const [nextSummary, nextSyncStatus] = await Promise.all([
+      const [nextSummary, nextValidation, nextSyncStatus] = await Promise.all([
         loadLibrarySummary(),
+        loadLibraryValidation(),
         loadSyncStatus(),
       ]);
       summary = nextSummary;
+      validation = nextValidation;
       syncStatus = nextSyncStatus;
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
@@ -112,6 +118,8 @@
   {summary}
   {syncResult}
   {syncStatus}
+  {validation}
+  {validationIssues}
   {visibleFiles}
   onRefresh={loadDashboard}
   onRunSync={runManualSync}

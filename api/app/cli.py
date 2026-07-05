@@ -15,6 +15,7 @@ from app.core.config import Settings, get_settings
 from app.db.repositories.sync_state import SyncStateRepository
 from app.db.session import build_session_factory
 from app.library.strm_probe import StrmProbeError, probe_strm_file
+from app.library.validation import LibraryValidationIssue, validate_jellyfin_library
 from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
 from app.providers.torbox.files import DOWNLOAD_KINDS, DownloadKind
 from app.sync.anime_classification import build_anilist_anime_classifier
@@ -39,6 +40,12 @@ class SyncTorBoxStrmContext:
     api_key: str
 
 
+@dataclass(frozen=True, slots=True)
+class ValidateJellyfinLibraryOptions:
+    library_root: Path | None
+    probe_first_url: bool
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -53,6 +60,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                     resolver_token=args.resolver_token,
                     kinds=cast(tuple[DownloadKind, ...], kinds),
                     max_files=args.max_files,
+                    probe_first_url=args.probe_first_url,
+                )
+            )
+        )
+    if args.command == "validate-jellyfin-library":
+        return asyncio.run(
+            _validate_jellyfin_library(
+                ValidateJellyfinLibraryOptions(
+                    library_root=args.library_root,
                     probe_first_url=args.probe_first_url,
                 )
             )
@@ -108,6 +124,21 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Probe the first generated .strm URL without following or printing redirects.",
     )
+    validate_parser = subparsers.add_parser(
+        "validate-jellyfin-library",
+        help="Validate generated .strm library layout before scanning it in Jellyfin.",
+    )
+    _ = validate_parser.add_argument(
+        "--library-root",
+        type=Path,
+        default=None,
+        help="Generated library output folder. Defaults to STRMLINE_LIBRARY_ROOT.",
+    )
+    _ = validate_parser.add_argument(
+        "--probe-first-url",
+        action="store_true",
+        help="Probe the first .strm URL without following or printing redirects.",
+    )
     return parser
 
 
@@ -153,6 +184,31 @@ async def _sync_torbox_strm(options: SyncTorBoxStrmOptions) -> int:
         lines.append(probe_line)
     _write_output("\n".join(lines) + "\n")
     return 0
+
+
+async def _validate_jellyfin_library(options: ValidateJellyfinLibraryOptions) -> int:
+    settings = get_settings()
+    library_root = options.library_root or settings.library_root
+    report = validate_jellyfin_library(library_root)
+    lines = _validation_summary_lines(library_root, report.warnings, report.errors)
+    lines.extend(
+        (
+            f"Total STRM files: {report.summary.total_files}",
+            f"Movies: {report.summary.category_counts['movies']}",
+            f"Shows: {report.summary.category_counts['shows']}",
+            f"Anime: {report.summary.category_counts['anime']}",
+        )
+    )
+    if options.probe_first_url and report.summary.files:
+        probe_line = await _probe_summary_line(
+            library_root / report.summary.files[0].relative_path,
+            request_timeout=settings.outbound_timeout_seconds,
+        )
+        if probe_line is None:
+            return 1
+        lines.append(probe_line)
+    _write_output("\n".join(lines) + "\n")
+    return 0 if report.ok else 1
 
 
 def _sync_context(
@@ -310,6 +366,30 @@ async def _probe_summary_line(path: Path, *, request_timeout: float) -> str | No
         return None
     response_kind = "redirect" if probe_result.redirected else "direct response"
     return f"First STRM URL probe: status {probe_result.status_code} ({response_kind})."
+
+
+def _validation_summary_lines(
+    library_root: Path,
+    warnings: tuple[LibraryValidationIssue, ...],
+    errors: tuple[LibraryValidationIssue, ...],
+) -> list[str]:
+    lines = [
+        "Jellyfin library validation complete.",
+        f"Status: {'ready' if not errors else 'needs attention'}",
+        f"Library root: {library_root}",
+    ]
+    if warnings:
+        lines.append("Warnings:")
+        lines.extend(_issue_line(issue) for issue in warnings)
+    if errors:
+        lines.append("Errors:")
+        lines.extend(_issue_line(issue) for issue in errors)
+    return lines
+
+
+def _issue_line(issue: LibraryValidationIssue) -> str:
+    path = f" ({issue.relative_path})" if issue.relative_path is not None else ""
+    return f"- [{issue.code}] {issue.message}{path}"
 
 
 async def _persist_sync_result(

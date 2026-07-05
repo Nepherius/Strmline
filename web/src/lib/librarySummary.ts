@@ -21,6 +21,23 @@ export interface LibrarySummary {
   duplicate_groups: LibraryDuplicateGroup[];
 }
 
+export interface LibraryValidationIssue {
+  code: string;
+  message: string;
+  relative_path: string | null;
+}
+
+export interface LibraryValidation {
+  configured: boolean;
+  root: string | null;
+  exists: boolean;
+  ok: boolean;
+  total_files: number;
+  category_counts: Record<LibraryCategory, number>;
+  warnings: LibraryValidationIssue[];
+  errors: LibraryValidationIssue[];
+}
+
 export type SortKey = "title" | "category" | "relative_path";
 export type SortDirection = "asc" | "desc";
 
@@ -59,4 +76,8 @@ export function sortFiles(
 
 export function duplicateFileCount(summary: LibrarySummary): number {
   return summary.duplicate_groups.reduce((total, group) => total + group.files.length, 0);
+}
+
+export function validationIssueCount(validation: LibraryValidation): number {
+  return validation.errors.length + validation.warnings.length;
 }

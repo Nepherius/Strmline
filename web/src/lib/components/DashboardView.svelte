@@ -12,6 +12,7 @@
     type LibraryCategory,
     type LibraryFile,
     type LibrarySummary,
+    type LibraryValidation,
     type SortKey,
   } from "$lib/librarySummary";
   import type { SyncRunResult, SyncStatus } from "$lib/syncApi";
@@ -26,6 +27,8 @@
   export let summary: LibrarySummary | null;
   export let syncResult: SyncRunResult | null;
   export let syncStatus: SyncStatus | null;
+  export let validation: LibraryValidation | null;
+  export let validationIssues: number;
   export let visibleFiles: LibraryFile[];
   export let onRefresh: () => Promise<void>;
   export let onRunSync: () => Promise<void>;
@@ -39,6 +42,10 @@
       dateStyle: "medium",
       timeStyle: "short",
     }).format(new Date(value));
+  }
+
+  function issueKey(issue: { code: string; relative_path: string | null }, index: number): string {
+    return `${issue.code}-${issue.relative_path ?? String(index)}`;
   }
 </script>
 
@@ -91,7 +98,7 @@
   {/if}
 
   {#if summary}
-    <MetricGrid ariaLabel="Library status" columns={5}>
+    <MetricGrid ariaLabel="Library status" columns={6}>
       <MetricCard label="Total files" value={summary.total_files} />
       <MetricCard label="Movies" value={summary.category_counts.movies} />
       <MetricCard label="Shows" value={summary.category_counts.shows} />
@@ -101,9 +108,39 @@
         value={duplicateCount}
         variant={duplicateCount > 0 ? "warn" : "default"}
       />
+      <MetricCard
+        label="Curation issues"
+        value={validationIssues}
+        variant={validationIssues > 0 ? "warn" : "default"}
+      />
     </MetricGrid>
 
     <section class="workbench" aria-label="Generated library browser">
+      {#if validation}
+        <section class="curation" aria-label="Library checks">
+          <div class="section-heading">
+            <h2>Library checks</h2>
+            <span class:ready={validation.ok}>
+              {validation.ok ? "Ready" : "Needs attention"}
+            </span>
+          </div>
+          {#if validation.errors.length > 0 || validation.warnings.length > 0}
+            <div class="issue-list">
+              {#each [...validation.errors, ...validation.warnings].slice(0, 8) as issue, index (issueKey(issue, index))}
+                <article class:error-issue={validation.errors.includes(issue)}>
+                  <strong>{issue.message}</strong>
+                  {#if issue.relative_path}
+                    <code>{issue.relative_path}</code>
+                  {/if}
+                </article>
+              {/each}
+            </div>
+          {:else}
+            <p class="quiet">Generated paths and STRM URLs match the Jellyfin validation rules.</p>
+          {/if}
+        </section>
+      {/if}
+
       <div class="filters">
         <TextField bind:value={query} label="Search" placeholder="Title or path" />
         <div class="segments" aria-label="Category filter">
@@ -242,6 +279,63 @@
 
   .workbench {
     margin-top: 18px;
+  }
+
+  .curation {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 14px;
+    border: 1px solid #d7ded9;
+    border-radius: 6px;
+    padding: 12px;
+    background: #ffffff;
+  }
+
+  .section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .section-heading span {
+    border: 1px solid #d9b66c;
+    border-radius: 999px;
+    padding: 3px 9px;
+    background: #fff9ea;
+    color: #765d1d;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .section-heading span.ready {
+    border-color: #9bc9aa;
+    background: #f0fff4;
+    color: #1f5b42;
+  }
+
+  .issue-list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .issue-list article {
+    display: grid;
+    gap: 6px;
+    border: 1px solid #d9b66c;
+    border-radius: 6px;
+    padding: 10px;
+    background: #fff9ea;
+  }
+
+  .issue-list article.error-issue {
+    border-color: #e1a2a2;
+    background: #fff5f4;
+  }
+
+  .quiet {
+    margin: 0;
+    color: #5b6a61;
   }
 
   .filters {
