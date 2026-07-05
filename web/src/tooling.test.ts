@@ -15,7 +15,11 @@ import {
   settingSourceLabel,
   settingsToFormValues,
 } from "./lib/settings";
-import { buildTmdbConnectionTestPayload, buildTorboxConnectionTestPayload } from "./lib/setupApi";
+import {
+  buildAioStreamsTestPayload,
+  buildTmdbConnectionTestPayload,
+  buildTorboxConnectionTestPayload,
+} from "./lib/setupApi";
 
 describe("frontend tooling", () => {
   it("runs the Vitest suite", () => {
@@ -130,6 +134,23 @@ describe("api helpers", () => {
     });
     expect(buildTmdbConnectionTestPayload(" ")).toEqual({});
   });
+
+  it("builds AIOStreams test payloads from typed values", () => {
+    expect(
+      buildAioStreamsTestPayload(" https://aio.example/manifest.json ", " movie ", " tt0133093 "),
+    ).toEqual({
+      base_url: "https://aio.example/manifest.json",
+      media_type: "movie",
+      media_id: "tt0133093",
+    });
+    expect(buildAioStreamsTestPayload(" ", "movie", "tt0133093")).toEqual({
+      media_type: "movie",
+      media_id: "tt0133093",
+    });
+    expect(buildAioStreamsTestPayload("https://aio.example/manifest.json", "movie", " ")).toEqual({
+      base_url: "https://aio.example/manifest.json",
+    });
+  });
 });
 
 function requestPath(input: RequestInfo | URL): string {
@@ -151,6 +172,9 @@ describe("settings helpers", () => {
         torboxApiKey: "",
         tmdbApiKey: "tmdb",
         resolverToken: "",
+        aiostreamsBaseUrl: " https://aio.example/manifest.json ",
+        aiostreamsMediaType: "movie",
+        aiostreamsMediaId: "tt0133093",
       }),
     ).toEqual({
       base_url: "http://127.0.0.1:8001",
@@ -160,6 +184,7 @@ describe("settings helpers", () => {
       playback_mode: "direct",
       sync_interval_minutes: 120,
       tmdb_api_key: "tmdb",
+      aiostreams_base_url: "https://aio.example/manifest.json",
     });
   });
 
@@ -176,11 +201,13 @@ describe("settings helpers", () => {
         torbox_configured: true,
         tmdb_configured: true,
         resolver_configured: true,
+        aiostreams_configured: true,
         base_url_source: "database",
         library_root_source: "database",
         torbox_source: "database",
         tmdb_source: "database",
         resolver_source: "database",
+        aiostreams_source: "database",
       }),
     ).toEqual({
       baseUrl: "http://127.0.0.1:8001",
@@ -192,6 +219,9 @@ describe("settings helpers", () => {
       torboxApiKey: "",
       tmdbApiKey: "",
       resolverToken: "",
+      aiostreamsBaseUrl: "",
+      aiostreamsMediaType: "movie",
+      aiostreamsMediaId: "",
     });
   });
 

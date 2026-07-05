@@ -2,8 +2,13 @@
   import { onMount } from "svelte";
 
   import { clearSavedSettings, loadSettings, saveSettings } from "$lib/settingsApi";
-  import { loadSetupStatus, testTmdbConnection, testTorboxConnection } from "$lib/setupApi";
-  import type { ConnectionTestResult } from "$lib/setupApi";
+  import {
+    loadSetupStatus,
+    testAioStreamsConnection,
+    testTmdbConnection,
+    testTorboxConnection,
+  } from "$lib/setupApi";
+  import type { AioStreamsTestResult, ConnectionTestResult } from "$lib/setupApi";
   import {
     settingsToFormValues,
     type AppSettings,
@@ -20,11 +25,13 @@
   let saving = false;
   let testingTmdb = false;
   let testingTorbox = false;
+  let testingAioStreams = false;
   let error = "";
   let saved = false;
   let setupRequired = false;
   let tmdbTestResult: ConnectionTestResult | null = null;
   let torboxTestResult: ConnectionTestResult | null = null;
+  let aiostreamsTestResult: AioStreamsTestResult | null = null;
 
   onMount(() => {
     setupRequired = new URLSearchParams(window.location.search).get("required") === "1";
@@ -37,6 +44,7 @@
     saved = false;
     tmdbTestResult = null;
     torboxTestResult = null;
+    aiostreamsTestResult = null;
     try {
       const [nextSettings, nextStatus] = await Promise.all([loadSettings(), loadSetupStatus()]);
       settings = nextSettings;
@@ -56,6 +64,7 @@
     saved = false;
     tmdbTestResult = null;
     torboxTestResult = null;
+    aiostreamsTestResult = null;
     try {
       settings = await saveSettings(withBrowserBaseUrl(values));
       values = withBrowserBaseUrl(settingsToFormValues(settings));
@@ -75,6 +84,7 @@
     saved = false;
     tmdbTestResult = null;
     torboxTestResult = null;
+    aiostreamsTestResult = null;
     try {
       settings = await clearSavedSettings();
       values = withBrowserBaseUrl(settingsToFormValues(settings));
@@ -121,6 +131,33 @@
     }
   }
 
+  async function testAioStreamsSetup() {
+    testingAioStreams = true;
+    error = "";
+    aiostreamsTestResult = null;
+    try {
+      aiostreamsTestResult = await testAioStreamsConnection(
+        values.aiostreamsBaseUrl,
+        values.aiostreamsMediaType,
+        values.aiostreamsMediaId,
+      );
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
+      aiostreamsTestResult = {
+        ok: false,
+        message: `AIOStreams test unavailable. ${message}`,
+        addon_name: null,
+        addon_version: null,
+        resources: [],
+        types: [],
+        stream_count: null,
+        streams: [],
+      };
+    } finally {
+      testingAioStreams = false;
+    }
+  }
+
   function withBrowserBaseUrl(nextValues: SettingsFormValues): SettingsFormValues {
     return {
       ...nextValues,
@@ -140,6 +177,8 @@
   {setupStatus}
   {testingTmdb}
   {testingTorbox}
+  {testingAioStreams}
+  {aiostreamsTestResult}
   {tmdbTestResult}
   {torboxTestResult}
   onClear={clearSavedSetup}
@@ -147,4 +186,5 @@
   onSave={saveSetup}
   onTestTmdb={testTmdbSetup}
   onTestTorbox={testTorboxSetup}
+  onTestAioStreams={testAioStreamsSetup}
 />

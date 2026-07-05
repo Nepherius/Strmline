@@ -25,11 +25,13 @@ class SettingsResponse(BaseModel):
     torbox_configured: bool
     tmdb_configured: bool
     resolver_configured: bool
+    aiostreams_configured: bool
     base_url_source: str | None
     library_root_source: str | None
     torbox_source: str | None
     tmdb_source: str | None
     resolver_source: str | None
+    aiostreams_source: str | None
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -42,6 +44,7 @@ class SettingsUpdateRequest(BaseModel):
     torbox_api_key: str | None = Field(default=None, min_length=1)
     tmdb_api_key: str | None = Field(default=None, min_length=1)
     resolver_token: str | None = Field(default=None, min_length=1)
+    aiostreams_base_url: str | None = Field(default=None, min_length=1)
 
 
 async def get_settings_repository(
@@ -77,6 +80,7 @@ async def update_settings(
                 torbox_api_key=request.torbox_api_key,
                 tmdb_api_key=request.tmdb_api_key,
                 resolver_token=request.resolver_token,
+                aiostreams_base_url=request.aiostreams_base_url,
             )
         )
     except RuntimeError as error:

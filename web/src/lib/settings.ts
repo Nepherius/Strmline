@@ -12,11 +12,13 @@ export interface AppSettings {
   torbox_configured: boolean;
   tmdb_configured: boolean;
   resolver_configured: boolean;
+  aiostreams_configured: boolean;
   base_url_source: SettingSource;
   library_root_source: SettingSource;
   torbox_source: SettingSource;
   tmdb_source: SettingSource;
   resolver_source: SettingSource;
+  aiostreams_source: SettingSource;
 }
 
 export interface SetupStatus {
@@ -34,6 +36,9 @@ export interface SettingsFormValues {
   torboxApiKey: string;
   tmdbApiKey: string;
   resolverToken: string;
+  aiostreamsBaseUrl: string;
+  aiostreamsMediaType: string;
+  aiostreamsMediaId: string;
 }
 
 export type SettingsPayload = Record<string, boolean | number | string>;
@@ -49,6 +54,7 @@ export function buildSettingsPayload(values: SettingsFormValues): SettingsPayloa
   setIfPresent(payload, "torbox_api_key", values.torboxApiKey);
   setIfPresent(payload, "tmdb_api_key", values.tmdbApiKey);
   setIfPresent(payload, "resolver_token", values.resolverToken);
+  setIfPresent(payload, "aiostreams_base_url", values.aiostreamsBaseUrl);
   return payload;
 }
 
@@ -63,6 +69,9 @@ export function settingsToFormValues(settings: AppSettings | null): SettingsForm
     torboxApiKey: "",
     tmdbApiKey: "",
     resolverToken: "",
+    aiostreamsBaseUrl: "",
+    aiostreamsMediaType: "movie",
+    aiostreamsMediaId: "",
   };
 }
 

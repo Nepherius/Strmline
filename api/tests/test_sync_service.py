@@ -123,6 +123,7 @@ def fake_settings_repository(library_root: Path) -> type:
                 torbox_configured=True,
                 tmdb_configured=True,
                 resolver_configured=True,
+                aiostreams_configured=False,
             )
 
         async def provider_api_key(self, provider: object) -> str:

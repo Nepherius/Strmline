@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.aiostreams import router as aiostreams_router
 from app.api.health import router as health_router
 from app.api.library import router as library_router
 from app.api.resolver import router as resolver_router
@@ -24,6 +25,7 @@ def create_app() -> FastAPI:
         allow_methods=list(settings.cors_methods),
         allow_headers=list(settings.cors_headers),
     )
+    app.include_router(aiostreams_router)
     app.include_router(health_router)
     app.include_router(library_router)
     app.include_router(resolver_router)

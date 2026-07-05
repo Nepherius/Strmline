@@ -14,7 +14,11 @@
     type SettingsFormValues,
     type SetupStatus,
   } from "$lib/settings";
-  import type { ConnectionTestResult } from "$lib/setupApi";
+  import type {
+    AioStreamsStreamPreview,
+    AioStreamsTestResult,
+    ConnectionTestResult,
+  } from "$lib/setupApi";
 
   export let values: SettingsFormValues;
   export let error: string;
@@ -24,13 +28,16 @@
   export let setupRequired: boolean;
   export let settings: AppSettings | null;
   export let setupStatus: SetupStatus | null;
+  export let testingAioStreams: boolean;
   export let testingTmdb: boolean;
   export let testingTorbox: boolean;
+  export let aiostreamsTestResult: AioStreamsTestResult | null;
   export let tmdbTestResult: ConnectionTestResult | null;
   export let torboxTestResult: ConnectionTestResult | null;
   export let onClear: () => Promise<void>;
   export let onRefresh: () => Promise<void>;
   export let onSave: () => Promise<void>;
+  export let onTestAioStreams: () => Promise<void>;
   export let onTestTmdb: () => Promise<void>;
   export let onTestTorbox: () => Promise<void>;
 
@@ -39,6 +46,22 @@
     { label: "Resolver", value: "resolver" },
     { label: "Direct URLs", value: "direct" },
   ];
+  const aiostreamsTypeOptions = [
+    { label: "Movie", value: "movie" },
+    { label: "Series", value: "series" },
+    { label: "Anime", value: "anime" },
+  ];
+
+  function streamFilename(stream: AioStreamsStreamPreview): string {
+    return stream.behavior_hints.filename ?? stream.title ?? stream.name ?? "Unknown stream";
+  }
+
+  function streamSize(stream: AioStreamsStreamPreview): string {
+    const size = stream.behavior_hints.videoSize;
+    if (typeof size !== "number") return "";
+    const gib = size / 1024 ** 3;
+    return `${gib.toFixed(gib >= 100 ? 0 : 1)} GB`;
+  }
 </script>
 
 <svelte:head>
@@ -123,6 +146,24 @@
       placeholder={settings?.resolver_configured ? "******" : ""}
       type="password"
     />
+    <TextField
+      bind:value={values.aiostreamsBaseUrl}
+      autocomplete="off"
+      label="AIOStreams URL"
+      placeholder={settings?.aiostreams_configured ? "******" : "https://.../manifest.json"}
+      type="password"
+    />
+    <SegmentedControl
+      bind:value={values.aiostreamsMediaType}
+      label="AIOStreams preview type"
+      options={aiostreamsTypeOptions}
+    />
+    <TextField
+      bind:value={values.aiostreamsMediaId}
+      autocomplete="off"
+      label="AIOStreams preview ID"
+      placeholder="tt0133093"
+    />
     <fieldset class="category-options">
       <legend>Categories</legend>
       <CheckboxField bind:checked={values.moviesEnabled} label="Movies" />
@@ -147,6 +188,14 @@
       >
         {testingTmdb ? "Testing TMDB" : "Test TMDB"}
       </UiButton>
+      <UiButton
+        type="button"
+        variant="secondary"
+        disabled={saving || testingAioStreams}
+        on:click={onTestAioStreams}
+      >
+        {testingAioStreams ? "Testing AIOStreams" : "Test AIOStreams"}
+      </UiButton>
       <UiButton type="button" variant="secondary" disabled={saving} on:click={onClear}>
         Clear saved setup
       </UiButton>
@@ -160,7 +209,28 @@
           {tmdbTestResult.message}
         </span>
       {/if}
+      {#if aiostreamsTestResult}
+        <span class:ok={aiostreamsTestResult.ok} class:error-text={!aiostreamsTestResult.ok}>
+          {aiostreamsTestResult.message}
+          {#if aiostreamsTestResult.stream_count !== null}
+            {aiostreamsTestResult.stream_count} candidates.
+          {/if}
+        </span>
+      {/if}
     </div>
+    {#if aiostreamsTestResult?.streams.length}
+      <section class="stream-preview" aria-label="AIOStreams stream preview">
+        {#each aiostreamsTestResult.streams as stream, index (`${stream.name ?? "stream"}-${String(index)}`)}
+          <article>
+            <div>
+              <strong>{stream.name ?? "Unnamed stream"}</strong>
+              <span>{streamSize(stream)}</span>
+            </div>
+            <p>{streamFilename(stream)}</p>
+          </article>
+        {/each}
+      </section>
+    {/if}
   </form>
 </AppShell>
 
@@ -274,6 +344,7 @@
   }
 
   .actions {
+    grid-column: 1 / -1;
     display: flex;
     align-self: end;
     align-items: center;
@@ -293,6 +364,49 @@
 
   .actions span.error-text {
     color: #8e251f;
+  }
+
+  .stream-preview {
+    display: grid;
+    grid-column: 1 / -1;
+    gap: 8px;
+  }
+
+  .stream-preview article {
+    display: grid;
+    gap: 4px;
+    border: 1px solid #d7ded9;
+    border-radius: 6px;
+    padding: 10px;
+    background: #f9fbfa;
+  }
+
+  .stream-preview div {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .stream-preview strong,
+  .stream-preview span,
+  .stream-preview p {
+    overflow-wrap: anywhere;
+  }
+
+  .stream-preview strong {
+    font-size: 13px;
+  }
+
+  .stream-preview span {
+    color: #526057;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .stream-preview p {
+    margin: 0;
+    color: #526057;
+    font-size: 13px;
   }
 
   @media (max-width: 760px) {

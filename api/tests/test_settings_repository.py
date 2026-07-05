@@ -98,10 +98,12 @@ async def test_settings_repository_saves_public_values_and_secrets() -> None:
             FakeResult(),  # missing tmdb credential
             FakeResult(),  # missing resolver hash
             FakeResult(),  # missing resolver token credential
+            FakeResult(),  # missing aiostreams base URL credential
             FakeResult(scalars=[]),  # snapshot app settings
             FakeResult(scalar=1),  # torbox configured
             FakeResult(scalar=2),  # tmdb configured
             FakeResult(scalar=3),  # resolver configured
+            FakeResult(scalar=4),  # aiostreams configured
         ]
     )
     app_secret = SecretStr("app-secret")
@@ -122,6 +124,7 @@ async def test_settings_repository_saves_public_values_and_secrets() -> None:
             torbox_api_key="torbox-secret",
             tmdb_api_key="tmdb-secret",
             resolver_token=resolver_secret,
+            aiostreams_base_url="https://aio.example/manifest.json",
         )
     )
 
@@ -140,9 +143,10 @@ async def test_settings_repository_saves_public_values_and_secrets() -> None:
     assert merged_settings[5].value == {"value": 120}
     credentials = [item for item in session.added if isinstance(item, ProviderCredential)]
     resolver_tokens = [item for item in session.added if isinstance(item, ResolverToken)]
-    assert len(credentials) == 3
+    assert len(credentials) == 4
     assert all("secret" not in credential.encrypted_value for credential in credentials)
     assert {credential.provider for credential in credentials} == {
+        "aiostreams",
         "resolver",
         "tmdb",
         "torbox",
@@ -155,6 +159,8 @@ async def test_settings_repository_saves_public_values_and_secrets() -> None:
     assert snapshot.torbox_source == "database"
     assert snapshot.tmdb_source == "database"
     assert snapshot.resolver_source == "database"
+    assert snapshot.aiostreams_configured is True
+    assert snapshot.aiostreams_source == "database"
 
 
 @pytest.mark.asyncio
@@ -174,6 +180,7 @@ async def test_settings_repository_reads_database_values_when_env_is_missing() -
             FakeResult(scalar=1),
             FakeResult(scalar=None),
             FakeResult(scalar=3),
+            FakeResult(scalar=4),
         ]
     )
     repository = AppSettingsRepository(
@@ -193,11 +200,13 @@ async def test_settings_repository_reads_database_values_when_env_is_missing() -
     assert snapshot.torbox_configured is True
     assert snapshot.tmdb_configured is False
     assert snapshot.resolver_configured is True
+    assert snapshot.aiostreams_configured is True
     assert snapshot.base_url_source == "database"
     assert snapshot.library_root_source == "environment"
     assert snapshot.torbox_source == "database"
     assert snapshot.tmdb_source is None
     assert snapshot.resolver_source == "database"
+    assert snapshot.aiostreams_source == "database"
 
 
 @pytest.mark.asyncio
@@ -205,6 +214,7 @@ async def test_settings_repository_reports_resolver_source_from_saved_secret() -
     session = FakeSession(
         [
             FakeResult(scalars=[]),
+            FakeResult(scalar=None),
             FakeResult(scalar=None),
             FakeResult(scalar=None),
             FakeResult(scalar=None),
@@ -222,6 +232,8 @@ async def test_settings_repository_reports_resolver_source_from_saved_secret() -
     assert "resolver_tokens" not in resolver_statement
     assert snapshot.resolver_configured is False
     assert snapshot.resolver_source is None
+    assert snapshot.aiostreams_configured is False
+    assert snapshot.aiostreams_source is None
 
 
 @pytest.mark.asyncio
@@ -239,6 +251,7 @@ async def test_settings_repository_reports_environment_sources() -> None:
             torbox_api_key=SecretStr("torbox"),
             tmdb_api_key=SecretStr("tmdb"),
             resolver_token=SecretStr("resolver"),
+            aiostreams_base_url=SecretStr("https://aio.example/manifest.json"),
             playback_mode="direct",
             sync_interval_minutes=180,
         ),
@@ -251,6 +264,8 @@ async def test_settings_repository_reports_environment_sources() -> None:
     assert snapshot.torbox_source == "environment"
     assert snapshot.tmdb_source == "environment"
     assert snapshot.resolver_source == "environment"
+    assert snapshot.aiostreams_source == "environment"
+    assert snapshot.aiostreams_configured is True
     assert snapshot.playback_mode == "direct"
     assert snapshot.sync_interval_minutes == 180
 
@@ -308,3 +323,36 @@ async def test_settings_repository_reads_saved_resolver_token() -> None:
     )
 
     assert await repository.resolver_token_value() == "resolver-secret"
+
+
+@pytest.mark.asyncio
+async def test_settings_repository_reads_saved_aiostreams_url() -> None:
+    box = SecretBox("app-secret")
+    session = FakeSession(
+        [
+            FakeResult(
+                scalar=ProviderCredential(
+                    provider="aiostreams",
+                    credential_name="base_url",
+                    encrypted_value=box.seal("https://aio.example/manifest.json"),
+                )
+            ),
+        ]
+    )
+    repository = AppSettingsRepository(
+        cast(AsyncSession, session),
+        Settings(app_secret_key=SecretStr("app-secret")),
+    )
+
+    assert await repository.aiostreams_base_url_value() == "https://aio.example/manifest.json"
+
+
+@pytest.mark.asyncio
+async def test_settings_repository_prefers_environment_aiostreams_url() -> None:
+    session = FakeSession([])
+    repository = AppSettingsRepository(
+        cast(AsyncSession, session),
+        Settings(aiostreams_base_url=SecretStr("https://env-aio.example/manifest.json")),
+    )
+
+    assert await repository.aiostreams_base_url_value() == "https://env-aio.example/manifest.json"

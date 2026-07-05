@@ -65,6 +65,19 @@ def test_validate_jellyfin_library_rejects_strm_outside_categories(tmp_path: Pat
     assert report.errors[0].code == "strm_outside_category"
 
 
+def test_validate_jellyfin_library_allows_absent_empty_categories(tmp_path: Path) -> None:
+    _write_strm(
+        tmp_path / "movies" / "Movie Name (2024)" / "Movie Name (2024).strm",
+        "http://127.0.0.1:8001/play/movie?token=secret",
+    )
+
+    report = validate_jellyfin_library(tmp_path)
+
+    assert report.ok is True
+    assert report.summary.category_counts == {"movies": 1, "shows": 0, "anime": 0}
+    assert report.warnings == ()
+
+
 def test_validate_jellyfin_library_reports_missing_root(tmp_path: Path) -> None:
     report = validate_jellyfin_library(tmp_path / "missing")
 

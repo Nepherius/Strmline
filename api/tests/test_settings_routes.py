@@ -23,11 +23,13 @@ class FakeSettingsRepository:
             torbox_configured=True,
             tmdb_configured=False,
             resolver_configured=True,
+            aiostreams_configured=False,
             base_url_source="database",
             library_root_source="database",
             torbox_source="environment",
             tmdb_source=None,
             resolver_source="environment",
+            aiostreams_source=None,
         )
         self.saved_update: AppSettingsUpdate | None = None
 
@@ -68,9 +70,14 @@ class FakeSettingsRepository:
             tmdb_configured=update.tmdb_api_key is not None or self.snapshot.tmdb_configured,
             resolver_configured=update.resolver_token is not None
             or self.snapshot.resolver_configured,
+            aiostreams_configured=update.aiostreams_base_url is not None
+            or self.snapshot.aiostreams_configured,
             tmdb_source="database"
             if update.tmdb_api_key is not None
             else self.snapshot.tmdb_source,
+            aiostreams_source="database"
+            if update.aiostreams_base_url is not None
+            else self.snapshot.aiostreams_source,
         )
         return self.snapshot
 
@@ -87,11 +94,13 @@ class FakeSettingsRepository:
             torbox_configured=False,
             tmdb_configured=False,
             resolver_configured=False,
+            aiostreams_configured=False,
             base_url_source=None,
             library_root_source=None,
             torbox_source=None,
             tmdb_source=None,
             resolver_source=None,
+            aiostreams_source=None,
         )
         return self.snapshot
 
@@ -118,11 +127,13 @@ async def test_settings_route_returns_redacted_configuration() -> None:
         "torbox_configured": True,
         "tmdb_configured": False,
         "resolver_configured": True,
+        "aiostreams_configured": False,
         "base_url_source": "database",
         "library_root_source": "database",
         "torbox_source": "environment",
         "tmdb_source": None,
         "resolver_source": "environment",
+        "aiostreams_source": None,
     }
 
 
@@ -146,18 +157,23 @@ async def test_settings_route_saves_secrets_without_returning_them() -> None:
                 "torbox_api_key": "torbox-secret",
                 "tmdb_api_key": "tmdb-secret",
                 "resolver_token": "resolver-secret",
+                "aiostreams_base_url": "https://aio.example/manifest.json",
             },
         )
 
     assert response.status_code == httpx.codes.OK
     assert "secret" not in response.text
+    assert "aio.example" not in response.text
     assert repository.saved_update is not None
     assert repository.saved_update.torbox_api_key == "torbox-secret"
+    assert repository.saved_update.aiostreams_base_url == "https://aio.example/manifest.json"
     assert repository.saved_update.shows_enabled is False
     assert repository.saved_update.playback_mode == "direct"
     assert repository.saved_update.sync_interval_minutes == 120
     assert response.json()["tmdb_configured"] is True
     assert response.json()["tmdb_source"] == "database"
+    assert response.json()["aiostreams_configured"] is True
+    assert response.json()["aiostreams_source"] == "database"
 
 
 @pytest.mark.asyncio
@@ -206,6 +222,7 @@ async def test_settings_route_clears_saved_setup() -> None:
     assert response.json()["torbox_source"] is None
     assert response.json()["tmdb_source"] is None
     assert response.json()["resolver_source"] is None
+    assert response.json()["aiostreams_source"] is None
     assert response.json()["anime_enabled"] is True
 
 

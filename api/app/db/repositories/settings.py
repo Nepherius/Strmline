@@ -32,11 +32,13 @@ class SettingsSnapshot:
     torbox_configured: bool
     tmdb_configured: bool
     resolver_configured: bool
+    aiostreams_configured: bool
     base_url_source: SettingSource | None = None
     library_root_source: SettingSource | None = None
     torbox_source: SettingSource | None = None
     tmdb_source: SettingSource | None = None
     resolver_source: SettingSource | None = None
+    aiostreams_source: SettingSource | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +52,7 @@ class AppSettingsUpdate:
     torbox_api_key: str | None = None
     tmdb_api_key: str | None = None
     resolver_token: str | None = None
+    aiostreams_base_url: str | None = None
 
 
 class AppSettingsRepository:
@@ -73,6 +76,11 @@ class AppSettingsRepository:
         resolver_source = await self._resolver_source(
             env_configured=self._settings.resolver_token is not None,
         )
+        aiostreams_source = await self._secret_source(
+            env_configured=self._settings.aiostreams_base_url is not None,
+            provider="aiostreams",
+            name="base_url",
+        )
         return SettingsSnapshot(
             base_url=self._settings.base_url or database_base_url,
             library_root=str(self._settings.library_root),
@@ -94,6 +102,7 @@ class AppSettingsRepository:
             torbox_configured=torbox_source is not None,
             tmdb_configured=tmdb_source is not None,
             resolver_configured=resolver_source is not None,
+            aiostreams_configured=aiostreams_source is not None,
             base_url_source=_plain_setting_source(
                 env_configured=self._settings.base_url is not None,
                 database_configured=database_base_url is not None,
@@ -102,6 +111,7 @@ class AppSettingsRepository:
             torbox_source=torbox_source,
             tmdb_source=tmdb_source,
             resolver_source=resolver_source,
+            aiostreams_source=aiostreams_source,
         )
 
     async def save(self, update: AppSettingsUpdate) -> SettingsSnapshot:
@@ -113,6 +123,12 @@ class AppSettingsRepository:
         if update.resolver_token is not None:
             await self._save_resolver_token(update.resolver_token)
             await self._save_provider_secret("resolver", "token", update.resolver_token)
+        if update.aiostreams_base_url is not None:
+            await self._save_provider_secret(
+                "aiostreams",
+                "base_url",
+                update.aiostreams_base_url,
+            )
         await self._session.commit()
         return await self.snapshot_with_env()
 
@@ -138,6 +154,12 @@ class AppSettingsRepository:
             delete(ProviderCredential).where(
                 ProviderCredential.provider.in_(("resolver", "torbox", "tmdb")),
                 ProviderCredential.credential_name == "api_key",
+            )
+        )
+        _ = await self._session.execute(
+            delete(ProviderCredential).where(
+                ProviderCredential.provider == "aiostreams",
+                ProviderCredential.credential_name == "base_url",
             )
         )
         _ = await self._session.execute(
@@ -273,6 +295,14 @@ class AppSettingsRepository:
         if provider == "tmdb" and self._settings.tmdb_api_key is not None:
             return self._settings.tmdb_api_key.get_secret_value()
         return None
+
+    async def aiostreams_base_url_value(self) -> str | None:
+        if self._settings.aiostreams_base_url is not None:
+            return self._settings.aiostreams_base_url.get_secret_value()
+        credential = await self._provider_credential("aiostreams", "base_url")
+        if credential is None:
+            return None
+        return self._secret_box().open(credential.encrypted_value)
 
 
 def _setting_value(rows: dict[str, AppSetting], key: str) -> str | None:

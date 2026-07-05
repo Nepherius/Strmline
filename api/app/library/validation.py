@@ -67,15 +67,6 @@ def _add_category_warnings(
                 message="No STRM files were found. Run a sync before adding libraries in Jellyfin.",
             )
         )
-    warnings.extend(
-        LibraryValidationIssue(
-            code="category_folder_missing",
-            message=f"{category} folder does not exist.",
-            relative_path=category,
-        )
-        for category in LIBRARY_CATEGORIES
-        if not (summary.root / category).exists()
-    )
 
 
 def _strm_files_outside_categories(root: Path) -> list[LibraryValidationIssue]:
