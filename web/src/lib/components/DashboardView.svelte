@@ -15,7 +15,6 @@
     type SortKey,
   } from "$lib/librarySummary";
   import type { SyncRunResult, SyncStatus } from "$lib/syncApi";
-  import { syncStatusLabel, syncStatusVariant } from "$lib/syncPresentation";
 
   export let category: LibraryCategory | "all";
   export let query: string;
@@ -32,7 +31,6 @@
   export let onRunSync: () => Promise<void>;
   export let onSort: (sortKey: SortKey) => void;
 
-  $: lastRun = syncStatus?.last_run ?? null;
   $: recentErrors = syncStatus?.recent_errors ?? [];
 
   function formatDateTime(value: string | null): string {
@@ -70,33 +68,7 @@
   {/if}
 
   {#if syncResult}
-    <Notice variant="success">
-      Sync #{syncResult.sync_run_id}: {syncResult.written_files} files written,
-      {syncResult.skipped_files} skipped.
-    </Notice>
-  {/if}
-
-  {#if lastRun}
-    <MetricGrid ariaLabel="Sync status" columns={4}>
-      <MetricCard
-        label="Last sync"
-        value={syncStatusLabel(lastRun.status)}
-        variant={syncStatusVariant(lastRun.status)}
-      />
-      <MetricCard label="Scanned" value={lastRun.scanned_count} />
-      <MetricCard label="Written" value={lastRun.written_count} />
-      <MetricCard
-        label="Skipped"
-        value={lastRun.skipped_count}
-        variant={lastRun.skipped_count > 0 ? "warn" : "default"}
-      />
-    </MetricGrid>
-
-    <section class="sync-detail" aria-label="Last sync details">
-      <span>Run #{lastRun.id}</span>
-      <code>Started {formatDateTime(lastRun.started_at)}</code>
-      <code>Finished {formatDateTime(lastRun.finished_at)}</code>
-    </section>
+    <Notice variant="success">Sync #{syncResult.sync_run_id} completed. Library refreshed.</Notice>
   {/if}
 
   {#if recentErrors.length > 0}
@@ -130,11 +102,6 @@
         variant={duplicateCount > 0 ? "warn" : "default"}
       />
     </MetricGrid>
-
-    <section class="library-root" aria-label="Library root">
-      <span>{summary.exists ? "Library root" : "Missing library root"}</span>
-      <code>{summary.root ?? "Not configured"}</code>
-    </section>
 
     <section class="workbench" aria-label="Generated library browser">
       <div class="filters">
@@ -231,44 +198,9 @@
     align-items: end;
   }
 
-  .library-root {
-    display: grid;
-    gap: 6px;
-    margin-top: 12px;
-    border: 1px solid #d7ded9;
-    border-radius: 6px;
-    padding: 12px;
-    background: #ffffff;
-  }
-
-  .library-root span {
-    color: #5b6a61;
-    font-size: 12px;
-    font-weight: 700;
-    text-transform: uppercase;
-  }
-
   code {
     font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
     font-size: 12px;
-  }
-
-  .sync-detail {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 14px;
-    align-items: center;
-    margin-top: 10px;
-    border: 1px solid #d7ded9;
-    border-radius: 6px;
-    padding: 10px 12px;
-    background: #ffffff;
-  }
-
-  .sync-detail span {
-    color: #24352d;
-    font-size: 13px;
-    font-weight: 800;
   }
 
   .sync-errors {

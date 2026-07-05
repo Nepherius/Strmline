@@ -18,7 +18,6 @@ router = APIRouter(prefix="/api/setup", tags=["setup"])
 SETUP_FIELDS = (
     "base_url",
     "database_url",
-    "library_root",
     "resolver_token",
     "tmdb_api_key",
     "torbox_api_key",
@@ -109,8 +108,6 @@ async def setup_missing_fields(session: AsyncSession | None) -> list[str]:
         or (snapshot is not None and snapshot.base_url is not None)
         or direct_playback,
         "database_url": settings.database_url is not None,
-        "library_root": settings.library_root is not None
-        or (snapshot is not None and snapshot.library_root is not None),
         "resolver_token": settings.resolver_token is not None
         or (snapshot is not None and snapshot.resolver_configured)
         or direct_playback,

@@ -39,7 +39,6 @@ class FakeSettingsRepository:
         self.snapshot = replace(
             self.snapshot,
             base_url=update.base_url or self.snapshot.base_url,
-            library_root=update.library_root or self.snapshot.library_root,
             movies_enabled=(
                 update.movies_enabled
                 if update.movies_enabled is not None
@@ -139,7 +138,6 @@ async def test_settings_route_saves_secrets_without_returning_them() -> None:
             "/api/settings",
             json={
                 "base_url": "http://127.0.0.1:8001",
-                "library_root": "/var/lib/strmline-library",
                 "movies_enabled": True,
                 "shows_enabled": False,
                 "anime_enabled": True,

@@ -11,7 +11,8 @@ from app.core.config import get_settings
 def require_database_url() -> str:
     database_url = get_settings().database_url
     if database_url is None:
-        raise RuntimeError("STRMLINE_DATABASE_URL must be configured before using the database.")
+        message = "STRMLINE_DATABASE_URL or STRMLINE_POSTGRES_HOST and STRMLINE_POSTGRES_PASSWORD must be configured before using the database."
+        raise RuntimeError(message)
     return normalize_async_database_url(database_url)
 
 

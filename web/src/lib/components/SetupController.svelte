@@ -22,10 +22,12 @@
   let testingTorbox = false;
   let error = "";
   let saved = false;
+  let setupRequired = false;
   let tmdbTestResult: ConnectionTestResult | null = null;
   let torboxTestResult: ConnectionTestResult | null = null;
 
   onMount(() => {
+    setupRequired = new URLSearchParams(window.location.search).get("required") === "1";
     void loadSetup();
   });
 
@@ -39,7 +41,7 @@
       const [nextSettings, nextStatus] = await Promise.all([loadSettings(), loadSetupStatus()]);
       settings = nextSettings;
       setupStatus = nextStatus;
-      values = settingsToFormValues(settings);
+      values = withBrowserBaseUrl(settingsToFormValues(settings));
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
       error = `Setup status unavailable. ${message}`;
@@ -55,8 +57,8 @@
     tmdbTestResult = null;
     torboxTestResult = null;
     try {
-      settings = await saveSettings(values);
-      values = settingsToFormValues(settings);
+      settings = await saveSettings(withBrowserBaseUrl(values));
+      values = withBrowserBaseUrl(settingsToFormValues(settings));
       saved = true;
       await loadSetup();
     } catch (caughtError) {
@@ -75,7 +77,7 @@
     torboxTestResult = null;
     try {
       settings = await clearSavedSettings();
-      values = settingsToFormValues(settings);
+      values = withBrowserBaseUrl(settingsToFormValues(settings));
       await loadSetup();
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
@@ -118,6 +120,13 @@
       testingTmdb = false;
     }
   }
+
+  function withBrowserBaseUrl(nextValues: SettingsFormValues): SettingsFormValues {
+    return {
+      ...nextValues,
+      baseUrl: window.location.origin,
+    };
+  }
 </script>
 
 <SetupView
@@ -126,6 +135,7 @@
   {loading}
   {saved}
   {saving}
+  {setupRequired}
   {settings}
   {setupStatus}
   {testingTmdb}

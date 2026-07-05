@@ -8,6 +8,7 @@ from app.api.settings import router as settings_router
 from app.api.setup import router as setup_router
 from app.api.sync import router as sync_router
 from app.core.config import get_settings
+from app.static_ui import mount_static_ui
 
 
 def create_app() -> FastAPI:
@@ -29,6 +30,7 @@ def create_app() -> FastAPI:
     app.include_router(settings_router)
     app.include_router(setup_router)
     app.include_router(sync_router)
+    mount_static_ui(app, settings.static_dir)
     return app
 
 

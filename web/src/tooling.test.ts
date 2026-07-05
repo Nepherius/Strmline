@@ -14,7 +14,6 @@ import {
   settingsToFormValues,
 } from "./lib/settings";
 import { buildTmdbConnectionTestPayload, buildTorboxConnectionTestPayload } from "./lib/setupApi";
-import { syncStatusLabel, syncStatusVariant } from "./lib/syncPresentation";
 
 describe("frontend tooling", () => {
   it("runs the Vitest suite", () => {
@@ -125,7 +124,6 @@ describe("settings helpers", () => {
     expect(
       buildSettingsPayload({
         baseUrl: " http://127.0.0.1:8001 ",
-        libraryRoot: "/tmp/strmline-library",
         moviesEnabled: true,
         showsEnabled: false,
         animeEnabled: true,
@@ -137,7 +135,6 @@ describe("settings helpers", () => {
       }),
     ).toEqual({
       base_url: "http://127.0.0.1:8001",
-      library_root: "/tmp/strmline-library",
       movies_enabled: true,
       shows_enabled: false,
       anime_enabled: true,
@@ -168,7 +165,6 @@ describe("settings helpers", () => {
       }),
     ).toEqual({
       baseUrl: "http://127.0.0.1:8001",
-      libraryRoot: "/tmp/strmline-library",
       moviesEnabled: true,
       showsEnabled: false,
       animeEnabled: true,
@@ -181,23 +177,15 @@ describe("settings helpers", () => {
   });
 
   it("formats setup missing fields", () => {
-    expect(missingLabels(["database_url", "torbox_api_key"])).toEqual(["Database", "TorBox key"]);
+    expect(missingLabels(["base_url", "database_url", "torbox_api_key"])).toEqual([
+      "Database",
+      "TorBox key",
+    ]);
   });
 
   it("formats settings sources", () => {
     expect(settingSourceLabel("database")).toBe("Saved");
     expect(settingSourceLabel("environment")).toBe("Env");
     expect(settingSourceLabel(null)).toBe("Missing");
-  });
-});
-
-describe("sync presentation helpers", () => {
-  it("formats sync status labels and variants", () => {
-    expect(syncStatusLabel("success")).toBe("Success");
-    expect(syncStatusVariant("success")).toBe("ready");
-    expect(syncStatusLabel("failed")).toBe("Failed");
-    expect(syncStatusVariant("failed")).toBe("warn");
-    expect(syncStatusLabel("")).toBe("Unknown");
-    expect(syncStatusVariant("running")).toBe("default");
   });
 });

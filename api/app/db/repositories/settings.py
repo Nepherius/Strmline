@@ -42,7 +42,6 @@ class SettingsSnapshot:
 @dataclass(frozen=True, slots=True)
 class AppSettingsUpdate:
     base_url: str | None = None
-    library_root: str | None = None
     movies_enabled: bool | None = None
     shows_enabled: bool | None = None
     anime_enabled: bool | None = None
@@ -61,7 +60,6 @@ class AppSettingsRepository:
     async def snapshot_with_env(self) -> SettingsSnapshot:
         rows = await self._app_settings()
         database_base_url = _setting_value(rows, "base_url")
-        database_library_root = _setting_value(rows, "library_root")
         torbox_source = await self._secret_source(
             env_configured=self._settings.torbox_api_key is not None,
             provider="torbox",
@@ -77,11 +75,7 @@ class AppSettingsRepository:
         )
         return SettingsSnapshot(
             base_url=self._settings.base_url or database_base_url,
-            library_root=(
-                str(self._settings.library_root)
-                if self._settings.library_root is not None
-                else database_library_root
-            ),
+            library_root=str(self._settings.library_root),
             movies_enabled=_setting_bool(rows, "movies_enabled", default=True),
             shows_enabled=_setting_bool(rows, "shows_enabled", default=True),
             anime_enabled=_setting_bool(rows, "anime_enabled", default=True),
@@ -104,10 +98,7 @@ class AppSettingsRepository:
                 env_configured=self._settings.base_url is not None,
                 database_configured=database_base_url is not None,
             ),
-            library_root_source=_plain_setting_source(
-                env_configured=self._settings.library_root is not None,
-                database_configured=database_library_root is not None,
-            ),
+            library_root_source="environment",
             torbox_source=torbox_source,
             tmdb_source=tmdb_source,
             resolver_source=resolver_source,
@@ -183,7 +174,6 @@ class AppSettingsRepository:
     async def _save_public_settings(self, update: AppSettingsUpdate) -> None:
         public_settings: tuple[tuple[str, bool | int | str | None], ...] = (
             ("base_url", update.base_url),
-            ("library_root", update.library_root),
             ("movies_enabled", update.movies_enabled),
             ("shows_enabled", update.shows_enabled),
             ("anime_enabled", update.anime_enabled),

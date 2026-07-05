@@ -48,6 +48,29 @@ async def test_cors_preflight_uses_explicit_allowed_methods() -> None:
 
 
 @pytest.mark.asyncio
+async def test_static_ui_serves_index_for_app_routes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _ = (tmp_path / "index.html").write_text("<main>Strmline UI</main>", encoding="utf-8")
+    monkeypatch.setenv("STRMLINE_STATIC_DIR", str(tmp_path))
+    get_settings.cache_clear()
+
+    transport = httpx.ASGITransport(app=create_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        root_response = await client.get("/")
+        setup_response = await client.get("/setup")
+        api_response = await client.get("/api/not-found")
+
+    get_settings.cache_clear()
+    assert root_response.status_code == httpx.codes.OK
+    assert "Strmline UI" in root_response.text
+    assert setup_response.status_code == httpx.codes.OK
+    assert "Strmline UI" in setup_response.text
+    assert api_response.status_code == httpx.codes.NOT_FOUND
+
+
+@pytest.mark.asyncio
 async def test_setup_status_reports_missing_required_settings() -> None:
     transport = httpx.ASGITransport(app=create_app())
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -59,7 +82,6 @@ async def test_setup_status_reports_missing_required_settings() -> None:
         "missing": [
             "base_url",
             "database_url",
-            "library_root",
             "resolver_token",
             "tmdb_api_key",
             "torbox_api_key",
@@ -126,23 +148,19 @@ async def test_library_summary_reports_configured_library(
 
 
 @pytest.mark.asyncio
-async def test_library_root_can_come_from_database_settings(
-    tmp_path: Path,
+async def test_library_root_defaults_to_internal_docker_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("STRMLINE_LIBRARY_ROOT", raising=False)
-    monkeypatch.setenv("STRMLINE_DATABASE_URL", "postgresql://example")
+    monkeypatch.delenv("STRMLINE_DATABASE_URL", raising=False)
     get_settings.cache_clear()
-
-    monkeypatch.setattr(library_api, "get_session_factory", fake_session_factory)
-    monkeypatch.setattr(library_api, "AppSettingsRepository", fake_settings_repository(tmp_path))
 
     try:
         library_root = await library_api.get_library_root()
     finally:
         get_settings.cache_clear()
 
-    assert library_root == tmp_path
+    assert library_root == Path("/library")
 
 
 async def fake_optional_session() -> object:

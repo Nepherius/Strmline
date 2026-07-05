@@ -34,7 +34,6 @@ class SettingsResponse(BaseModel):
 
 class SettingsUpdateRequest(BaseModel):
     base_url: str | None = Field(default=None, min_length=1)
-    library_root: str | None = Field(default=None, min_length=1)
     movies_enabled: bool | None = None
     shows_enabled: bool | None = None
     anime_enabled: bool | None = None
@@ -70,7 +69,6 @@ async def update_settings(
         snapshot = await repository.save(
             AppSettingsUpdate(
                 base_url=request.base_url,
-                library_root=request.library_root,
                 movies_enabled=request.movies_enabled,
                 shows_enabled=request.shows_enabled,
                 anime_enabled=request.anime_enabled,

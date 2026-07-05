@@ -4,11 +4,12 @@
   export let placeholder = "";
   export let type = "text";
   export let autocomplete: "off" | "on" | undefined = undefined;
+  export let disabled = false;
 </script>
 
 <label>
   <span>{label}</span>
-  <input bind:value {placeholder} {type} {autocomplete} />
+  <input bind:value {placeholder} {type} {autocomplete} {disabled} />
 </label>
 
 <style>
@@ -30,6 +31,12 @@
     padding: 0 10px;
     background: #ffffff;
     color: #15201b;
+  }
+
+  input:disabled {
+    border-color: #d7ded9;
+    background: #f4f6f4;
+    color: #526057;
   }
 
   @media (max-width: 860px) {

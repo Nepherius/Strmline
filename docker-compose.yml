@@ -1,0 +1,91 @@
+# Strmline Docker Compose
+#
+# Quick start:
+#   1. Replace the CHANGE_ME values below.
+#   2. Optional: change the host port in `ports`.
+#   3. Run `docker compose up -d --build`.
+#   4. Open http://127.0.0.1:45733/.
+
+# Edit these values before first start. Keep them stable after setup.
+# If PostgreSQL has already created the strmline-postgres volume, changing the
+# password here does not update the existing database password. For a fresh
+# install with no data to keep, remove that volume and start again.
+x-strmline-app-secret-key: &strmline-app-secret-key "CHANGE_ME_generate_a_long_random_secret"
+x-strmline-postgres-password: &strmline-postgres-password "CHANGE_ME_unique_database_password"
+
+services:
+  app:
+    build:
+      context: .
+    image: strmline:local
+
+    # Run as your normal host user by default so generated .strm files are easy
+    # to read from Jellyfin/Plex bind mounts. Format is UID:GID.
+    user: "1000:1000"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    environment:
+      # Required. Used to encrypt saved provider keys in the database.
+      # Keep this stable after setup, or saved secrets may no longer decrypt.
+      STRMLINE_APP_SECRET_KEY: *strmline-app-secret-key
+
+      # Database connection pieces. The app builds the full database URL from
+      # these values, so users do not need to edit a PostgreSQL URL by hand.
+      STRMLINE_POSTGRES_HOST: postgres
+      STRMLINE_POSTGRES_PORT: 5432
+      STRMLINE_POSTGRES_DATABASE: strmline
+      STRMLINE_POSTGRES_USER: strmline
+      STRMLINE_POSTGRES_PASSWORD: *strmline-postgres-password
+
+    ports:
+      # Host port on the left, container port on the right.
+      # Change 45733 if that host port is already in use.
+      - "45733:8080"
+
+    volumes:
+      # Reserved config volume for future file-backed state.
+      - strmline-config:/config
+
+      # Generated .strm library. Replace this with a host path if preferred:
+      #   - /path/on/host/strmline-library:/library
+      - strmline-library:/library
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3).read()"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  postgres:
+    image: postgres:16-alpine
+
+    environment:
+      # PostgreSQL creates this user and database automatically the first time
+      # the empty strmline-postgres volume is started.
+      POSTGRES_DB: strmline
+      POSTGRES_USER: strmline
+      POSTGRES_PASSWORD: *strmline-postgres-password
+
+    volumes:
+      # Persistent database storage. Do not delete this unless you intend to
+      # remove Strmline's saved settings and sync history.
+      - strmline-postgres:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U strmline -d strmline"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  strmline-config:
+  strmline-library:
+  strmline-postgres:

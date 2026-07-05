@@ -114,7 +114,6 @@ async def test_settings_repository_saves_public_values_and_secrets() -> None:
     snapshot = await repository.save(
         AppSettingsUpdate(
             base_url="http://strmline.test",
-            library_root="/library",
             movies_enabled=False,
             shows_enabled=True,
             anime_enabled=True,
@@ -130,16 +129,15 @@ async def test_settings_repository_saves_public_values_and_secrets() -> None:
     merged_settings = [item for item in session.merged if isinstance(item, AppSetting)]
     assert [setting.key for setting in merged_settings] == [
         "base_url",
-        "library_root",
         "movies_enabled",
         "shows_enabled",
         "anime_enabled",
         "playback_mode",
         "sync_interval_minutes",
     ]
-    assert merged_settings[2].value == {"value": False}
-    assert merged_settings[5].value == {"value": "direct"}
-    assert merged_settings[6].value == {"value": 120}
+    assert merged_settings[1].value == {"value": False}
+    assert merged_settings[4].value == {"value": "direct"}
+    assert merged_settings[5].value == {"value": 120}
     credentials = [item for item in session.added if isinstance(item, ProviderCredential)]
     resolver_tokens = [item for item in session.added if isinstance(item, ResolverToken)]
     assert len(credentials) == 3
@@ -196,7 +194,7 @@ async def test_settings_repository_reads_database_values_when_env_is_missing() -
     assert snapshot.tmdb_configured is False
     assert snapshot.resolver_configured is True
     assert snapshot.base_url_source == "database"
-    assert snapshot.library_root_source == "database"
+    assert snapshot.library_root_source == "environment"
     assert snapshot.torbox_source == "database"
     assert snapshot.tmdb_source is None
     assert snapshot.resolver_source == "database"

@@ -1,7 +1,10 @@
 <script lang="ts">
+  import { goto } from "$app/navigation";
+  import { resolve } from "$app/paths";
   import { onMount } from "svelte";
 
   import { loadLibrarySummary } from "$lib/libraryApi";
+  import { loadSetupStatus } from "$lib/setupApi";
   import { loadSyncStatus, runSyncNow, type SyncRunResult, type SyncStatus } from "$lib/syncApi";
   import {
     duplicateFileCount,
@@ -34,8 +37,26 @@
   $: duplicateCount = summary ? duplicateFileCount(summary) : 0;
 
   onMount(() => {
-    void loadDashboard();
+    void routeToSetupOrLoadDashboard();
   });
+
+  async function routeToSetupOrLoadDashboard() {
+    loading = true;
+    error = "";
+    try {
+      const status = await loadSetupStatus();
+      if (!status.configured) {
+        await goto(resolve("/setup?required=1"));
+        return;
+      }
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
+      error = `Setup status unavailable. ${message}`;
+      loading = false;
+      return;
+    }
+    await loadDashboard();
+  }
 
   async function loadDashboard() {
     loading = true;

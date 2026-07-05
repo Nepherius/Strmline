@@ -1,14 +1,14 @@
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Self
+from urllib.parse import quote_plus
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REQUIRED_SETUP_FIELDS = [
     "base_url",
     "database_url",
-    "library_root",
     "tmdb_api_key",
     "torbox_api_key",
 ]
@@ -16,7 +16,6 @@ REQUIRED_SETUP_FIELDS = [
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
         env_prefix="STRMLINE_",
         extra="ignore",
     )
@@ -25,8 +24,14 @@ class Settings(BaseSettings):
     version: str = "0.1.0"
     base_url: str | None = None
     database_url: str | None = None
+    postgres_host: str | None = None
+    postgres_port: int = Field(default=5432, ge=1, le=65535)
+    postgres_database: str = "strmline"
+    postgres_user: str = "strmline"
+    postgres_password: SecretStr | None = None
     app_secret_key: SecretStr | None = None
-    library_root: Path | None = None
+    static_dir: Path | None = None
+    library_root: Path = Path("/library")
     tmdb_api_key: SecretStr | None = None
     torbox_api_key: SecretStr | None = None
     resolver_token: SecretStr | None = None
@@ -46,6 +51,22 @@ class Settings(BaseSettings):
         return [
             field_name for field_name in REQUIRED_SETUP_FIELDS if getattr(self, field_name) is None
         ]
+
+    @model_validator(mode="after")
+    def build_database_url_from_postgres_parts(self) -> Self:
+        if self.database_url is not None or self.postgres_host is None:
+            return self
+        if self.postgres_password is None:
+            return self
+
+        user = quote_plus(self.postgres_user)
+        password = quote_plus(self.postgres_password.get_secret_value())
+        database = quote_plus(self.postgres_database)
+        self.database_url = (
+            f"postgresql+asyncpg://{user}:{password}@"
+            f"{self.postgres_host}:{self.postgres_port}/{database}"
+        )
+        return self
 
 
 @lru_cache

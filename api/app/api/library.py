@@ -6,11 +6,8 @@ from typing import Annotated
 from anyio.to_thread import run_sync
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_settings
-from app.db.dependencies import get_session_factory
-from app.db.repositories.settings import AppSettingsRepository
 from app.library.summary import (
     LibraryDuplicateGroup,
     LibraryFile,
@@ -42,29 +39,14 @@ class LibrarySummaryResponse(BaseModel):
     duplicate_groups: list[LibraryDuplicateGroupResponse]
 
 
-async def get_library_root() -> Path | None:
-    settings = get_settings()
-    if settings.library_root is not None:
-        return settings.library_root
-    if settings.database_url is None:
-        return None
-    try:
-        session_factory = get_session_factory()
-        async with session_factory() as session:
-            snapshot = await AppSettingsRepository(session, settings).snapshot_with_env()
-    except (OSError, SQLAlchemyError):
-        return None
-    if snapshot.library_root is None:
-        return None
-    return Path(snapshot.library_root)
+async def get_library_root() -> Path:
+    return get_settings().library_root
 
 
 @router.get("/summary", response_model=LibrarySummaryResponse)
 async def library_summary(
-    library_root: Annotated[Path | None, Depends(get_library_root)],
+    library_root: Annotated[Path, Depends(get_library_root)],
 ) -> LibrarySummaryResponse:
-    if library_root is None:
-        return _empty_response()
     summary = await _summarize_library(library_root)
     return LibrarySummaryResponse(
         configured=True,
@@ -74,18 +56,6 @@ async def library_summary(
         category_counts=summary.category_counts,
         files=[_file_response(file) for file in summary.files],
         duplicate_groups=[_duplicate_response(group) for group in summary.duplicate_groups],
-    )
-
-
-def _empty_response() -> LibrarySummaryResponse:
-    return LibrarySummaryResponse(
-        configured=False,
-        root=None,
-        exists=False,
-        total_files=0,
-        category_counts={"movies": 0, "shows": 0, "anime": 0},
-        files=[],
-        duplicate_groups=[],
     )
 
 

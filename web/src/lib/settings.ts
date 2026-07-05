@@ -26,7 +26,6 @@ export interface SetupStatus {
 
 export interface SettingsFormValues {
   baseUrl: string;
-  libraryRoot: string;
   moviesEnabled: boolean;
   showsEnabled: boolean;
   animeEnabled: boolean;
@@ -42,7 +41,6 @@ export type SettingsPayload = Record<string, boolean | number | string>;
 export function buildSettingsPayload(values: SettingsFormValues): SettingsPayload {
   const payload: SettingsPayload = {};
   setIfPresent(payload, "base_url", values.baseUrl);
-  setIfPresent(payload, "library_root", values.libraryRoot);
   payload["movies_enabled"] = values.moviesEnabled;
   payload["shows_enabled"] = values.showsEnabled;
   payload["anime_enabled"] = values.animeEnabled;
@@ -57,7 +55,6 @@ export function buildSettingsPayload(values: SettingsFormValues): SettingsPayloa
 export function settingsToFormValues(settings: AppSettings | null): SettingsFormValues {
   return {
     baseUrl: settings?.base_url ?? "",
-    libraryRoot: settings?.library_root ?? "",
     moviesEnabled: settings?.movies_enabled ?? true,
     showsEnabled: settings?.shows_enabled ?? true,
     animeEnabled: settings?.anime_enabled ?? true,
@@ -71,15 +68,13 @@ export function settingsToFormValues(settings: AppSettings | null): SettingsForm
 
 export function missingLabels(missing: string[]): string[] {
   const labels: Record<string, string> = {
-    base_url: "Base URL",
     database_url: "Database",
-    library_root: "Library root",
     resolver_token: "Resolver token",
     sync_interval_minutes: "Sync interval",
     tmdb_api_key: "TMDB key",
     torbox_api_key: "TorBox key",
   };
-  return missing.map((field) => labels[field] ?? field);
+  return missing.flatMap((field) => (labels[field] ? [labels[field]] : []));
 }
 
 export function settingSourceLabel(source: SettingSource): string {

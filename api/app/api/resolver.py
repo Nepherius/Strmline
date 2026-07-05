@@ -86,8 +86,6 @@ async def _torbox_api_key(settings: Settings, session: AsyncSession) -> str | No
 
 
 def _manifest_resolver_target(settings: Settings, entry_id: str) -> str:
-    if settings.library_root is None:
-        raise HTTPException(status_code=503, detail="Resolver is not configured.")
     try:
         return resolve_manifest_target(settings.library_root, entry_id)
     except ResolverManifestError as error:

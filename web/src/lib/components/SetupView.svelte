@@ -1,8 +1,6 @@
 <script lang="ts">
   import AppShell from "$lib/components/ui/AppShell.svelte";
   import CheckboxField from "$lib/components/ui/CheckboxField.svelte";
-  import MetricCard from "$lib/components/ui/MetricCard.svelte";
-  import MetricGrid from "$lib/components/ui/MetricGrid.svelte";
   import NumberField from "$lib/components/ui/NumberField.svelte";
   import Notice from "$lib/components/ui/Notice.svelte";
   import PageHeader from "$lib/components/ui/PageHeader.svelte";
@@ -12,8 +10,6 @@
   import UiLink from "$lib/components/ui/UiLink.svelte";
   import {
     missingLabels,
-    settingSourceLabel,
-    type SettingSource,
     type AppSettings,
     type SettingsFormValues,
     type SetupStatus,
@@ -25,6 +21,7 @@
   export let loading: boolean;
   export let saved: boolean;
   export let saving: boolean;
+  export let setupRequired: boolean;
   export let settings: AppSettings | null;
   export let setupStatus: SetupStatus | null;
   export let testingTmdb: boolean;
@@ -42,19 +39,6 @@
     { label: "Resolver", value: "resolver" },
     { label: "Direct URLs", value: "direct" },
   ];
-
-  function settingVariant(
-    configured: boolean | undefined,
-    source: SettingSource | undefined,
-  ): "default" | "ready" | "env" {
-    if (source === "environment") {
-      return "env";
-    }
-    if (configured) {
-      return "ready";
-    }
-    return "default";
-  }
 </script>
 
 <svelte:head>
@@ -79,33 +63,21 @@
     <Notice variant="success">Settings saved.</Notice>
   {/if}
 
-  <MetricGrid ariaLabel="Setup status" columns={4}>
-    <MetricCard
-      label="Status"
-      value={setupStatus?.configured ? "Ready" : "Open"}
-      variant={setupStatus?.configured ? "ready" : "default"}
-    />
-    <MetricCard
-      label="TorBox"
-      value={settingSourceLabel(settings?.torbox_source ?? null)}
-      variant={settingVariant(settings?.torbox_configured, settings?.torbox_source ?? undefined)}
-    />
-    <MetricCard
-      label="TMDB"
-      value={settingSourceLabel(settings?.tmdb_source ?? null)}
-      variant={settingVariant(settings?.tmdb_configured, settings?.tmdb_source ?? undefined)}
-    />
-    <MetricCard
-      label="Resolver"
-      value={settingSourceLabel(settings?.resolver_source ?? null)}
-      variant={settingVariant(
-        settings?.resolver_configured,
-        settings?.resolver_source ?? undefined,
-      )}
-    />
-  </MetricGrid>
+  {#if setupRequired && !setupStatus?.configured}
+    <section class="setup-dialog" aria-label="Setup required" aria-live="polite">
+      <h2>Setup required</h2>
+      <p>Complete the missing items before opening the dashboard.</p>
+      {#if requiredLabels.length > 0}
+        <div class="dialog-missing" aria-label="Missing setup items">
+          {#each requiredLabels as label (label)}
+            <span>{label}</span>
+          {/each}
+        </div>
+      {/if}
+    </section>
+  {/if}
 
-  {#if requiredLabels.length > 0}
+  {#if requiredLabels.length > 0 && !(setupRequired && !setupStatus?.configured)}
     <section class="missing" aria-label="Missing setup values">
       {#each requiredLabels as label (label)}
         <span>{label}</span>
@@ -114,12 +86,6 @@
   {/if}
 
   <form class="settings-form" on:submit|preventDefault={onSave}>
-    <TextField bind:value={values.baseUrl} label="Base URL" placeholder="http://127.0.0.1:8001" />
-    <TextField
-      bind:value={values.libraryRoot}
-      label="Library root"
-      placeholder="/tmp/strmline-library"
-    />
     <SegmentedControl
       bind:value={values.playbackMode}
       label="Playback mode"
@@ -140,18 +106,21 @@
       bind:value={values.torboxApiKey}
       autocomplete="off"
       label="TorBox API key"
+      placeholder={settings?.torbox_configured ? "******" : ""}
       type="password"
     />
     <TextField
       bind:value={values.tmdbApiKey}
       autocomplete="off"
       label="TMDB API key"
+      placeholder={settings?.tmdb_configured ? "******" : ""}
       type="password"
     />
     <TextField
       bind:value={values.resolverToken}
       autocomplete="off"
       label="Resolver token"
+      placeholder={settings?.resolver_configured ? "******" : ""}
       type="password"
     />
     <fieldset class="category-options">
@@ -203,10 +172,52 @@
 
   .settings-form,
   .category-options,
-  .missing {
+  .missing,
+  .setup-dialog {
     border: 1px solid #d7ded9;
     border-radius: 6px;
     background: #ffffff;
+  }
+
+  .setup-dialog {
+    display: grid;
+    gap: 8px;
+    max-width: 760px;
+    margin-top: 12px;
+    padding: 14px;
+    border-color: #d9b66c;
+    background: #fff9ea;
+  }
+
+  .setup-dialog h2,
+  .setup-dialog p {
+    margin: 0;
+  }
+
+  .setup-dialog h2 {
+    color: #4b3510;
+    font-size: 16px;
+  }
+
+  .setup-dialog p {
+    color: #765d1d;
+    font-size: 14px;
+  }
+
+  .dialog-missing {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .dialog-missing span {
+    border: 1px solid #d9b66c;
+    border-radius: 999px;
+    padding: 5px 10px;
+    background: #ffffff;
+    color: #765d1d;
+    font-size: 12px;
+    font-weight: 700;
   }
 
   .missing {

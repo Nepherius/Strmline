@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -227,7 +228,11 @@ async def _database_sync_run_id(
 
 
 def _output_root(override: Path | None, configured: Path | None) -> Path | None:
-    return override or configured
+    if override is not None:
+        return override
+    if "STRMLINE_LIBRARY_ROOT" not in os.environ:
+        return None
+    return configured
 
 
 def _resolver_config(
