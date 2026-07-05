@@ -24,8 +24,10 @@ class LibraryEntry:
             raise ValueError(msg)
         if self.category == "movies":
             return
+        if self.category == "anime" and self.season_number is None and self.episode_number is None:
+            return
         if self.season_number is None or self.episode_number is None:
-            msg = "Series and anime entries require season and episode numbers."
+            msg = "Series entries require season and episode numbers."
             raise ValueError(msg)
         if self.season_number < 0 or self.episode_number < 0:
             msg = "Season and episode numbers cannot be negative."

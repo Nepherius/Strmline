@@ -11,6 +11,7 @@ from app.core.config import Settings
 from app.db.repositories.settings import AppSettingsRepository, SettingsSnapshot
 from app.db.repositories.sync_state import SyncStateRepository
 from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
+from app.sync.anime_classification import build_anilist_anime_classifier
 from app.sync.torbox_strm import ResolverUrlConfig, TorBoxStrmSync
 
 
@@ -90,6 +91,7 @@ async def _run_torbox_account_sync(
                 torbox_base_url=settings.torbox_base_url,
                 library_root=library_root,
                 resolver=resolver,
+                anime_classifier=build_anilist_anime_classifier(session, settings),
             ).run()
     except (OSError, TorBoxAPIError, ValueError) as error:
         _ = await sync_state.record_failure(

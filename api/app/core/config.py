@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     sync_interval_minutes: int | None = Field(default=None, ge=1)
     torbox_base_url: str = Field(default="https://api.torbox.app/v1/api")
     tmdb_base_url: str = Field(default="https://api.themoviedb.org/3")
+    anilist_base_url: str = Field(default="https://graphql.anilist.co")
     outbound_timeout_seconds: float = Field(default=20.0, gt=0)
     cors_origins: tuple[str, ...] = (
         "http://localhost:5173",

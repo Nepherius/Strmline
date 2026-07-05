@@ -37,12 +37,14 @@ def episode_suffix(season_number: int, episode_number: int) -> str:
 
 def library_entry_relative_path(entry: LibraryEntry) -> Path:
     root_folder = title_year(entry.title, entry.year)
-    if entry.category == "movies":
+    if entry.category == "movies" or (
+        entry.category == "anime" and entry.season_number is None and entry.episode_number is None
+    ):
         file_name = f"{root_folder}.strm"
         return Path(entry.category, root_folder, file_name)
 
     if entry.season_number is None or entry.episode_number is None:
-        msg = "Series and anime entries require season and episode numbers."
+        msg = "Series entries require season and episode numbers."
         raise ValueError(msg)
 
     clean_title = clean_path_segment(entry.title)

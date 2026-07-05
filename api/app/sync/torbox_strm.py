@@ -31,6 +31,12 @@ class TorBoxDownloadClient(Protocol):
         ...
 
 
+class AnimeClassifier(Protocol):
+    async def has_anime_match(self, title: str, *, year: int | None = None) -> bool:
+        """Return true when provider metadata confirms an anime title."""
+        ...
+
+
 @dataclass(frozen=True, slots=True)
 class TorBoxStrmSyncResult:
     scanned_files: int
@@ -72,12 +78,14 @@ class TorBoxStrmSync:
         torbox_base_url: str,
         library_root: Path,
         resolver: ResolverUrlConfig | None = None,
+        anime_classifier: AnimeClassifier | None = None,
     ) -> None:
         self._client = client
         self._api_key = api_key
         self._torbox_base_url = torbox_base_url
         self._library_root = library_root
         self._resolver = resolver
+        self._anime_classifier = anime_classifier
 
     async def run(
         self,
@@ -118,6 +126,7 @@ class TorBoxStrmSync:
                     playback_url,
                     torbox_file.folder_name,
                 )
+                entry = await self._with_anime_classification(entry)
                 written_path = write_strm_file(self._library_root, entry)
                 written_paths.append(written_path)
                 synced_files.append(_synced_file(written_path, entry_id, entry, torbox_file))
@@ -128,6 +137,20 @@ class TorBoxStrmSync:
             written_paths,
             synced_files,
             manifest_entries,
+        )
+
+    async def _with_anime_classification(self, entry: LibraryEntry) -> LibraryEntry:
+        if self._anime_classifier is None or entry.category == "anime":
+            return entry
+        if not await self._anime_classifier.has_anime_match(entry.title, year=entry.year):
+            return entry
+        return LibraryEntry(
+            category="anime",
+            title=entry.title,
+            year=entry.year,
+            season_number=entry.season_number,
+            episode_number=entry.episode_number,
+            resolver_url=entry.resolver_url,
         )
 
     def _playback_url(

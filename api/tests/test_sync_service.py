@@ -58,6 +58,7 @@ async def test_sync_service_uses_saved_resolver_token(
     resolver = captured["resolver"]
     assert isinstance(resolver, ResolverUrlConfig)
     assert resolver.token == "saved-resolver-token"  # noqa: S105
+    assert captured["anime_classifier"] is not None
     assert summary.sync_run_id == 12
 
 

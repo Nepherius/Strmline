@@ -68,6 +68,21 @@ def test_anime_entry_path_uses_anime_category():
     )
 
 
+def test_anime_movie_entry_path_uses_anime_movie_folder():
+    entry = LibraryEntry(
+        category="anime",
+        title="Spirited Away",
+        year=2001,
+        resolver_url="http://strmline:8080/play/anime-movie-id?token=secret",
+    )
+
+    assert library_entry_relative_path(entry) == Path(
+        "anime",
+        "Spirited Away (2001)",
+        "Spirited Away (2001).strm",
+    )
+
+
 def test_ensure_within_root_rejects_outside_path(tmp_path: Path):
     with pytest.raises(ValueError, match="outside"):
         _ = ensure_within_root(tmp_path, tmp_path.parent / "outside.strm")

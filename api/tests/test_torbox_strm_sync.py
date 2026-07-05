@@ -89,6 +89,62 @@ class DuplicatePathTorBoxClient:
         ]
 
 
+class AnimeCandidateTorBoxClient:
+    async def list_downloads(
+        self, kind: DownloadKind, *, limit: int = 1000
+    ) -> list[dict[str, Any]]:
+        _ = limit
+        if kind != "torrents":
+            return []
+        return [
+            {
+                "id": 1,
+                "name": "Frieren",
+                "cached": True,
+                "files": [
+                    {
+                        "id": 2,
+                        "short_name": "Frieren.S01E01.2023.mkv",
+                        "mimetype": "video/x-matroska",
+                    },
+                ],
+            },
+        ]
+
+
+class AnimeMovieCandidateTorBoxClient:
+    async def list_downloads(
+        self, kind: DownloadKind, *, limit: int = 1000
+    ) -> list[dict[str, Any]]:
+        _ = limit
+        if kind != "torrents":
+            return []
+        return [
+            {
+                "id": 1,
+                "name": "Spirited.Away.2001",
+                "cached": True,
+                "files": [
+                    {
+                        "id": 2,
+                        "short_name": "Spirited.Away.2001.1080p.mkv",
+                        "mimetype": "video/x-matroska",
+                    },
+                ],
+            },
+        ]
+
+
+class FakeAnimeClassifier:
+    def __init__(self, *, is_anime: bool) -> None:
+        self.is_anime = is_anime
+        self.calls: list[tuple[str, int | None]] = []
+
+    async def has_anime_match(self, title: str, *, year: int | None = None) -> bool:
+        self.calls.append((title, year))
+        return self.is_anime
+
+
 @pytest.mark.asyncio
 async def test_direct_torbox_strm_sync_writes_playable_strm_files(tmp_path: Path) -> None:
     sync = DirectTorBoxStrmSync(
@@ -171,3 +227,67 @@ async def test_torbox_strm_sync_writes_resolver_urls_and_manifest(tmp_path: Path
         "https://api.torbox.app/v1/api/torrents/requestdl?"
         "token=test-token&torrent_id=1&file_id=2&redirect=true"
     )
+
+
+@pytest.mark.asyncio
+async def test_torbox_strm_sync_uses_anilist_classifier_for_anime(
+    tmp_path: Path,
+) -> None:
+    classifier = FakeAnimeClassifier(is_anime=True)
+    sync = DirectTorBoxStrmSync(
+        client=AnimeCandidateTorBoxClient(),
+        api_key="test-token",
+        torbox_base_url="https://api.torbox.app/v1/api",
+        library_root=tmp_path,
+        anime_classifier=classifier,
+    )
+
+    result = await sync.run(kinds=("torrents",))
+
+    expected_path = tmp_path / "anime" / "Frieren (2023)" / "Season 01" / "Frieren - S01E01.strm"
+    assert result.synced_files[0].category == "anime"
+    assert result.written_paths == (expected_path.resolve(strict=False),)
+    assert classifier.calls == [("Frieren", 2023)]
+
+
+@pytest.mark.asyncio
+async def test_torbox_strm_sync_keeps_show_when_anilist_does_not_confirm(
+    tmp_path: Path,
+) -> None:
+    classifier = FakeAnimeClassifier(is_anime=False)
+    sync = DirectTorBoxStrmSync(
+        client=AnimeCandidateTorBoxClient(),
+        api_key="test-token",
+        torbox_base_url="https://api.torbox.app/v1/api",
+        library_root=tmp_path,
+        anime_classifier=classifier,
+    )
+
+    result = await sync.run(kinds=("torrents",))
+
+    expected_path = tmp_path / "shows" / "Frieren (2023)" / "Season 01" / "Frieren - S01E01.strm"
+    assert result.synced_files[0].category == "shows"
+    assert result.written_paths == (expected_path.resolve(strict=False),)
+
+
+@pytest.mark.asyncio
+async def test_torbox_strm_sync_uses_anilist_classifier_for_anime_movie(
+    tmp_path: Path,
+) -> None:
+    classifier = FakeAnimeClassifier(is_anime=True)
+    sync = DirectTorBoxStrmSync(
+        client=AnimeMovieCandidateTorBoxClient(),
+        api_key="test-token",
+        torbox_base_url="https://api.torbox.app/v1/api",
+        library_root=tmp_path,
+        anime_classifier=classifier,
+    )
+
+    result = await sync.run(kinds=("torrents",))
+
+    expected_path = tmp_path / "anime" / "Spirited Away (2001)" / "Spirited Away (2001).strm"
+    assert result.synced_files[0].category == "anime"
+    assert result.synced_files[0].season_number is None
+    assert result.synced_files[0].episode_number is None
+    assert result.written_paths == (expected_path.resolve(strict=False),)
+    assert classifier.calls == [("Spirited Away", 2001)]

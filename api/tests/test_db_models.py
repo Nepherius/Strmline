@@ -1,5 +1,6 @@
 from app.db.base import Base
 from app.db.models import (
+    AniListCacheEntry,
     AppSetting,
     GeneratedFile,
     LibraryEntry,
@@ -17,6 +18,7 @@ from app.db.models import (
 def test_initial_schema_tables_are_registered() -> None:
     assert set(Base.metadata.tables) == {
         "app_settings",
+        "anilist_cache_entries",
         "generated_files",
         "library_entries",
         "media_items",
@@ -62,6 +64,16 @@ def test_tmdb_cache_entries_do_not_store_api_keys() -> None:
     columns = set(TmdbCacheEntry.__table__.columns.keys())
 
     assert "cache_key" in columns
+    assert "response_payload" in columns
+    assert "api_key" not in columns
+    assert "token" not in columns
+
+
+def test_anilist_cache_entries_store_graphql_payloads_without_tokens() -> None:
+    columns = set(AniListCacheEntry.__table__.columns.keys())
+
+    assert "cache_key" in columns
+    assert "operation_name" in columns
     assert "response_payload" in columns
     assert "api_key" not in columns
     assert "token" not in columns

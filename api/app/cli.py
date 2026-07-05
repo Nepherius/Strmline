@@ -17,6 +17,7 @@ from app.db.session import build_session_factory
 from app.library.strm_probe import StrmProbeError, probe_strm_file
 from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
 from app.providers.torbox.files import DOWNLOAD_KINDS, DownloadKind
+from app.sync.anime_classification import build_anilist_anime_classifier
 from app.sync.torbox_strm import DirectTorBoxStrmSync, ResolverUrlConfig, TorBoxStrmSyncResult
 
 
@@ -201,6 +202,18 @@ async def _run_sync(
             base_url=settings.torbox_base_url,
             timeout=settings.outbound_timeout_seconds,
         ) as client:
+            if settings.database_url is not None:
+                session_factory = build_session_factory(settings.database_url)
+                async with session_factory() as session:
+                    sync = DirectTorBoxStrmSync(
+                        client=client,
+                        api_key=context.api_key,
+                        torbox_base_url=settings.torbox_base_url,
+                        library_root=context.output_root,
+                        resolver=context.resolver,
+                        anime_classifier=build_anilist_anime_classifier(session, settings),
+                    )
+                    return await sync.run(kinds=options.kinds, max_files=options.max_files)
             sync = DirectTorBoxStrmSync(
                 client=client,
                 api_key=context.api_key,

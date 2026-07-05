@@ -91,6 +91,27 @@ class TmdbCacheEntry(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class AniListCacheEntry(Base):
+    __tablename__ = "anilist_cache_entries"
+    __table_args__ = (
+        UniqueConstraint("cache_key", name="uq_anilist_cache_entries_cache_key"),
+        Index("ix_anilist_cache_entries_expires_at", "expires_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cache_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    operation_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    query: Mapped[str] = mapped_column(Text, nullable=False)
+    variables: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    response_payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class MediaItem(Base):
     __tablename__ = "media_items"
     __table_args__ = (Index("ix_media_items_type_title", "media_type", "title"),)
