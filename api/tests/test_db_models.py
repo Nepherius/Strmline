@@ -9,6 +9,7 @@ from app.db.models import (
     ResolverToken,
     SyncError,
     SyncRun,
+    TmdbCacheEntry,
     TorBoxItem,
 )
 
@@ -24,6 +25,7 @@ def test_initial_schema_tables_are_registered() -> None:
         "resolver_tokens",
         "sync_errors",
         "sync_runs",
+        "tmdb_cache_entries",
         "torbox_items",
     }
 
@@ -54,3 +56,12 @@ def test_core_models_have_expected_primary_keys() -> None:
     assert {column.name for column in AppSetting.__table__.primary_key} == {"key"}
     assert {column.name for column in MediaItem.__table__.primary_key} == {"id"}
     assert {column.name for column in LibraryEntry.__table__.primary_key} == {"id"}
+
+
+def test_tmdb_cache_entries_do_not_store_api_keys() -> None:
+    columns = set(TmdbCacheEntry.__table__.columns.keys())
+
+    assert "cache_key" in columns
+    assert "response_payload" in columns
+    assert "api_key" not in columns
+    assert "token" not in columns
