@@ -28,12 +28,22 @@ class LibraryDuplicateGroup:
 
 
 @dataclass(frozen=True, slots=True)
+class LibraryEntrySummary:
+    key: str
+    category: str
+    title: str
+    relative_path: str
+    file_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class LibrarySummary:
     root: Path
     exists: bool
     total_files: int
     category_counts: dict[str, int]
     files: tuple[LibraryFile, ...]
+    entries: tuple[LibraryEntrySummary, ...]
     duplicate_groups: tuple[LibraryDuplicateGroup, ...]
 
 
@@ -49,6 +59,7 @@ def summarize_library(root: Path) -> LibrarySummary:
         total_files=len(files),
         category_counts=_category_counts(files),
         files=files,
+        entries=_entries(files),
         duplicate_groups=_duplicate_groups(files),
     )
 
@@ -61,6 +72,7 @@ def _empty_summary(root: Path, *, exists: bool) -> LibrarySummary:
         total_files=0,
         category_counts=category_counts,
         files=(),
+        entries=(),
         duplicate_groups=(),
     )
 
@@ -117,6 +129,34 @@ def _category_counts(files: tuple[LibraryFile, ...]) -> dict[str, int]:
     for file in files:
         counts[file.category] += 1
     return counts
+
+
+def _entries(files: tuple[LibraryFile, ...]) -> tuple[LibraryEntrySummary, ...]:
+    grouped: dict[str, list[LibraryFile]] = defaultdict(list)
+    for file in files:
+        grouped[_entry_key(file)].append(file)
+    return tuple(
+        _entry_summary(key, group)
+        for key, group in sorted(grouped.items(), key=lambda item: item[0])
+    )
+
+
+def _entry_key(file: LibraryFile) -> str:
+    parts = Path(file.relative_path).parts
+    if len(parts) >= MIN_TITLE_PARTS:
+        return "/".join(parts[:MIN_TITLE_PARTS])
+    return file.relative_path
+
+
+def _entry_summary(key: str, files: list[LibraryFile]) -> LibraryEntrySummary:
+    first = files[0]
+    return LibraryEntrySummary(
+        key=key,
+        category=first.category,
+        title=first.title,
+        relative_path=key,
+        file_count=len(files),
+    )
 
 
 def _duplicate_groups(files: tuple[LibraryFile, ...]) -> tuple[LibraryDuplicateGroup, ...]:

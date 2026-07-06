@@ -96,3 +96,31 @@ async def test_aiostreams_client_error_message_is_safe() -> None:
         ).manifest()
 
     assert "should-not-surface" not in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_aiostreams_client_triggers_stream_url_without_following_redirects() -> None:
+    seen_headers: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_headers["range"] = request.headers["range"]
+        return httpx.Response(302, headers={"location": "https://cdn.example/video.mkv"})
+
+    result = await AioStreamsClient(
+        base_url="https://example.test/addon",
+        timeout_seconds=5,
+        transport=httpx.MockTransport(handler),
+    ).trigger_stream_url("https://streams.example/add/123")
+
+    assert result.status_code == 302
+    assert result.redirected is True
+    assert seen_headers == {"range": "bytes=0-0"}
+
+
+@pytest.mark.asyncio
+async def test_aiostreams_client_rejects_private_trigger_url() -> None:
+    with pytest.raises(AioStreamsClientError, match="not allowed"):
+        _ = await AioStreamsClient(
+            base_url="https://example.test/addon",
+            timeout_seconds=5,
+        ).trigger_stream_url("http://127.0.0.1/internal")

@@ -14,6 +14,10 @@ USER_AGENT = "Strmline/0.1.0"
 class TorBoxAPIError(RuntimeError):
     """Raised when TorBox returns an error response."""
 
+    def __init__(self, message: str, *, error_code: str | None = None) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+
 
 class TorBoxClient:
     def __init__(
@@ -61,11 +65,43 @@ class TorBoxClient:
         )
         payload = self._response_payload(response)
 
-        if response.is_error:
-            raise TorBoxAPIError(self._error_message(response.status_code, payload))
+        if response.is_error or payload.get("success") is False:
+            raise self._api_error(response.status_code, payload)
+        return payload
 
-        if payload.get("success") is False:
-            raise TorBoxAPIError(self._error_message(response.status_code, payload))
+    async def post_json(
+        self,
+        path: str,
+        *,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        response = await self._client.post(
+            self._url(path),
+            headers={**self._headers(), "Content-Type": "application/json"},
+            json=payload,
+        )
+        response_payload = self._response_payload(response)
+
+        if response.is_error or response_payload.get("success") is False:
+            raise self._api_error(response.status_code, response_payload)
+        return response_payload
+
+    async def post_form(
+        self,
+        path: str,
+        *,
+        data: dict[str, str],
+    ) -> dict[str, Any]:
+        form_files = {key: (None, value) for key, value in data.items()}
+        response = await self._client.post(
+            self._url(path),
+            headers=self._headers(),
+            files=form_files,
+        )
+        payload = self._response_payload(response)
+
+        if response.is_error or payload.get("success") is False:
+            raise self._api_error(response.status_code, payload)
         return payload
 
     async def list_downloads(
@@ -90,6 +126,89 @@ class TorBoxClient:
                 return downloads
 
             offset += limit
+
+    async def check_cached(self, hashes: list[str]) -> dict[str, bool]:
+        """Check which torrent hashes are cached on TorBox.
+
+        Batches hashes in groups of 100 per TorBox API recommendation.
+        Returns a dict mapping each hash to its cached status.
+        """
+        if not hashes:
+            return {}
+
+        result: dict[str, bool] = {}
+        batch_size = 100
+
+        for start in range(0, len(hashes), batch_size):
+            batch = hashes[start : start + batch_size]
+            hash_param = ",".join(batch)
+            try:
+                payload = await self.get_json(
+                    "/torrents/checkcached",
+                    params={"hash": hash_param},
+                )
+            except TorBoxAPIError:
+                for h in batch:
+                    result[h] = False
+                continue
+
+            data = payload.get("data")
+            if isinstance(data, dict):
+                typed_data = cast(dict[str, Any], data)
+                for h in batch:
+                    entry = typed_data.get(h)
+                    result[h] = entry is not None and entry is not False
+            else:
+                for h in batch:
+                    result[h] = False
+
+        return result
+
+    async def create_torrent(
+        self,
+        *,
+        magnet: str,
+        name: str | None = None,
+        add_only_if_cached: bool = True,
+    ) -> dict[str, Any]:
+        form_data = {
+            "magnet": magnet,
+            "add_only_if_cached": _bool_field(value=add_only_if_cached),
+        }
+        if name is not None and name.strip():
+            form_data["name"] = name.strip()
+        payload = await self.post_form("/torrents/createtorrent", data=form_data)
+        data = payload.get("data")
+        return cast(dict[str, Any], data) if isinstance(data, dict) else {}
+
+    async def delete_torrent(self, torrent_id: str) -> None:
+        await self.delete_download("torrents", torrent_id)
+
+    async def delete_download(self, kind: DownloadKind, item_id: str) -> None:
+        path, id_key = _delete_control(kind)
+        _ = await self.post_json(
+            path,
+            payload={
+                id_key: _numeric_id_payload(item_id),
+                "operation": "Delete",
+                "all": False,
+            },
+        )
+
+    async def find_torrent_by_hash(self, info_hash: str) -> dict[str, Any] | None:
+        normalized_hash = info_hash.casefold()
+        matches = await self.find_torrents_by_hashes({normalized_hash})
+        return matches.get(normalized_hash)
+
+    async def find_torrents_by_hashes(self, info_hashes: set[str]) -> dict[str, dict[str, Any]]:
+        normalized_hashes = {info_hash.casefold() for info_hash in info_hashes if info_hash}
+        if not normalized_hashes:
+            return {}
+        matches: dict[str, dict[str, Any]] = {}
+        for item in await self.list_downloads("torrents"):
+            for matched_hash in _item_hashes(item).intersection(normalized_hashes):
+                matches[matched_hash] = item
+        return matches
 
     def _url(self, path: str) -> str:
         normalized_path = path.strip("/")
@@ -118,6 +237,12 @@ class TorBoxClient:
             parts.append(detail)
         return " ".join(parts)
 
+    def _api_error(self, status_code: int, payload: dict[str, Any]) -> TorBoxAPIError:
+        return TorBoxAPIError(
+            self._error_message(status_code, payload),
+            error_code=self._string_payload_value(payload.get("error")) or None,
+        )
+
     def _string_payload_value(self, value: object) -> str:
         if isinstance(value, str):
             return value.strip()
@@ -136,3 +261,32 @@ class TorBoxClient:
                 raise TorBoxAPIError(msg)
             typed_data.append(cast(dict[str, Any], item))
         return typed_data
+
+
+def _bool_field(*, value: bool) -> str:
+    return "true" if value else "false"
+
+
+def _delete_control(kind: DownloadKind) -> tuple[str, str]:
+    if kind == "torrents":
+        return "/torrents/controltorrent", "torrent_id"
+    if kind == "usenet":
+        return "/usenet/controlusenet", "usenet_id"
+    return "/webdl/controlwebdownload", "web_id"
+
+
+def _numeric_id_payload(value: str) -> int | str:
+    return int(value) if value.isdecimal() else value
+
+
+def _item_hashes(item: dict[str, Any]) -> set[str]:
+    hashes: set[str] = set()
+    item_hash = item.get("hash")
+    if isinstance(item_hash, str) and item_hash.strip():
+        hashes.add(item_hash.strip().casefold())
+    alternative_hashes = item.get("alternative_hashes")
+    if isinstance(alternative_hashes, list):
+        for candidate in cast(list[object], alternative_hashes):
+            if isinstance(candidate, str) and candidate.strip():
+                hashes.add(candidate.strip().casefold())
+    return hashes

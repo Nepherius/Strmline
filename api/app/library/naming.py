@@ -5,7 +5,11 @@ from pathlib import PurePath
 
 from app.library.entries import LibraryCategory, LibraryEntry
 
-SEASON_EPISODE = re.compile(r"(?i)(?:^|[\s._-])s(?P<season>\d{1,2})e(?P<episode>\d{1,3})(?:\D|$)")
+SEASON_EPISODE = re.compile(
+    r"(?i)(?:^|[\s._-])s(?P<season>\d{1,2})[\s._-]*e(?P<episode>\d{1,3})(?:\D|$)"
+)
+FOLDER_SEASON = re.compile(r"(?i)\bseason[\s._-]*(?P<season>\d{1,2})\b")
+LEADING_EPISODE = re.compile(r"(?i)^(?:episode[\s._-]*)?(?P<episode>\d{1,3})(?:\D|$)")
 YEAR = re.compile(r"(?:^|[^\d])(?P<year>(?:19|20)\d{2})(?:[^\d]|$)")
 QUALITY_TERMS = (
     "2160p",
@@ -32,6 +36,7 @@ QUALITY_TERMS = (
     "repack",
 )
 TRAILING_QUALITY = re.compile(rf"(?i)\b({'|'.join(QUALITY_TERMS)})\b.*$")
+LEADING_RELEASE_GROUPS = re.compile(r"^(?:\[[^\]]{1,24}]\s*)+")
 
 
 def library_entry_from_file_name(
@@ -39,11 +44,23 @@ def library_entry_from_file_name(
 ) -> LibraryEntry:
     cleaned_name = _clean_release_name(PurePath(file_name).stem)
     season_episode = SEASON_EPISODE.search(cleaned_name)
-    category = _category(cleaned_name, folder_name, has_episode=season_episode is not None)
-    year = _year(cleaned_name)
-    title = _title(cleaned_name, folder_name, season_episode, year)
+    folder_episode = _folder_episode(cleaned_name, folder_name, season_episode)
+    category = _category(
+        cleaned_name,
+        folder_name,
+        has_episode=season_episode is not None or folder_episode is not None,
+    )
+    file_year = _year(cleaned_name)
+    title, _ = _title(
+        cleaned_name,
+        folder_name,
+        season_episode,
+        file_year,
+        use_folder_title=folder_episode is not None,
+    )
+    year = file_year or _year_from_folder(folder_name)
 
-    if season_episode is None:
+    if season_episode is None and folder_episode is None:
         return LibraryEntry(
             category="movies",
             title=title,
@@ -55,8 +72,8 @@ def library_entry_from_file_name(
         category=category,
         title=title,
         year=year,
-        season_number=int(season_episode.group("season")),
-        episode_number=int(season_episode.group("episode")),
+        season_number=_season_number(season_episode, folder_episode),
+        episode_number=_episode_number(season_episode, folder_episode),
         resolver_url=playback_url,
     )
 
@@ -75,7 +92,13 @@ def _title(
     folder_name: str,
     season_episode: re.Match[str] | None,
     year: int | None,
-) -> str:
+    *,
+    use_folder_title: bool = False,
+) -> tuple[str, bool]:
+    if use_folder_title:
+        fallback = _title_from_folder(folder_name)
+        return fallback or "Unknown", True
+
     title_source = name
     if season_episode is not None:
         title_source = name[: season_episode.start()]
@@ -87,10 +110,63 @@ def _title(
     title_source = TRAILING_QUALITY.sub("", title_source)
     title = _humanize_title(title_source)
     if title:
-        return title
+        return title, False
 
-    fallback = _humanize_title(PurePath(folder_name).name)
-    return fallback or "Unknown"
+    fallback = _title_from_folder(folder_name)
+    return fallback or "Unknown", True
+
+
+def _folder_episode(
+    name: str,
+    folder_name: str,
+    season_episode: re.Match[str] | None,
+) -> tuple[int, int] | None:
+    if season_episode is not None:
+        return None
+    folder_season = FOLDER_SEASON.search(_clean_release_name(PurePath(folder_name).name))
+    leading_episode = LEADING_EPISODE.search(name)
+    if folder_season is None or leading_episode is None:
+        return None
+    return int(folder_season.group("season")), int(leading_episode.group("episode"))
+
+
+def _season_number(
+    season_episode: re.Match[str] | None,
+    folder_episode: tuple[int, int] | None,
+) -> int:
+    if season_episode is not None:
+        return int(season_episode.group("season"))
+    if folder_episode is not None:
+        return folder_episode[0]
+    msg = "Series entries require season numbers."
+    raise ValueError(msg)
+
+
+def _episode_number(
+    season_episode: re.Match[str] | None,
+    folder_episode: tuple[int, int] | None,
+) -> int:
+    if season_episode is not None:
+        return int(season_episode.group("episode"))
+    if folder_episode is not None:
+        return folder_episode[1]
+    msg = "Series entries require episode numbers."
+    raise ValueError(msg)
+
+
+def _title_from_folder(folder_name: str) -> str:
+    if not folder_name:
+        return ""
+    cleaned = _clean_release_name(PurePath(folder_name).name)
+    season_episode = SEASON_EPISODE.search(cleaned)
+    if season_episode is not None:
+        cleaned = cleaned[: season_episode.start()]
+    else:
+        year_match = YEAR.search(cleaned)
+        if year_match is not None:
+            cleaned = cleaned[: year_match.start("year")]
+    cleaned = TRAILING_QUALITY.sub("", cleaned)
+    return _humanize_title(cleaned)
 
 
 def _year(name: str) -> int | None:
@@ -100,7 +176,15 @@ def _year(name: str) -> int | None:
     return int(year_match.group("year"))
 
 
+def _year_from_folder(folder_name: str) -> int | None:
+    if not folder_name:
+        return None
+    cleaned = _clean_release_name(PurePath(folder_name).name)
+    return _year(cleaned)
+
+
 def _clean_release_name(value: str) -> str:
+    value = LEADING_RELEASE_GROUPS.sub("", value).strip()
     cleaned = value.replace("[", " ").replace("]", " ")
     cleaned = cleaned.replace("(", " ").replace(")", " ")
     return re.sub(r"\s+", " ", cleaned).strip()

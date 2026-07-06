@@ -51,6 +51,44 @@ def test_extract_torbox_files_filters_uncached_non_video_and_samples() -> None:
     assert result.files[0].file_name == "Show.Name.S01E02.mkv"
 
 
+def test_extract_torbox_files_filters_pack_extras() -> None:
+    downloads = [
+        {
+            "id": 10,
+            "name": "Anime Pack",
+            "cached": True,
+            "files": [
+                {
+                    "id": 20,
+                    "short_name": "Show.S03E01.mkv",
+                    "mimetype": "video/x-matroska",
+                },
+                {
+                    "id": 21,
+                    "short_name": "S03OP Ano hi No Kotoba Nao Toyama.mkv",
+                    "mimetype": "video/x-matroska",
+                },
+                {
+                    "id": 22,
+                    "short_name": "S03ED Kotoba ni Dekinai Maaya Sakamoto.mkv",
+                    "mimetype": "video/x-matroska",
+                },
+                {
+                    "id": 23,
+                    "short_name": "S03SP01 Ascendance of a Bookworm Part 1.mkv",
+                    "mimetype": "video/x-matroska",
+                },
+            ],
+        },
+    ]
+
+    result = extract_torbox_files(downloads, "torrents")
+
+    assert len(result.files) == 1
+    assert result.skipped_count == 3
+    assert result.files[0].file_id == "20"
+
+
 def test_request_download_url_uses_torbox_id_parameter_for_kind() -> None:
     result = extract_torbox_files(
         [

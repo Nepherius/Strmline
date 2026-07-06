@@ -4,12 +4,18 @@ from pathlib import Path
 from typing import Annotated
 
 from anyio.to_thread import run_sync
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.provider_config import effective_torbox_key
 from app.core.config import get_settings
+from app.db.dependencies import get_db_session
+from app.db.repositories.library_exclusion import LibraryExclusionRepository
+from app.library.removal import LibraryRemovalResult, remove_library_prefix
 from app.library.summary import (
     LibraryDuplicateGroup,
+    LibraryEntrySummary,
     LibraryFile,
     LibrarySummary,
     summarize_library,
@@ -19,6 +25,7 @@ from app.library.validation import (
     LibraryValidationReport,
     validate_jellyfin_library,
 )
+from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
 
 router = APIRouter(prefix="/api/library", tags=["library"])
 
@@ -34,6 +41,14 @@ class LibraryDuplicateGroupResponse(BaseModel):
     files: list[LibraryFileResponse]
 
 
+class LibraryEntryResponse(BaseModel):
+    key: str
+    category: str
+    title: str
+    relative_path: str
+    file_count: int
+
+
 class LibrarySummaryResponse(BaseModel):
     configured: bool
     root: str | None
@@ -41,6 +56,7 @@ class LibrarySummaryResponse(BaseModel):
     total_files: int
     category_counts: dict[str, int]
     files: list[LibraryFileResponse]
+    entries: list[LibraryEntryResponse]
     duplicate_groups: list[LibraryDuplicateGroupResponse]
 
 
@@ -61,6 +77,19 @@ class LibraryValidationResponse(BaseModel):
     errors: list[LibraryValidationIssueResponse]
 
 
+class LibraryRemoveRequest(BaseModel):
+    category: str = Field(pattern=r"^(movies|shows|anime)$")
+    title: str = Field(min_length=1, max_length=300)
+    relative_path: str = Field(min_length=1, max_length=1000)
+
+
+class LibraryRemoveResponse(BaseModel):
+    ok: bool
+    message: str
+    removed_files: int
+    removed_torbox_items: int
+
+
 async def get_library_root() -> Path:
     return get_settings().library_root
 
@@ -77,6 +106,7 @@ async def library_summary(
         total_files=summary.total_files,
         category_counts=summary.category_counts,
         files=[_file_response(file) for file in summary.files],
+        entries=[_entry_response(entry) for entry in summary.entries],
         duplicate_groups=[_duplicate_response(group) for group in summary.duplicate_groups],
     )
 
@@ -98,10 +128,63 @@ async def library_validation(
     )
 
 
+@router.delete("/entries", response_model=LibraryRemoveResponse)
+async def remove_library_entry(
+    request: LibraryRemoveRequest,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    library_root: Annotated[Path, Depends(get_library_root)],
+) -> LibraryRemoveResponse:
+    _validate_relative_prefix(request.relative_path, request.category)
+    settings = get_settings()
+    torbox_api_key = await effective_torbox_key(session, settings)
+    if torbox_api_key is None:
+        raise HTTPException(status_code=400, detail="TorBox API key is not configured.")
+
+    repository = LibraryExclusionRepository(session)
+    backing_items = await repository.backing_items(request.relative_path)
+    removed_torbox_items = 0
+    try:
+        async with TorBoxClient(
+            api_key=torbox_api_key,
+            base_url=settings.torbox_base_url,
+            timeout=settings.outbound_timeout_seconds,
+        ) as client:
+            for item in backing_items:
+                await client.delete_download(item.kind, item.item_id)
+                removed_torbox_items += 1
+    except TorBoxAPIError as error:
+        await session.rollback()
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+    await repository.add(
+        category=request.category,
+        title=request.title,
+        relative_prefix=request.relative_path,
+    )
+    removal = await _remove_library_prefix(library_root, request.relative_path)
+    await session.commit()
+    return LibraryRemoveResponse(
+        ok=True,
+        message="Library entry removed.",
+        removed_files=removal.removed_files,
+        removed_torbox_items=removed_torbox_items,
+    )
+
+
 def _duplicate_response(group: LibraryDuplicateGroup) -> LibraryDuplicateGroupResponse:
     return LibraryDuplicateGroupResponse(
         key=group.key,
         files=[_file_response(file) for file in group.files],
+    )
+
+
+def _entry_response(entry: LibraryEntrySummary) -> LibraryEntryResponse:
+    return LibraryEntryResponse(
+        key=entry.key,
+        category=entry.category,
+        title=entry.title,
+        relative_path=entry.relative_path,
+        file_count=entry.file_count,
     )
 
 
@@ -127,3 +210,18 @@ async def _summarize_library(library_root: Path) -> LibrarySummary:
 
 async def _validate_library(library_root: Path) -> LibraryValidationReport:
     return validate_jellyfin_library(library_root)
+
+
+async def _remove_library_prefix(
+    library_root: Path,
+    relative_prefix: str,
+) -> LibraryRemovalResult:
+    return await run_sync(remove_library_prefix, library_root, relative_prefix)
+
+
+def _validate_relative_prefix(relative_path: str, category: str) -> None:
+    normalized = Path(relative_path)
+    if normalized.is_absolute() or ".." in normalized.parts:
+        raise HTTPException(status_code=400, detail="Library entry path is invalid.")
+    if not relative_path.startswith(f"{category}/"):
+        raise HTTPException(status_code=400, detail="Library entry category does not match path.")

@@ -226,6 +226,63 @@ async def test_anilist_anime_service_rejects_non_matching_title() -> None:
     assert is_anime is False
 
 
+@pytest.mark.asyncio
+async def test_anilist_anime_service_accepts_season_title_variant() -> None:
+    session = FakeSession([FakeResult(scalar=None), FakeResult(scalar=None)])
+    client = FakeAniListClient(
+        _anime_payload_with_title(
+            english="Ascendance of a Bookworm Season 3",
+            romaji="Honzuki no Gekokujou: Shisho ni Naru Tame ni wa Shudan wo Erandeiraremasen",
+            year=2022,
+        )
+    )
+
+    is_anime = await AniListAnimeService(
+        cache_repository=AniListCacheRepository(cast(AsyncSession, session)),
+        anilist_client=client,
+    ).has_anime_match("Ascendance of a Bookworm", year=2022)
+
+    assert is_anime is True
+
+
+@pytest.mark.asyncio
+async def test_anilist_anime_service_accepts_dated_subtitle_variant() -> None:
+    session = FakeSession([FakeResult(scalar=None), FakeResult(scalar=None)])
+    client = FakeAniListClient(
+        _anime_payload_with_title(
+            english="Ascendance of a Bookworm: I'll Stop at Nothing to Become a Librarian",
+            romaji="Honzuki no Gekokujou",
+            year=2022,
+        )
+    )
+
+    is_anime = await AniListAnimeService(
+        cache_repository=AniListCacheRepository(cast(AsyncSession, session)),
+        anilist_client=client,
+    ).has_anime_match("Ascendance of a Bookworm", year=2022)
+
+    assert is_anime is True
+
+
+@pytest.mark.asyncio
+async def test_anilist_anime_service_rejects_unmarked_prefix_match() -> None:
+    session = FakeSession([FakeResult(scalar=None), FakeResult(scalar=None)])
+    client = FakeAniListClient(
+        _anime_payload_with_title(
+            english="Ascendance of a Bookwormish Archive",
+            romaji="Unrelated Anime",
+            year=2022,
+        )
+    )
+
+    is_anime = await AniListAnimeService(
+        cache_repository=AniListCacheRepository(cast(AsyncSession, session)),
+        anilist_client=client,
+    ).has_anime_match("Ascendance of a Bookworm", year=2022)
+
+    assert is_anime is False
+
+
 def _anime_payload(*, year: int) -> dict[str, Any]:
     return {
         "data": {
@@ -234,6 +291,23 @@ def _anime_payload(*, year: int) -> dict[str, Any]:
                     {
                         "id": 154587,
                         "title": {"romaji": "Sousou no Frieren", "english": "Frieren"},
+                        "startDate": {"year": year},
+                        "isAdult": False,
+                    }
+                ]
+            }
+        }
+    }
+
+
+def _anime_payload_with_title(*, english: str, romaji: str, year: int) -> dict[str, Any]:
+    return {
+        "data": {
+            "Page": {
+                "media": [
+                    {
+                        "id": 42424,
+                        "title": {"romaji": romaji, "english": english},
                         "startDate": {"year": year},
                         "isAdult": False,
                     }

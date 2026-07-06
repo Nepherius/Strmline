@@ -4,10 +4,12 @@ from app.db.models import (
     AppSetting,
     GeneratedFile,
     LibraryEntry,
+    LibraryExclusion,
     MediaItem,
     PlaybackAttempt,
     ProviderCredential,
     ResolverToken,
+    StreamSelection,
     SyncError,
     SyncRun,
     TmdbCacheEntry,
@@ -21,10 +23,12 @@ def test_initial_schema_tables_are_registered() -> None:
         "anilist_cache_entries",
         "generated_files",
         "library_entries",
+        "library_exclusions",
         "media_items",
         "playback_attempts",
         "provider_credentials",
         "resolver_tokens",
+        "stream_selections",
         "sync_errors",
         "sync_runs",
         "tmdb_cache_entries",
@@ -48,7 +52,16 @@ def test_resolver_tokens_store_hash_not_plain_token() -> None:
 
 
 def test_sync_and_playback_tables_do_not_store_final_media_urls() -> None:
-    for model in (LibraryEntry, PlaybackAttempt, SyncError, SyncRun, GeneratedFile, TorBoxItem):
+    for model in (
+        LibraryEntry,
+        PlaybackAttempt,
+        SyncError,
+        SyncRun,
+        GeneratedFile,
+        TorBoxItem,
+        StreamSelection,
+        LibraryExclusion,
+    ):
         column_names = set(model.__table__.columns.keys())
         assert "target_url" not in column_names
         assert "final_url" not in column_names

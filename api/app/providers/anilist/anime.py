@@ -32,6 +32,8 @@ query SearchAnime($search: String!, $seasonYear: Int, $page: Int!, $perPage: Int
   }
 }
 """
+SEASON_VARIANT_MARKERS = {"season", "part", "cour", "tv"}
+MIN_EXTENDED_VARIANT_TOKENS = 3
 
 
 class AniListGraphqlClient(Protocol):
@@ -129,7 +131,8 @@ def _media_item_matches(media_item_value: object, *, title: str, year: int | Non
     media_item = cast(dict[str, object], media_item_value)
     if media_item.get("isAdult") is True:
         return False
-    if not _title_matches(media_item, title):
+    allow_extended_variant = year is not None
+    if not _title_matches(media_item, title, allow_extended_variant=allow_extended_variant):
         return False
     if year is None:
         return True
@@ -138,11 +141,42 @@ def _media_item_matches(media_item_value: object, *, title: str, year: int | Non
     return start_date_payload.get("year") == year
 
 
-def _title_matches(media_item: dict[str, object], title: str) -> bool:
+def _title_matches(
+    media_item: dict[str, object],
+    title: str,
+    *,
+    allow_extended_variant: bool,
+) -> bool:
     expected = _normalized_title(title)
-    return any(
-        _normalized_title(candidate) == expected for candidate in _candidate_titles(media_item)
-    )
+    expected_tokens = _title_tokens(title)
+    if not expected or not expected_tokens:
+        return False
+    for candidate in _candidate_titles(media_item):
+        if _normalized_title(candidate) == expected:
+            return True
+        if _is_title_variant(
+            candidate_title=candidate,
+            expected_tokens=expected_tokens,
+            allow_extended_variant=allow_extended_variant,
+        ):
+            return True
+    return False
+
+
+def _is_title_variant(
+    *,
+    candidate_title: str,
+    expected_tokens: list[str],
+    allow_extended_variant: bool,
+) -> bool:
+    candidate_tokens = _title_tokens(candidate_title)
+    if len(candidate_tokens) <= len(expected_tokens):
+        return False
+    if candidate_tokens[: len(expected_tokens)] != expected_tokens:
+        return False
+    if candidate_tokens[len(expected_tokens)] in SEASON_VARIANT_MARKERS:
+        return True
+    return allow_extended_variant and len(expected_tokens) >= MIN_EXTENDED_VARIANT_TOKENS
 
 
 def _candidate_titles(media_item: dict[str, object]) -> list[str]:
@@ -160,3 +194,7 @@ def _candidate_titles(media_item: dict[str, object]) -> list[str]:
 
 def _normalized_title(title: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", title.casefold())
+
+
+def _title_tokens(title: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", title.casefold())

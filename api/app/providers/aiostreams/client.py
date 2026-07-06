@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import ipaddress
 from dataclasses import dataclass
 from typing import Any, cast
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -36,6 +37,12 @@ class AioStreamsStream:
         return self.url is not None or self.info_hash is not None
 
 
+@dataclass(frozen=True, slots=True)
+class AioStreamsTriggerResult:
+    status_code: int
+    redirected: bool
+
+
 class AioStreamsClient:
     def __init__(
         self,
@@ -56,6 +63,31 @@ class AioStreamsClient:
         stream_path = f"stream/{quote(media_type, safe='')}/{quote(media_id, safe='')}.json"
         payload = await self._get_json(_join_url(self._base_url, stream_path))
         return _streams_from_payload(payload)
+
+    async def trigger_stream_url(self, url: str) -> AioStreamsTriggerResult:
+        if not _is_safe_trigger_url(url):
+            raise AioStreamsClientError("AIOStreams stream trigger URL is not allowed.")
+        try:
+            async with (
+                httpx.AsyncClient(
+                    timeout=self._timeout_seconds,
+                    transport=self._transport,
+                    follow_redirects=False,
+                ) as client,
+                client.stream(
+                    "GET",
+                    url,
+                    headers={"Range": "bytes=0-0"},
+                ) as response,
+            ):
+                if response.is_error:
+                    raise AioStreamsClientError("AIOStreams stream trigger failed.")
+                return AioStreamsTriggerResult(
+                    status_code=response.status_code,
+                    redirected=response.is_redirect,
+                )
+        except httpx.HTTPError as error:
+            raise AioStreamsClientError("AIOStreams stream trigger failed.") from error
 
     async def _get_json(self, url: str) -> dict[str, Any]:
         try:
@@ -82,6 +114,30 @@ def _join_url(base_url: str, path: str) -> str:
         return base_url
     normalized_base = base_url.removesuffix("/manifest.json")
     return f"{normalized_base}/{path.lstrip('/')}"
+
+
+def _is_safe_trigger_url(url: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.scheme.casefold() not in {"http", "https"}:
+        return False
+    if parsed.username is not None or parsed.password is not None:
+        return False
+    hostname = parsed.hostname
+    if hostname is None:
+        return False
+    if hostname.casefold() == "localhost":
+        return False
+    try:
+        ip_address = ipaddress.ip_address(hostname)
+    except ValueError:
+        return True
+    return not (
+        ip_address.is_private
+        or ip_address.is_loopback
+        or ip_address.is_link_local
+        or ip_address.is_reserved
+        or ip_address.is_unspecified
+    )
 
 
 def _manifest_from_payload(payload: dict[str, Any]) -> AioStreamsManifest:

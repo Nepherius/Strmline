@@ -12,6 +12,7 @@ from typing import cast
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import Settings, get_settings
+from app.db.repositories.library_exclusion import LibraryExclusionRepository
 from app.db.repositories.sync_state import SyncStateRepository
 from app.db.session import build_session_factory
 from app.library.strm_probe import StrmProbeError, probe_strm_file
@@ -268,6 +269,7 @@ async def _run_sync(
                         library_root=context.output_root,
                         resolver=context.resolver,
                         anime_classifier=build_anilist_anime_classifier(session, settings),
+                        excluded_prefixes=await LibraryExclusionRepository(session).prefixes(),
                     )
                     return await sync.run(kinds=options.kinds, max_files=options.max_files)
             sync = DirectTorBoxStrmSync(

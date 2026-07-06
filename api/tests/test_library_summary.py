@@ -18,6 +18,24 @@ def test_summarize_library_counts_categories_and_files(tmp_path: Path) -> None:
         "shows/Show One/Season 01/Show One - S01E01.strm",
         "anime/Anime One/Season 01/Anime One - S01E01.strm",
     ]
+    assert [(entry.relative_path, entry.file_count) for entry in summary.entries] == [
+        ("anime/Anime One", 1),
+        ("movies/Movie One (2024)", 1),
+        ("shows/Show One", 1),
+    ]
+
+
+def test_summarize_library_groups_series_into_one_entry(tmp_path: Path) -> None:
+    _write_strm(tmp_path / "shows" / "Show One" / "Season 01" / "Show One - S01E01.strm")
+    _write_strm(tmp_path / "shows" / "Show One" / "Season 01" / "Show One - S01E02.strm")
+
+    summary = summarize_library(tmp_path)
+
+    assert len(summary.files) == 2
+    assert len(summary.entries) == 1
+    assert summary.entries[0].title == "Show One"
+    assert summary.entries[0].relative_path == "shows/Show One"
+    assert summary.entries[0].file_count == 2
 
 
 def test_summarize_library_groups_duplicate_titles(tmp_path: Path) -> None:
@@ -46,6 +64,7 @@ def test_summarize_library_handles_missing_root(tmp_path: Path) -> None:
     assert summary.exists is False
     assert summary.total_files == 0
     assert summary.files == ()
+    assert summary.entries == ()
 
 
 def _write_strm(path: Path) -> None:

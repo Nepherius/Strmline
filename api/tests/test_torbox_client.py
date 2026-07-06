@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 
@@ -85,6 +87,7 @@ async def test_torbox_client_error_includes_safe_api_detail() -> None:
 
     assert "BAD_TOKEN" in str(error.value)
     assert "invalid" in str(error.value)
+    assert error.value.error_code == "BAD_TOKEN"
     assert "secret-token" not in str(error.value)
 
 
@@ -141,3 +144,127 @@ async def test_torbox_client_lists_all_download_pages() -> None:
 
     assert seen_offsets == ["0", "2"]
     assert downloads == [{"id": 1}, {"id": 2}, {"id": 3}]
+
+
+@pytest.mark.asyncio
+async def test_torbox_client_creates_torrent_with_cached_only_form() -> None:
+    seen_request: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_request["method"] = request.method
+        seen_request["url"] = str(request.url)
+        seen_request["content_type"] = request.headers["content-type"]
+        seen_request["body"] = request.content.decode()
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "data": {"torrent_id": 42, "hash": "abc"},
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        client = TorBoxClient(api_key="secret-token", http_client=http_client)
+
+        data = await client.create_torrent(
+            magnet="magnet:?xt=urn:btih:abc",
+            name="Test Movie",
+            add_only_if_cached=True,
+        )
+
+    assert data == {"torrent_id": 42, "hash": "abc"}
+    assert seen_request["method"] == "POST"
+    assert seen_request["url"] == "https://api.torbox.app/v1/api/torrents/createtorrent"
+    assert "multipart/form-data" in seen_request["content_type"]
+    assert 'name="magnet"' in seen_request["body"]
+    assert "magnet:?xt=urn:btih:abc" in seen_request["body"]
+    assert 'name="add_only_if_cached"' in seen_request["body"]
+    assert "true" in seen_request["body"]
+    assert "secret-token" not in seen_request["body"]
+
+
+@pytest.mark.asyncio
+async def test_torbox_client_deletes_torrent_with_control_endpoint() -> None:
+    seen_json: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_json.update(json.loads(request.content.decode()))
+        return httpx.Response(200, json={"success": True, "data": None})
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        client = TorBoxClient(api_key="secret-token", http_client=http_client)
+
+        await client.delete_torrent("42")
+
+    assert seen_json == {
+        "torrent_id": 42,
+        "operation": "Delete",
+        "all": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_torbox_client_deletes_usenet_with_control_endpoint() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["json"] = json.loads(request.content.decode())
+        return httpx.Response(200, json={"success": True, "data": None})
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        client = TorBoxClient(api_key="secret-token", http_client=http_client)
+
+        await client.delete_download("usenet", "42")
+
+    assert seen == {
+        "url": "https://api.torbox.app/v1/api/usenet/controlusenet",
+        "json": {"usenet_id": 42, "operation": "Delete", "all": False},
+    }
+
+
+@pytest.mark.asyncio
+async def test_torbox_client_deletes_webdl_with_control_endpoint() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["json"] = json.loads(request.content.decode())
+        return httpx.Response(200, json={"success": True, "data": None})
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        client = TorBoxClient(api_key="secret-token", http_client=http_client)
+
+        await client.delete_download("webdl", "web-42")
+
+    assert seen == {
+        "url": "https://api.torbox.app/v1/api/webdl/controlwebdownload",
+        "json": {"web_id": "web-42", "operation": "Delete", "all": False},
+    }
+
+
+@pytest.mark.asyncio
+async def test_torbox_client_finds_torrent_by_hash() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "data": [
+                    {"id": 1, "hash": "aaa"},
+                    {"id": 2, "hash": "bbb", "alternative_hashes": ["CCC"]},
+                ],
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        client = TorBoxClient(api_key="secret-token", http_client=http_client)
+
+        item = await client.find_torrent_by_hash("ccc")
+
+    assert item == {"id": 2, "hash": "bbb", "alternative_hashes": ["CCC"]}

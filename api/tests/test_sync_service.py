@@ -34,6 +34,14 @@ class FakeClient:
         _ = args
 
 
+class FakeLibraryExclusionRepository:
+    def __init__(self, session: object) -> None:
+        _ = session
+
+    async def prefixes(self) -> tuple[str, ...]:
+        return ("shows/Removed Show",)
+
+
 @pytest.mark.asyncio
 async def test_sync_service_uses_saved_resolver_token(
     monkeypatch: pytest.MonkeyPatch,
@@ -46,8 +54,10 @@ async def test_sync_service_uses_saved_resolver_token(
         return FakeClient()
 
     monkeypatch.setattr(sync_service, "AppSettingsRepository", fake_settings_repository(tmp_path))
+    monkeypatch.setattr(sync_service, "LibraryExclusionRepository", FakeLibraryExclusionRepository)
     monkeypatch.setattr(sync_service, "SyncStateRepository", FakeSyncStateRepository)
     monkeypatch.setattr(sync_service, "TorBoxStrmSync", fake_torbox_strm_sync(captured))
+    monkeypatch.setattr(sync_service, "ensure_selected_streams_in_torbox", no_selected_streams)
 
     summary = await run_torbox_account_sync(
         cast(AsyncSession, object()),
@@ -59,6 +69,7 @@ async def test_sync_service_uses_saved_resolver_token(
     assert isinstance(resolver, ResolverUrlConfig)
     assert resolver.token == "saved-resolver-token"  # noqa: S105
     assert captured["anime_classifier"] is not None
+    assert captured["excluded_prefixes"] == ("shows/Removed Show",)
     assert summary.sync_run_id == 12
 
 
@@ -87,8 +98,10 @@ async def test_sync_service_records_provider_failures(
             raise TorBoxAPIError("TorBox request failed with status 503.")
 
     monkeypatch.setattr(sync_service, "AppSettingsRepository", fake_settings_repository(tmp_path))
+    monkeypatch.setattr(sync_service, "LibraryExclusionRepository", FakeLibraryExclusionRepository)
     monkeypatch.setattr(sync_service, "SyncStateRepository", CapturingSyncStateRepository)
     monkeypatch.setattr(sync_service, "TorBoxStrmSync", FailingTorBoxStrmSync)
+    monkeypatch.setattr(sync_service, "ensure_selected_streams_in_torbox", no_selected_streams)
 
     with pytest.raises(SyncExecutionError):
         _ = await run_torbox_account_sync(
@@ -133,7 +146,14 @@ def fake_settings_repository(library_root: Path) -> type:
         async def resolver_token_value(self) -> str:
             return "saved-resolver-token"
 
+        async def aiostreams_base_url_value(self) -> str | None:
+            return None
+
     return FakeSettingsRepository
+
+
+async def no_selected_streams(**kwargs: object) -> None:
+    _ = kwargs
 
 
 def fake_torbox_strm_sync(captured: dict[str, object]) -> type:

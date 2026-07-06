@@ -7,6 +7,8 @@ from typing import Any, Protocol
 
 from app.library.entries import LibraryEntry
 from app.library.naming import library_entry_from_file_name
+from app.library.paths import library_entry_relative_path
+from app.library.stale_cleanup import remove_stale_strm_files
 from app.library.strm_writer import write_strm_file
 from app.providers.torbox.files import (
     DOWNLOAD_KINDS,
@@ -70,7 +72,7 @@ class ResolverUrlConfig:
 
 
 class TorBoxStrmSync:
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         *,
         client: TorBoxDownloadClient,
@@ -79,6 +81,7 @@ class TorBoxStrmSync:
         library_root: Path,
         resolver: ResolverUrlConfig | None = None,
         anime_classifier: AnimeClassifier | None = None,
+        excluded_prefixes: tuple[str, ...] = (),
     ) -> None:
         self._client = client
         self._api_key = api_key
@@ -86,6 +89,7 @@ class TorBoxStrmSync:
         self._library_root = library_root
         self._resolver = resolver
         self._anime_classifier = anime_classifier
+        self._excluded_prefixes = excluded_prefixes
 
     async def run(
         self,
@@ -127,10 +131,14 @@ class TorBoxStrmSync:
                     torbox_file.folder_name,
                 )
                 entry = await self._with_anime_classification(entry)
+                if _is_excluded(entry, self._excluded_prefixes):
+                    skipped_files += 1
+                    continue
                 written_path = write_strm_file(self._library_root, entry)
                 written_paths.append(written_path)
                 synced_files.append(_synced_file(written_path, entry_id, entry, torbox_file))
 
+        remove_stale_strm_files(self._library_root, set(written_paths))
         return self._result(
             scanned_files,
             skipped_files,
@@ -141,6 +149,8 @@ class TorBoxStrmSync:
 
     async def _with_anime_classification(self, entry: LibraryEntry) -> LibraryEntry:
         if self._anime_classifier is None or entry.category == "anime":
+            return entry
+        if not _should_check_anilist(entry):
             return entry
         if not await self._anime_classifier.has_anime_match(entry.title, year=entry.year):
             return entry
@@ -214,7 +224,7 @@ def _synced_file(
         year=entry.year,
         season_number=entry.season_number,
         episode_number=entry.episode_number,
-        provider="torbox",
+        provider=torbox_file.kind,
         provider_item_id=torbox_file.item_id,
         provider_file_id=torbox_file.file_id,
         content_hash=hashlib.sha256(entry.resolver_url.encode("utf-8")).hexdigest(),
@@ -222,3 +232,19 @@ def _synced_file(
 
 
 DirectTorBoxStrmSync = TorBoxStrmSync
+
+
+def _should_check_anilist(entry: LibraryEntry) -> bool:
+    if entry.year is not None:
+        return True
+    return len(entry.title.strip()) > 1
+
+
+def _is_excluded(entry: LibraryEntry, excluded_prefixes: tuple[str, ...]) -> bool:
+    if not excluded_prefixes:
+        return False
+    relative_path = library_entry_relative_path(entry).as_posix()
+    return any(
+        relative_path == prefix or relative_path.startswith(f"{prefix}/")
+        for prefix in excluded_prefixes
+    )

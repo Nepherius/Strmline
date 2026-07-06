@@ -5,6 +5,7 @@ from app.api.aiostreams import router as aiostreams_router
 from app.api.health import router as health_router
 from app.api.library import router as library_router
 from app.api.resolver import router as resolver_router
+from app.api.search import router as search_router
 from app.api.settings import router as settings_router
 from app.api.setup import router as setup_router
 from app.api.sync import router as sync_router
@@ -29,6 +30,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(library_router)
     app.include_router(resolver_router)
+    app.include_router(search_router)
     app.include_router(settings_router)
     app.include_router(setup_router)
     app.include_router(sync_router)

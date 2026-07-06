@@ -10,7 +10,7 @@
   import {
     categoryLabels,
     type LibraryCategory,
-    type LibraryFile,
+    type LibraryEntry,
     type LibrarySummary,
     type LibraryValidation,
     type SortKey,
@@ -29,9 +29,11 @@
   export let syncStatus: SyncStatus | null;
   export let validation: LibraryValidation | null;
   export let validationIssues: number;
-  export let visibleFiles: LibraryFile[];
+  export let visibleEntries: LibraryEntry[];
+  export let removingEntryKey: string;
   export let onRefresh: () => Promise<void>;
   export let onRunSync: () => Promise<void>;
+  export let onRemoveEntry: (entry: LibraryEntry) => Promise<void>;
   export let onSort: (sortKey: SortKey) => void;
 
   $: recentErrors = syncStatus?.recent_errors ?? [];
@@ -56,6 +58,7 @@
 <AppShell>
   <PageHeader ariaLabel="Strmline controls" title="Library dashboard">
     <svelte:fragment slot="actions">
+      <UiLink href="/search">Search</UiLink>
       <UiLink href="/setup">Setup</UiLink>
       <form class="refresh-form" on:submit|preventDefault={onRunSync}>
         <UiButton type="submit" disabled={loading || syncing}>
@@ -197,21 +200,36 @@
                   type="button"
                   on:click={() => {
                     onSort("relative_path");
-                  }}>Path</button
+                  }}>Folder</button
                 >
               </th>
+              <th>Files</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>
-            {#each visibleFiles as file (file.relative_path)}
+            {#each visibleEntries as entry (entry.key)}
               <tr>
-                <td>{file.title}</td>
-                <td>{categoryLabels[file.category]}</td>
-                <td><code>{file.relative_path}</code></td>
+                <td>{entry.title}</td>
+                <td>{categoryLabels[entry.category]}</td>
+                <td><code>{entry.relative_path}</code></td>
+                <td>{entry.file_count}</td>
+                <td>
+                  <button
+                    type="button"
+                    class="remove-entry"
+                    disabled={removingEntryKey === entry.key || loading || syncing}
+                    on:click={() => {
+                      void onRemoveEntry(entry);
+                    }}
+                  >
+                    {removingEntryKey === entry.key ? "Removing" : "Remove"}
+                  </button>
+                </td>
               </tr>
             {:else}
               <tr>
-                <td colspan="3" class="empty">No generated files match the current view.</td>
+                <td colspan="5" class="empty">No generated entries match the current view.</td>
               </tr>
             {/each}
           </tbody>
@@ -429,6 +447,22 @@
     padding: 0;
     background: transparent;
     color: inherit;
+  }
+
+  .remove-entry {
+    height: 30px;
+    border: 1px solid #a23a35;
+    border-radius: 6px;
+    padding: 0 10px;
+    background: #fff5f4;
+    color: #8e251f;
+    cursor: pointer;
+    font-weight: 800;
+  }
+
+  .remove-entry:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
   }
 
   td:first-child {

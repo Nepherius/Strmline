@@ -3,7 +3,7 @@
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
 
-  import { loadLibrarySummary, loadLibraryValidation } from "$lib/libraryApi";
+  import { loadLibrarySummary, loadLibraryValidation, removeLibraryEntry } from "$lib/libraryApi";
   import { loadSetupStatus } from "$lib/setupApi";
   import { loadSyncStatus, runSyncNow, type SyncRunResult, type SyncStatus } from "$lib/syncApi";
   import {
@@ -11,6 +11,7 @@
     filterFiles,
     sortFiles,
     type LibraryCategory,
+    type LibraryEntry,
     type LibrarySummary,
     type LibraryValidation,
     type SortDirection,
@@ -33,9 +34,10 @@
   let syncResult: SyncRunResult | null = null;
   let syncStatus: SyncStatus | null = null;
   let validation: LibraryValidation | null = null;
+  let removingEntryKey = "";
 
-  $: visibleFiles = summary
-    ? sortFiles(filterFiles(summary.files, query, category), sortKey, sortDirection)
+  $: visibleEntries = summary
+    ? sortFiles(filterFiles(summary.entries, query, category), sortKey, sortDirection)
     : [];
   $: duplicateCount = summary ? duplicateFileCount(summary) : 0;
   $: validationIssues = validation ? validationIssueCount(validation) : 0;
@@ -105,6 +107,34 @@
     sortKey = nextSortKey;
     sortDirection = "asc";
   }
+
+  async function removeEntry(entry: LibraryEntry) {
+    if (removingEntryKey) return;
+    const confirmed = window.confirm(
+      `Remove "${entry.title}" from Strmline and TorBox? This cannot be undone from Strmline.`,
+    );
+    if (!confirmed) return;
+    removingEntryKey = entry.key;
+    error = "";
+    try {
+      const result = await removeLibraryEntry({
+        category: entry.category,
+        title: entry.title,
+        relative_path: entry.relative_path,
+      });
+      syncResult = null;
+      if (result.ok) {
+        await loadDashboard();
+      } else {
+        error = result.message;
+      }
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
+      error = `Remove failed. ${message}`;
+    } finally {
+      removingEntryKey = "";
+    }
+  }
 </script>
 
 <DashboardView
@@ -120,8 +150,10 @@
   {syncStatus}
   {validation}
   {validationIssues}
-  {visibleFiles}
+  {visibleEntries}
+  {removingEntryKey}
   onRefresh={loadDashboard}
   onRunSync={runManualSync}
   onSort={sortBy}
+  onRemoveEntry={removeEntry}
 />

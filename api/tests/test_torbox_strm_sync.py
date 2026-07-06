@@ -135,6 +135,75 @@ class AnimeMovieCandidateTorBoxClient:
         ]
 
 
+class AmbiguousShowTorBoxClient:
+    async def list_downloads(
+        self, kind: DownloadKind, *, limit: int = 1000
+    ) -> list[dict[str, Any]]:
+        _ = limit
+        if kind != "torrents":
+            return []
+        return [
+            {
+                "id": 1,
+                "name": "Vagabond",
+                "cached": True,
+                "files": [
+                    {
+                        "id": 2,
+                        "short_name": "Vagabond.S01E01.mkv",
+                        "mimetype": "video/x-matroska",
+                    },
+                ],
+            },
+        ]
+
+
+class FolderYearAnimeCandidateTorBoxClient:
+    async def list_downloads(
+        self, kind: DownloadKind, *, limit: int = 1000
+    ) -> list[dict[str, Any]]:
+        _ = limit
+        if kind != "torrents":
+            return []
+        return [
+            {
+                "id": 1,
+                "name": "Frieren (2023)",
+                "cached": True,
+                "files": [
+                    {
+                        "id": 2,
+                        "short_name": "Frieren.S01E01.1080p.mkv",
+                        "mimetype": "video/x-matroska",
+                    },
+                ],
+            },
+        ]
+
+
+class BookwormAnimeCandidateTorBoxClient:
+    async def list_downloads(
+        self, kind: DownloadKind, *, limit: int = 1000
+    ) -> list[dict[str, Any]]:
+        _ = limit
+        if kind != "torrents":
+            return []
+        return [
+            {
+                "id": 1,
+                "name": "[TTGA] Ascendance of a Bookworm (2022) (Season 3 + Specials)",
+                "cached": True,
+                "files": [
+                    {
+                        "id": 2,
+                        "short_name": "01 - A World With No Books.mkv",
+                        "mimetype": "video/x-matroska",
+                    },
+                ],
+            },
+        ]
+
+
 class FakeAnimeClassifier:
     def __init__(self, *, is_anime: bool) -> None:
         self.is_anime = is_anime
@@ -164,6 +233,7 @@ async def test_direct_torbox_strm_sync_writes_playable_strm_files(tmp_path: Path
     assert result.synced_files[0].path == expected_path.resolve(strict=False)
     assert result.synced_files[0].title == "Movie Name"
     assert result.synced_files[0].category == "movies"
+    assert result.synced_files[0].provider == "torrents"
     assert result.synced_files[0].provider_item_id == "1"
     assert result.synced_files[0].provider_file_id == "2"
     assert expected_path.read_text(encoding="utf-8") == (
@@ -244,7 +314,7 @@ async def test_torbox_strm_sync_uses_anilist_classifier_for_anime(
 
     result = await sync.run(kinds=("torrents",))
 
-    expected_path = tmp_path / "anime" / "Frieren (2023)" / "Season 01" / "Frieren - S01E01.strm"
+    expected_path = tmp_path / "anime" / "Frieren" / "Season 01" / "Frieren - S01E01.strm"
     assert result.synced_files[0].category == "anime"
     assert result.written_paths == (expected_path.resolve(strict=False),)
     assert classifier.calls == [("Frieren", 2023)]
@@ -265,7 +335,7 @@ async def test_torbox_strm_sync_keeps_show_when_anilist_does_not_confirm(
 
     result = await sync.run(kinds=("torrents",))
 
-    expected_path = tmp_path / "shows" / "Frieren (2023)" / "Season 01" / "Frieren - S01E01.strm"
+    expected_path = tmp_path / "shows" / "Frieren" / "Season 01" / "Frieren - S01E01.strm"
     assert result.synced_files[0].category == "shows"
     assert result.written_paths == (expected_path.resolve(strict=False),)
 
@@ -291,3 +361,94 @@ async def test_torbox_strm_sync_uses_anilist_classifier_for_anime_movie(
     assert result.synced_files[0].episode_number is None
     assert result.written_paths == (expected_path.resolve(strict=False),)
     assert classifier.calls == [("Spirited Away", 2001)]
+
+
+@pytest.mark.asyncio
+async def test_torbox_strm_sync_keeps_non_anime_show_when_anilist_rejects(
+    tmp_path: Path,
+) -> None:
+    classifier = FakeAnimeClassifier(is_anime=False)
+    sync = DirectTorBoxStrmSync(
+        client=AmbiguousShowTorBoxClient(),
+        api_key="test-token",
+        torbox_base_url="https://api.torbox.app/v1/api",
+        library_root=tmp_path,
+        anime_classifier=classifier,
+    )
+
+    result = await sync.run(kinds=("torrents",))
+
+    expected_path = tmp_path / "shows" / "Vagabond" / "Season 01" / "Vagabond - S01E01.strm"
+    assert result.synced_files[0].category == "shows"
+    assert result.written_paths == (expected_path.resolve(strict=False),)
+    assert classifier.calls == [("Vagabond", None)]
+
+
+@pytest.mark.asyncio
+async def test_torbox_strm_sync_uses_pack_folder_title_for_bracketed_anime_release(
+    tmp_path: Path,
+) -> None:
+    classifier = FakeAnimeClassifier(is_anime=True)
+    sync = DirectTorBoxStrmSync(
+        client=BookwormAnimeCandidateTorBoxClient(),
+        api_key="test-token",
+        torbox_base_url="https://api.torbox.app/v1/api",
+        library_root=tmp_path,
+        anime_classifier=classifier,
+    )
+
+    result = await sync.run(kinds=("torrents",))
+
+    expected_path = (
+        tmp_path
+        / "anime"
+        / "Ascendance of a Bookworm"
+        / "Season 03"
+        / "Ascendance of a Bookworm - S03E01.strm"
+    )
+    assert result.synced_files[0].category == "anime"
+    assert result.written_paths == (expected_path.resolve(strict=False),)
+    assert classifier.calls == [("Ascendance of a Bookworm", 2022)]
+
+
+@pytest.mark.asyncio
+async def test_torbox_strm_sync_uses_folder_year_for_anime_classification(
+    tmp_path: Path,
+) -> None:
+    classifier = FakeAnimeClassifier(is_anime=True)
+    sync = DirectTorBoxStrmSync(
+        client=FolderYearAnimeCandidateTorBoxClient(),
+        api_key="test-token",
+        torbox_base_url="https://api.torbox.app/v1/api",
+        library_root=tmp_path,
+        anime_classifier=classifier,
+    )
+
+    result = await sync.run(kinds=("torrents",))
+
+    expected_path = tmp_path / "anime" / "Frieren" / "Season 01" / "Frieren - S01E01.strm"
+    assert result.synced_files[0].category == "anime"
+    assert result.synced_files[0].year == 2023
+    assert result.written_paths == (expected_path.resolve(strict=False),)
+    assert classifier.calls == [("Frieren", 2023)]
+
+
+@pytest.mark.asyncio
+async def test_torbox_strm_sync_removes_stale_strm_files_after_full_sync(
+    tmp_path: Path,
+) -> None:
+    stale_path = tmp_path / "movies" / "Vagabond S01 E01 (2019)" / "Vagabond S01 E01 (2019).strm"
+    stale_path.parent.mkdir(parents=True)
+    _ = stale_path.write_text("https://old.example/video\n", encoding="utf-8")
+    sync = DirectTorBoxStrmSync(
+        client=AmbiguousShowTorBoxClient(),
+        api_key="test-token",
+        torbox_base_url="https://api.torbox.app/v1/api",
+        library_root=tmp_path,
+    )
+
+    result = await sync.run(kinds=("torrents",))
+
+    expected_path = tmp_path / "shows" / "Vagabond" / "Season 01" / "Vagabond - S01E01.strm"
+    assert stale_path.exists() is False
+    assert result.written_paths == (expected_path.resolve(strict=False),)

@@ -8,9 +8,13 @@ from typing import Protocol
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.db.repositories.library_exclusion import LibraryExclusionRepository
 from app.db.repositories.settings import AppSettingsRepository, SettingsSnapshot
+from app.db.repositories.stream_selection import StreamSelectionRepository
 from app.db.repositories.sync_state import SyncStateRepository
+from app.providers.aiostreams.client import AioStreamsClient
 from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
+from app.search.actions import ensure_selected_streams_in_torbox
 from app.sync.anime_classification import build_anilist_anime_classifier
 from app.sync.torbox_strm import ResolverUrlConfig, TorBoxStrmSync
 
@@ -85,6 +89,19 @@ async def _run_torbox_account_sync(
             base_url=settings.torbox_base_url,
             timeout=settings.outbound_timeout_seconds,
         ) as client:
+            aiostreams_url = await settings_repository.aiostreams_base_url_value()
+            await ensure_selected_streams_in_torbox(
+                torbox_client=client,
+                repository=StreamSelectionRepository(session),
+                aiostreams_client=(
+                    AioStreamsClient(
+                        base_url=aiostreams_url,
+                        timeout_seconds=settings.outbound_timeout_seconds,
+                    )
+                    if aiostreams_url is not None
+                    else None
+                ),
+            )
             result = await TorBoxStrmSync(
                 client=client,
                 api_key=api_key,
@@ -92,6 +109,7 @@ async def _run_torbox_account_sync(
                 library_root=library_root,
                 resolver=resolver,
                 anime_classifier=build_anilist_anime_classifier(session, settings),
+                excluded_prefixes=await LibraryExclusionRepository(session).prefixes(),
             ).run()
     except (OSError, TorBoxAPIError, ValueError) as error:
         _ = await sync_state.record_failure(

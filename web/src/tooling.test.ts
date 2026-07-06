@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { fetchJson } from "./lib/api";
+import { parseEpisodeTarget } from "./lib/episodeTarget";
 import {
   duplicateFileCount,
   filterFiles,
@@ -20,6 +21,8 @@ import {
   buildTmdbConnectionTestPayload,
   buildTorboxConnectionTestPayload,
 } from "./lib/setupApi";
+import { filterStreams } from "./lib/streamFilters";
+import type { StreamSearchResult } from "./lib/searchApi";
 
 describe("frontend tooling", () => {
   it("runs the Vitest suite", () => {
@@ -28,25 +31,41 @@ describe("frontend tooling", () => {
 });
 
 describe("library summary helpers", () => {
-  const files = [
+  const entries = [
     {
+      key: "shows/Reborn Rookie",
       category: "shows" as const,
       title: "Reborn Rookie",
-      relative_path: "shows/Reborn Rookie/Season 01/Reborn Rookie - S01E04.strm",
+      relative_path: "shows/Reborn Rookie",
+      file_count: 4,
+    },
+    {
+      key: "movies/Project Hail Mary (2026)",
+      category: "movies" as const,
+      title: "Project Hail Mary",
+      relative_path: "movies/Project Hail Mary (2026)",
+      file_count: 1,
+    },
+  ];
+  const duplicateFiles = [
+    {
+      category: "movies" as const,
+      title: "Duplicate",
+      relative_path: "movies/Duplicate/Duplicate.strm",
     },
     {
       category: "movies" as const,
-      title: "Project Hail Mary",
-      relative_path: "movies/Project Hail Mary (2026)/Project Hail Mary (2026).strm",
+      title: "Duplicate",
+      relative_path: "movies/Duplicate.2024/Duplicate 2024.strm",
     },
   ];
 
-  it("filters files by category and query", () => {
-    expect(filterFiles(files, "hail", "movies")).toEqual([files[1]]);
+  it("filters entries by category and query", () => {
+    expect(filterFiles(entries, "hail", "movies")).toEqual([entries[1]]);
   });
 
-  it("sorts files by title", () => {
-    expect(sortFiles(files, "title", "asc").map((file) => file.title)).toEqual([
+  it("sorts entries by title", () => {
+    expect(sortFiles(entries, "title", "asc").map((entry) => entry.title)).toEqual([
       "Project Hail Mary",
       "Reborn Rookie",
     ]);
@@ -59,8 +78,9 @@ describe("library summary helpers", () => {
       exists: true,
       total_files: 2,
       category_counts: { movies: 2, shows: 0, anime: 0 },
-      files,
-      duplicate_groups: [{ key: "movies:duplicate", files }],
+      files: duplicateFiles,
+      entries,
+      duplicate_groups: [{ key: "movies:duplicate", files: duplicateFiles }],
     };
 
     expect(duplicateFileCount(summary)).toBe(2);
@@ -153,10 +173,106 @@ describe("api helpers", () => {
   });
 });
 
+describe("stream search helpers", () => {
+  const streams: StreamSearchResult[] = [
+    streamFixture("Show.Name.S01E01.1080p.WEB-DL.mkv"),
+    streamFixture("Show.Name.S01.1080p.BluRay.Complete.mkv"),
+    streamFixture("Show.Name.S01.MULTi.1080p.Remux.Pack.mkv"),
+    streamFixture("Show.Name.S01.720p.WEB-DL.mkv"),
+  ];
+
+  it("keeps all streams when the filter is blank", () => {
+    expect(filterStreams(streams, "", "all").streams).toEqual(streams);
+  });
+
+  it("filters streams with normalized plain text", () => {
+    expect(filterStreams(streams, "s01e01", "all").streams.map((stream) => stream.title)).toEqual([
+      "Show.Name.S01E01.1080p.WEB-DL.mkv",
+    ]);
+
+    expect(
+      filterStreams(streams, "s01 multi", "all").streams.map((stream) => stream.title),
+    ).toEqual(["Show.Name.S01.MULTi.1080p.Remux.Pack.mkv"]);
+  });
+
+  it("filters streams with a case-insensitive regex", () => {
+    expect(
+      filterStreams(streams, "bluray|remux", "all").streams.map((stream) => stream.title),
+    ).toEqual([
+      "Show.Name.S01.1080p.BluRay.Complete.mkv",
+      "Show.Name.S01.MULTi.1080p.Remux.Pack.mkv",
+    ]);
+  });
+
+  it("falls back to plain text for invalid regex filters", () => {
+    const result = filterStreams([streamFixture("Show.Name.[Group].mkv")], "[group", "all");
+
+    expect(result.streams.map((stream) => stream.title)).toEqual(["Show.Name.[Group].mkv"]);
+  });
+
+  it("filters single episode streams", () => {
+    expect(filterStreams(streams, "", "single").streams.map((stream) => stream.title)).toEqual([
+      "Show.Name.S01E01.1080p.WEB-DL.mkv",
+    ]);
+  });
+
+  it("filters complete season packs", () => {
+    expect(filterStreams(streams, "", "complete").streams.map((stream) => stream.title)).toEqual([
+      "Show.Name.S01.1080p.BluRay.Complete.mkv",
+      "Show.Name.S01.MULTi.1080p.Remux.Pack.mkv",
+      "Show.Name.S01.720p.WEB-DL.mkv",
+    ]);
+  });
+
+  it("parses episode filters for lazy episode-specific lookups", () => {
+    expect(parseEpisodeTarget("s01e02")).toEqual({ season: 1, episode: 2 });
+    expect(parseEpisodeTarget("1x02 remux")).toEqual({ season: 1, episode: 2 });
+    expect(parseEpisodeTarget("s01 pack")).toBeNull();
+  });
+
+  it("includes provider labels in stream regex filtering", () => {
+    const torboxStream = streamFixture("Direct.mkv", null, true, false, "Instant TB");
+
+    expect(filterStreams([torboxStream], "instant", "all").streams).toEqual([torboxStream]);
+  });
+});
+
 function requestPath(input: RequestInfo | URL): string {
   if (typeof input === "string") return input;
   if (input instanceof URL) return input.href;
   return input.url;
+}
+
+function streamFixture(
+  title: string,
+  cached: boolean | null = null,
+  hasUrl = true,
+  hasInfoHash = true,
+  providerLabel: string | null = null,
+): StreamSearchResult {
+  return {
+    stream_key: title,
+    title,
+    season: null,
+    episode: null,
+    cached,
+    has_url: hasUrl,
+    has_info_hash: hasInfoHash,
+    addable: hasInfoHash,
+    selected: false,
+    provider_label: providerLabel,
+    seeders: null,
+    parsed: {
+      quality: null,
+      codec: null,
+      hdr: null,
+      audio: null,
+      size_bytes: null,
+      size_label: null,
+      source: null,
+      language: null,
+    },
+  };
 }
 
 describe("settings helpers", () => {

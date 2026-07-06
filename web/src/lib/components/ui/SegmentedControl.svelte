@@ -41,7 +41,8 @@
 
   .segments {
     display: inline-grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
     height: 38px;
     border: 1px solid #bcc8c1;
     border-radius: 6px;

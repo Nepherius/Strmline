@@ -45,7 +45,7 @@ def test_show_entry_path_uses_season_episode_folder():
 
     assert library_entry_relative_path(entry) == Path(
         "shows",
-        "Slow Horses (2022)",
+        "Slow Horses",
         "Season 01",
         "Slow Horses - S01E02.strm",
     )

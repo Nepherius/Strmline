@@ -11,6 +11,14 @@ export interface LibraryDuplicateGroup {
   files: LibraryFile[];
 }
 
+export interface LibraryEntry {
+  key: string;
+  category: LibraryCategory;
+  title: string;
+  relative_path: string;
+  file_count: number;
+}
+
 export interface LibrarySummary {
   configured: boolean;
   root: string | null;
@@ -18,6 +26,7 @@ export interface LibrarySummary {
   total_files: number;
   category_counts: Record<LibraryCategory, number>;
   files: LibraryFile[];
+  entries: LibraryEntry[];
   duplicate_groups: LibraryDuplicateGroup[];
 }
 
@@ -48,10 +57,10 @@ export const categoryLabels: Record<LibraryCategory, string> = {
 };
 
 export function filterFiles(
-  files: LibraryFile[],
+  files: LibraryEntry[],
   query: string,
   category: LibraryCategory | "all",
-): LibraryFile[] {
+): LibraryEntry[] {
   const normalizedQuery = query.trim().toLowerCase();
   return files.filter((file) => {
     const categoryMatches = category === "all" || file.category === category;
@@ -64,10 +73,10 @@ export function filterFiles(
 }
 
 export function sortFiles(
-  files: LibraryFile[],
+  files: LibraryEntry[],
   sortKey: SortKey,
   direction: SortDirection,
-): LibraryFile[] {
+): LibraryEntry[] {
   const multiplier = direction === "asc" ? 1 : -1;
   return [...files].sort((left, right) => {
     return left[sortKey].localeCompare(right[sortKey]) * multiplier;

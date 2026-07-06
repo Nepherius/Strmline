@@ -112,6 +112,54 @@ class AniListCacheEntry(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class StreamSelection(Base):
+    __tablename__ = "stream_selections"
+    __table_args__ = (
+        UniqueConstraint("stream_key", name="uq_stream_selections_stream_key"),
+        Index("ix_stream_selections_info_hash", "info_hash"),
+        Index("ix_stream_selections_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    stream_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    media_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    source_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    info_hash: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    torbox_torrent_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="selected", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+
+class LibraryExclusion(Base):
+    __tablename__ = "library_exclusions"
+    __table_args__ = (
+        UniqueConstraint("relative_prefix", name="uq_library_exclusions_relative_prefix"),
+        Index("ix_library_exclusions_category", "category"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    category: Mapped[str] = mapped_column(String(20), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    relative_prefix: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+
+
 class MediaItem(Base):
     __tablename__ = "media_items"
     __table_args__ = (Index("ix_media_items_type_title", "media_type", "title"),)

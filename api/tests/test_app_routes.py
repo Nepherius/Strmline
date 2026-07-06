@@ -5,8 +5,9 @@ import pytest
 
 from app.api import library as library_api, setup as setup_api
 from app.core.config import get_settings
-from app.db.dependencies import get_optional_db_session
-from app.library.summary import LibrarySummary
+from app.db.dependencies import get_db_session, get_optional_db_session
+from app.library.removal import LibraryRemovalResult
+from app.library.summary import LibraryEntrySummary, LibrarySummary
 from app.main import create_app
 
 
@@ -145,6 +146,7 @@ async def test_library_summary_reports_configured_library(
     assert payload["exists"] is True
     assert payload["total_files"] == 1
     assert payload["category_counts"]["movies"] == 1
+    assert payload["entries"][0]["relative_path"] == "movies/Movie One (2024)"
 
 
 @pytest.mark.asyncio
@@ -213,8 +215,97 @@ async def test_library_root_defaults_to_internal_docker_path(
     assert library_root == Path("/library")
 
 
+@pytest.mark.asyncio
+async def test_library_remove_entry_deletes_torbox_item_and_generated_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("STRMLINE_LIBRARY_ROOT", str(tmp_path))
+    monkeypatch.setenv("STRMLINE_TORBOX_API_KEY", "torbox")
+    get_settings.cache_clear()
+    removed_items: list[tuple[str, str]] = []
+
+    class FakeTorBoxClient:
+        def __init__(self, **kwargs: object) -> None:
+            _ = kwargs
+
+        async def __aenter__(self) -> "FakeTorBoxClient":
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            _ = args
+
+        async def delete_download(self, kind: str, item_id: str) -> None:
+            removed_items.append((kind, item_id))
+
+    monkeypatch.setattr(library_api, "TorBoxClient", FakeTorBoxClient)
+    monkeypatch.setattr(library_api, "LibraryExclusionRepository", fake_exclusion_repository)
+    monkeypatch.setattr(library_api, "_remove_library_prefix", fake_remove_library_prefix)
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = fake_db_session
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.request(
+            "DELETE",
+            "/api/library/entries",
+            json={
+                "category": "shows",
+                "title": "Show One",
+                "relative_path": "shows/Show One",
+            },
+        )
+
+    get_settings.cache_clear()
+    assert response.status_code == httpx.codes.OK
+    assert response.json() == {
+        "ok": True,
+        "message": "Library entry removed.",
+        "removed_files": 2,
+        "removed_torbox_items": 1,
+    }
+    assert removed_items == [("torrents", "123")]
+
+
 async def fake_optional_session() -> object:
     yield object()
+
+
+class FakeDbSession:
+    async def commit(self) -> None:
+        return None
+
+    async def rollback(self) -> None:
+        return None
+
+
+async def fake_db_session() -> object:
+    yield FakeDbSession()
+
+
+class FakeExclusionRepository:
+    def __init__(self, session: object) -> None:
+        _ = session
+        self.added: list[tuple[str, str, str]] = []
+
+    async def backing_items(self, relative_prefix: str) -> tuple[object, ...]:
+        _ = relative_prefix
+        return (type("BackingItem", (), {"kind": "torrents", "item_id": "123"})(),)
+
+    async def add(self, *, category: str, title: str, relative_prefix: str) -> None:
+        self.added.append((category, title, relative_prefix))
+
+
+def fake_exclusion_repository(session: object) -> FakeExclusionRepository:
+    return FakeExclusionRepository(session)
+
+
+async def fake_remove_library_prefix(
+    library_root: Path,
+    relative_prefix: str,
+) -> LibraryRemovalResult:
+    _ = (library_root, relative_prefix)
+    return LibraryRemovalResult(removed_files=2)
 
 
 class FakeSessionContext:
@@ -259,6 +350,15 @@ async def fake_library_summary(library_root: Path) -> LibrarySummary:
         total_files=1,
         category_counts={"movies": 1, "shows": 0, "anime": 0},
         files=(),
+        entries=(
+            LibraryEntrySummary(
+                key="movies/Movie One (2024)",
+                category="movies",
+                title="Movie One (2024)",
+                relative_path="movies/Movie One (2024)",
+                file_count=1,
+            ),
+        ),
         duplicate_groups=(),
     )
 

@@ -16,6 +16,8 @@ ID_PARAM_BY_KIND: dict[DownloadKind, str] = {
 VIDEO_EXTENSIONS = {".avi", ".m4v", ".mkv", ".mov", ".mp4", ".mpeg", ".mpg", ".webm", ".wmv"}
 SMALL_SAMPLE_MAX_BYTES = 250 * 1024 * 1024
 SEPARATORS = re.compile(r"[._\-\s]+")
+PACK_EXTRA = re.compile(r"(?i)^s\d{1,2}[\s._-]*(?:op|ed|sp)\d*(?:\D|$)")
+NAMED_EXTRA_TOKENS = {"ncop", "nced", "opening", "ending"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,7 +96,7 @@ def _build_torbox_file(
         return None
     if not _is_video(file_name, mime_type):
         return None
-    if _is_sample_file(file_name, path, size):
+    if _is_sample_file(file_name, path, size) or _is_pack_extra(file_name):
         return None
 
     return TorBoxFile(
@@ -124,6 +126,14 @@ def _is_sample_file(file_name: str, path: str, size: int | None) -> bool:
     if "sample" not in name_tokens and "samples" not in path_tokens:
         return False
     return size is None or size <= SMALL_SAMPLE_MAX_BYTES
+
+
+def _is_pack_extra(file_name: str) -> bool:
+    stem = file_name.rsplit("/", maxsplit=1)[-1].rsplit("\\", maxsplit=1)[-1]
+    stem = stem.rsplit(".", maxsplit=1)[0]
+    if PACK_EXTRA.match(stem):
+        return True
+    return any(token in NAMED_EXTRA_TOKENS for token in _tokens(file_name))
 
 
 def _tokens(value: str) -> list[str]:
