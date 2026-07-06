@@ -7,9 +7,6 @@ from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REQUIRED_SETUP_FIELDS = [
-    "base_url",
-    "database_url",
-    "tmdb_api_key",
     "torbox_api_key",
 ]
 

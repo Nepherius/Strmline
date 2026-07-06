@@ -1,12 +1,12 @@
 <script lang="ts">
   import AppShell from "$lib/components/ui/AppShell.svelte";
+  import AppNavigation from "$lib/components/ui/AppNavigation.svelte";
   import MetricCard from "$lib/components/ui/MetricCard.svelte";
   import MetricGrid from "$lib/components/ui/MetricGrid.svelte";
   import Notice from "$lib/components/ui/Notice.svelte";
   import PageHeader from "$lib/components/ui/PageHeader.svelte";
   import TextField from "$lib/components/ui/TextField.svelte";
   import UiButton from "$lib/components/ui/UiButton.svelte";
-  import UiLink from "$lib/components/ui/UiLink.svelte";
   import {
     categoryLabels,
     type LibraryCategory,
@@ -31,12 +31,12 @@
   export let validationIssues: number;
   export let visibleEntries: LibraryEntry[];
   export let removingEntryKey: string;
-  export let onRefresh: () => Promise<void>;
   export let onRunSync: () => Promise<void>;
   export let onRemoveEntry: (entry: LibraryEntry) => Promise<void>;
   export let onSort: (sortKey: SortKey) => void;
 
   $: recentErrors = syncStatus?.recent_errors ?? [];
+  $: lastAutoSyncLabel = formatLastAutoSync(syncStatus?.last_auto_run ?? null);
 
   function formatDateTime(value: string | null): string {
     if (!value) return "Not finished";
@@ -44,6 +44,11 @@
       dateStyle: "medium",
       timeStyle: "short",
     }).format(new Date(value));
+  }
+
+  function formatLastAutoSync(run: SyncStatus["last_auto_run"]): string {
+    if (run === null) return "Never";
+    return formatDateTime(run.finished_at ?? run.started_at);
   }
 
   function issueKey(issue: { code: string; relative_path: string | null }, index: number): string {
@@ -58,16 +63,10 @@
 <AppShell>
   <PageHeader ariaLabel="Strmline controls" title="Library dashboard">
     <svelte:fragment slot="actions">
-      <UiLink href="/search">Search</UiLink>
-      <UiLink href="/setup">Setup</UiLink>
-      <form class="refresh-form" on:submit|preventDefault={onRunSync}>
+      <AppNavigation />
+      <form on:submit|preventDefault={onRunSync}>
         <UiButton type="submit" disabled={loading || syncing}>
           {syncing ? "Syncing" : "Run sync"}
-        </UiButton>
-      </form>
-      <form class="refresh-form" on:submit|preventDefault={onRefresh}>
-        <UiButton type="submit" disabled={loading || syncing}>
-          {loading ? "Loading" : "Refresh"}
         </UiButton>
       </form>
     </svelte:fragment>
@@ -80,6 +79,11 @@
   {#if syncResult}
     <Notice variant="success">Sync #{syncResult.sync_run_id} completed. Library refreshed.</Notice>
   {/if}
+
+  <section class="sync-summary" aria-label="Sync summary">
+    <span>Last auto sync</span>
+    <strong>{lastAutoSyncLabel}</strong>
+  </section>
 
   {#if recentErrors.length > 0}
     <section class="sync-errors" aria-label="Recent sync errors">
@@ -248,11 +252,6 @@
     font-size: 15px;
   }
 
-  .refresh-form {
-    display: flex;
-    align-items: end;
-  }
-
   code {
     font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
     font-size: 12px;
@@ -264,6 +263,20 @@
     margin-top: 18px;
   }
 
+  .sync-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 14px;
+    color: #526057;
+    font-size: 13px;
+  }
+
+  .sync-summary span {
+    font-weight: 800;
+    text-transform: uppercase;
+    color: #15201b;
+  }
   .error-list {
     display: grid;
     gap: 8px;
@@ -475,7 +488,6 @@
   }
 
   @media (max-width: 860px) {
-    .refresh-form,
     .filters {
       align-items: stretch;
       flex-direction: column;

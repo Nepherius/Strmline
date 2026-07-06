@@ -15,13 +15,7 @@ from app.providers.torbox.connection import TorBoxConnectionError, check_torbox_
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
 
-SETUP_FIELDS = (
-    "base_url",
-    "database_url",
-    "resolver_token",
-    "tmdb_api_key",
-    "torbox_api_key",
-)
+SETUP_FIELDS = ("torbox_api_key",)
 
 
 class SetupStatusResponse(BaseModel):
@@ -102,30 +96,11 @@ async def test_tmdb(
 async def setup_missing_fields(session: AsyncSession | None) -> list[str]:
     settings = get_settings()
     snapshot = await _settings_snapshot(session)
-    direct_playback = _direct_playback_enabled(settings.playback_mode, snapshot)
     configured = {
-        "base_url": settings.base_url is not None
-        or (snapshot is not None and snapshot.base_url is not None)
-        or direct_playback,
-        "database_url": settings.database_url is not None,
-        "resolver_token": settings.resolver_token is not None
-        or (snapshot is not None and snapshot.resolver_configured)
-        or direct_playback,
-        "tmdb_api_key": settings.tmdb_api_key is not None
-        or (snapshot is not None and snapshot.tmdb_configured),
         "torbox_api_key": settings.torbox_api_key is not None
         or (snapshot is not None and snapshot.torbox_configured),
     }
     return [field for field in SETUP_FIELDS if not configured[field]]
-
-
-def _direct_playback_enabled(
-    configured_mode: str | None,
-    snapshot: SettingsSnapshot | None,
-) -> bool:
-    if configured_mode == "direct":
-        return True
-    return snapshot is not None and snapshot.playback_mode == "direct"
 
 
 async def _effective_provider_api_key(

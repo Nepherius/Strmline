@@ -12,6 +12,7 @@ export interface SyncRunResult {
 export interface SyncRunStatus {
   id: number;
   status: string;
+  source: string;
   started_at: string;
   finished_at: string | null;
   scanned_count: number;
@@ -30,6 +31,7 @@ export interface SyncError {
 
 export interface SyncStatus {
   last_run: SyncRunStatus | null;
+  last_auto_run: SyncRunStatus | null;
   recent_errors: SyncError[];
 }
 

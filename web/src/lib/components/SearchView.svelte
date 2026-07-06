@@ -1,5 +1,6 @@
 <script lang="ts">
   import AppShell from "$lib/components/ui/AppShell.svelte";
+  import AppNavigation from "$lib/components/ui/AppNavigation.svelte";
   import Notice from "$lib/components/ui/Notice.svelte";
   import PageHeader from "$lib/components/ui/PageHeader.svelte";
   import UiLink from "$lib/components/ui/UiLink.svelte";
@@ -9,11 +10,13 @@
 
   export let mode: "title" | "streams";
   export let aiostreamsConfigured: boolean;
+  export let tmdbConfigured: boolean;
   export let loadingSettings: boolean;
   export let query: string;
 
   export let searchingTitles: boolean;
   export let titleResults: TitleSearchResult[];
+  export let lastSubmittedQuery: string;
 
   export let selectedTitle: TitleSearchResult | null;
 
@@ -38,18 +41,18 @@
 </svelte:head>
 
 <AppShell>
+  <PageHeader ariaLabel="Search navigation" title="Discover content">
+    <svelte:fragment slot="actions">
+      <AppNavigation />
+    </svelte:fragment>
+  </PageHeader>
+
   {#if loadingSettings}
     <div class="loading-state">
       <div class="spinner"></div>
       <p>Loading configuration...</p>
     </div>
   {:else if !aiostreamsConfigured}
-    <PageHeader ariaLabel="Search navigation" title="Discover content">
-      <svelte:fragment slot="actions">
-        <UiLink href="/">Home</UiLink>
-        <UiLink href="/setup">Setup</UiLink>
-      </svelte:fragment>
-    </PageHeader>
     <Notice variant="error">
       AIOStreams is not configured. Please go to the
       <UiLink href="/setup">Setup page</UiLink>
@@ -60,6 +63,8 @@
       bind:query
       {searchingTitles}
       {titleResults}
+      {lastSubmittedQuery}
+      {tmdbConfigured}
       {error}
       {onSearch}
       {onSelectTitle}

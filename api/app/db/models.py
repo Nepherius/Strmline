@@ -233,10 +233,14 @@ class GeneratedFile(Base):
 
 class SyncRun(Base):
     __tablename__ = "sync_runs"
-    __table_args__ = (Index("ix_sync_runs_status_started_at", "status", "started_at"),)
+    __table_args__ = (
+        Index("ix_sync_runs_status_started_at", "status", "started_at"),
+        Index("ix_sync_runs_source_started_at", "source", "started_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False)
+    source: Mapped[str] = mapped_column(String(30), default="manual", nullable=False)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utc_now,

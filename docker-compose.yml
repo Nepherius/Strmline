@@ -51,7 +51,7 @@ services:
 
       # Generated .strm library. Replace this with a host path if preferred:
       #   - /path/on/host/strmline-library:/library
-      - strmline-library:/library
+      - /mnt/strmline-library:/library
 
     healthcheck:
       test:
@@ -84,8 +84,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
+# These volumes can be found on the host at /var/lib/docker/volumes/<volume_name> by default.
 volumes:
   strmline-config:
-  strmline-library:
   strmline-postgres:

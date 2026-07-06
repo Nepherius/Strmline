@@ -93,6 +93,7 @@ async def test_sync_state_repository_records_generated_library_state(tmp_path: P
     assert generated_file.content_hash == "abc123"
     sync_run = next(item for item in session.added if isinstance(item, SyncRun))
     assert sync_run.status == "success"
+    assert sync_run.source == "manual"
     assert sync_run.finished_at is not None
     assert sync_run.started_at <= sync_run.finished_at
 
@@ -111,6 +112,7 @@ async def test_sync_state_repository_records_failed_runs() -> None:
     sync_run = next(item for item in session.added if isinstance(item, SyncRun))
     sync_error = next(item for item in session.added if isinstance(item, SyncError))
     assert sync_run.status == "failed"
+    assert sync_run.source == "manual"
     assert sync_run.finished_at is not None
     assert sync_run.started_at <= sync_run.finished_at
     assert sync_error.sync_run_id == sync_run_id
@@ -124,6 +126,7 @@ async def test_sync_state_repository_reads_latest_status() -> None:
     sync_run = SyncRun(
         id=8,
         status="failed",
+        source="auto",
         started_at=started_at,
         finished_at=started_at,
         scanned_count=3,
@@ -137,14 +140,19 @@ async def test_sync_state_repository_reads_latest_status() -> None:
         message="TorBox request failed with status 503.",
         created_at=started_at,
     )
-    session = FakeSession([FakeResult(scalar=sync_run), FakeResult(scalars=[sync_error])])
+    session = FakeSession(
+        [FakeResult(scalar=sync_run), FakeResult(scalar=sync_run), FakeResult(scalars=[sync_error])]
+    )
 
     status = await SyncStateRepository(cast(AsyncSession, session)).status()
 
     assert status.last_run is not None
     assert status.last_run.id == 8
     assert status.last_run.status == "failed"
+    assert status.last_run.source == "auto"
     assert status.last_run.skipped_count == 1
+    assert status.last_auto_run is not None
+    assert status.last_auto_run.id == 8
     assert len(status.recent_errors) == 1
     assert status.recent_errors[0].message == "TorBox request failed with status 503."
 

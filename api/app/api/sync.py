@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.dependencies import get_db_session
-from app.db.repositories.sync_state import SyncStateRepository
+from app.db.repositories.sync_state import SyncRunRecord, SyncStateRepository
 from app.sync.service import (
     SyncAlreadyRunningError,
     SyncConfigurationError,
@@ -32,6 +32,7 @@ class SyncRunResponse(BaseModel):
 class SyncRunStatusResponse(BaseModel):
     id: int
     status: str
+    source: str
     started_at: str
     finished_at: str | None
     scanned_count: int
@@ -50,6 +51,7 @@ class SyncErrorResponse(BaseModel):
 
 class SyncStatusResponse(BaseModel):
     last_run: SyncRunStatusResponse | None
+    last_auto_run: SyncRunStatusResponse | None
     recent_errors: list[SyncErrorResponse]
 
 
@@ -74,23 +76,8 @@ async def sync_status(
 ) -> SyncStatusResponse:
     status = await SyncStateRepository(session).status()
     return SyncStatusResponse(
-        last_run=(
-            SyncRunStatusResponse(
-                id=status.last_run.id,
-                status=status.last_run.status,
-                started_at=status.last_run.started_at.isoformat(),
-                finished_at=(
-                    status.last_run.finished_at.isoformat()
-                    if status.last_run.finished_at is not None
-                    else None
-                ),
-                scanned_count=status.last_run.scanned_count,
-                written_count=status.last_run.written_count,
-                skipped_count=status.last_run.skipped_count,
-            )
-            if status.last_run is not None
-            else None
-        ),
+        last_run=_sync_run_response(status.last_run),
+        last_auto_run=_sync_run_response(status.last_auto_run),
         recent_errors=[
             SyncErrorResponse(
                 id=error.id,
@@ -102,6 +89,21 @@ async def sync_status(
             )
             for error in status.recent_errors
         ],
+    )
+
+
+def _sync_run_response(run: SyncRunRecord | None) -> SyncRunStatusResponse | None:
+    if run is None:
+        return None
+    return SyncRunStatusResponse(
+        id=run.id,
+        status=run.status,
+        source=run.source,
+        started_at=run.started_at.isoformat(),
+        finished_at=run.finished_at.isoformat() if run.finished_at is not None else None,
+        scanned_count=run.scanned_count,
+        written_count=run.written_count,
+        skipped_count=run.skipped_count,
     )
 
 

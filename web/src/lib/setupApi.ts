@@ -43,20 +43,10 @@ export function buildTmdbConnectionTestPayload(apiKey: string): Record<string, s
   return trimmedApiKey ? { tmdb_api_key: trimmedApiKey } : {};
 }
 
-export function buildAioStreamsTestPayload(
-  baseUrl: string,
-  mediaType: string,
-  mediaId: string,
-): Record<string, string> {
+export function buildAioStreamsTestPayload(baseUrl: string): Record<string, string> {
   const payload: Record<string, string> = {};
   const trimmedBaseUrl = baseUrl.trim();
-  const trimmedMediaType = mediaType.trim();
-  const trimmedMediaId = mediaId.trim();
   if (trimmedBaseUrl) payload["base_url"] = trimmedBaseUrl;
-  if (trimmedMediaType && trimmedMediaId) {
-    payload["media_type"] = trimmedMediaType;
-    payload["media_id"] = trimmedMediaId;
-  }
   return payload;
 }
 
@@ -76,14 +66,10 @@ export function testTmdbConnection(apiKey: string): Promise<ConnectionTestResult
   });
 }
 
-export function testAioStreamsConnection(
-  baseUrl: string,
-  mediaType: string,
-  mediaId: string,
-): Promise<AioStreamsTestResult> {
+export function testAioStreamsConnection(baseUrl: string): Promise<AioStreamsTestResult> {
   return fetchJson<AioStreamsTestResult>("/api/providers/aiostreams/test", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(buildAioStreamsTestPayload(baseUrl, mediaType, mediaId)),
+    body: JSON.stringify(buildAioStreamsTestPayload(baseUrl)),
   });
 }

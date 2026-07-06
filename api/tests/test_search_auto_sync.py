@@ -13,8 +13,11 @@ from app.sync.service import SyncAlreadyRunningError, SyncConfigurationError, Sy
 
 @pytest.mark.asyncio
 async def test_auto_sync_reports_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_kwargs: dict[str, object] = {}
+
     async def fake_run_sync(*args: object, **kwargs: object) -> SyncRunSummary:
-        _ = (args, kwargs)
+        _ = args
+        captured_kwargs.update(kwargs)
         return SyncRunSummary(
             sync_run_id=44,
             playback_mode="resolver",
@@ -35,6 +38,7 @@ async def test_auto_sync_reports_success(monkeypatch: pytest.MonkeyPatch) -> Non
     assert outcome.status == "success"
     assert outcome.sync_run_id == 44
     assert outcome.message == "Added. Synced library: 2 written, 1 skipped."
+    assert captured_kwargs["source"] == "auto"
 
 
 @pytest.mark.asyncio

@@ -23,6 +23,7 @@ import {
 } from "./lib/setupApi";
 import { filterStreams } from "./lib/streamFilters";
 import type { StreamSearchResult } from "./lib/searchApi";
+import { sortStreamResults } from "./lib/streamSort";
 
 describe("frontend tooling", () => {
   it("runs the Vitest suite", () => {
@@ -156,20 +157,10 @@ describe("api helpers", () => {
   });
 
   it("builds AIOStreams test payloads from typed values", () => {
-    expect(
-      buildAioStreamsTestPayload(" https://aio.example/manifest.json ", " movie ", " tt0133093 "),
-    ).toEqual({
-      base_url: "https://aio.example/manifest.json",
-      media_type: "movie",
-      media_id: "tt0133093",
-    });
-    expect(buildAioStreamsTestPayload(" ", "movie", "tt0133093")).toEqual({
-      media_type: "movie",
-      media_id: "tt0133093",
-    });
-    expect(buildAioStreamsTestPayload("https://aio.example/manifest.json", "movie", " ")).toEqual({
+    expect(buildAioStreamsTestPayload(" https://aio.example/manifest.json ")).toEqual({
       base_url: "https://aio.example/manifest.json",
     });
+    expect(buildAioStreamsTestPayload(" ")).toEqual({});
   });
 });
 
@@ -235,6 +226,19 @@ describe("stream search helpers", () => {
 
     expect(filterStreams([torboxStream], "instant", "all").streams).toEqual([torboxStream]);
   });
+
+  it("sorts stream results with cached sources first and then size", () => {
+    const uncachedLarge = streamFixture("large", null, true, true, null, 90);
+    const cachedSmall = streamFixture("cached-small", true, true, true, null, 5);
+    const instantMedium = streamFixture("instant-medium", null, true, true, "Instant TB", 40);
+    const uncachedMedium = streamFixture("medium", null, true, true, null, 40);
+
+    expect(
+      sortStreamResults([uncachedLarge, uncachedMedium, cachedSmall, instantMedium]).map(
+        (stream) => stream.title,
+      ),
+    ).toEqual(["instant-medium", "cached-small", "large", "medium"]);
+  });
 });
 
 function requestPath(input: RequestInfo | URL): string {
@@ -249,6 +253,7 @@ function streamFixture(
   hasUrl = true,
   hasInfoHash = true,
   providerLabel: string | null = null,
+  sizeGiB: number | null = null,
 ): StreamSearchResult {
   return {
     stream_key: title,
@@ -267,8 +272,8 @@ function streamFixture(
       codec: null,
       hdr: null,
       audio: null,
-      size_bytes: null,
-      size_label: null,
+      size_bytes: sizeGiB === null ? null : sizeGiB * 1024 ** 3,
+      size_label: sizeGiB === null ? null : `${String(sizeGiB)} GB`,
       source: null,
       language: null,
     },
@@ -289,8 +294,6 @@ describe("settings helpers", () => {
         tmdbApiKey: "tmdb",
         resolverToken: "",
         aiostreamsBaseUrl: " https://aio.example/manifest.json ",
-        aiostreamsMediaType: "movie",
-        aiostreamsMediaId: "tt0133093",
       }),
     ).toEqual({
       base_url: "http://127.0.0.1:8001",
@@ -336,16 +339,11 @@ describe("settings helpers", () => {
       tmdbApiKey: "",
       resolverToken: "",
       aiostreamsBaseUrl: "",
-      aiostreamsMediaType: "movie",
-      aiostreamsMediaId: "",
     });
   });
 
   it("formats setup missing fields", () => {
-    expect(missingLabels(["base_url", "database_url", "torbox_api_key"])).toEqual([
-      "Database",
-      "TorBox key",
-    ]);
+    expect(missingLabels(["base_url", "database_url", "torbox_api_key"])).toEqual(["TorBox key"]);
   });
 
   it("formats settings sources", () => {

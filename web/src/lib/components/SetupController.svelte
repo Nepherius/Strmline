@@ -21,7 +21,6 @@
   let settings: AppSettings | null = null;
   let setupStatus: SetupStatus | null = null;
   let values: SettingsFormValues = settingsToFormValues(null);
-  let loading = false;
   let saving = false;
   let testingTmdb = false;
   let testingTorbox = false;
@@ -39,7 +38,6 @@
   });
 
   async function loadSetup() {
-    loading = true;
     error = "";
     saved = false;
     tmdbTestResult = null;
@@ -53,8 +51,6 @@
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
       error = `Setup status unavailable. ${message}`;
-    } finally {
-      loading = false;
     }
   }
 
@@ -138,8 +134,6 @@
     try {
       aiostreamsTestResult = await testAioStreamsConnection(
         values.aiostreamsBaseUrl,
-        values.aiostreamsMediaType,
-        values.aiostreamsMediaId,
       );
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
@@ -169,7 +163,6 @@
 <SetupView
   bind:values
   {error}
-  {loading}
   {saved}
   {saving}
   {setupRequired}
@@ -182,7 +175,6 @@
   {tmdbTestResult}
   {torboxTestResult}
   onClear={clearSavedSetup}
-  onRefresh={loadSetup}
   onSave={saveSetup}
   onTestTmdb={testTmdbSetup}
   onTestTorbox={testTorboxSetup}

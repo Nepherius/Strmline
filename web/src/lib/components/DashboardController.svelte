@@ -152,7 +152,6 @@
   {validationIssues}
   {visibleEntries}
   {removingEntryKey}
-  onRefresh={loadDashboard}
   onRunSync={runManualSync}
   onSort={sortBy}
   onRemoveEntry={removeEntry}

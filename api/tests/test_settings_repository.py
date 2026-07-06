@@ -164,6 +164,37 @@ async def test_settings_repository_saves_public_values_and_secrets() -> None:
 
 
 @pytest.mark.asyncio
+async def test_settings_repository_generates_resolver_token_when_missing() -> None:
+    session = FakeSession(
+        [
+            FakeResult(),  # missing torbox credential
+            FakeResult(scalar=None),  # no saved resolver credential
+            FakeResult(),  # missing resolver hash
+            FakeResult(),  # missing resolver token credential
+            FakeResult(scalars=[]),  # snapshot app settings
+            FakeResult(scalar=1),  # torbox configured
+            FakeResult(scalar=None),  # tmdb missing
+            FakeResult(scalar=3),  # resolver configured
+            FakeResult(scalar=None),  # aiostreams missing
+        ]
+    )
+    repository = AppSettingsRepository(
+        cast(AsyncSession, session),
+        Settings(app_secret_key=SecretStr("app-secret")),
+    )
+
+    snapshot = await repository.save(AppSettingsUpdate(torbox_api_key="torbox-secret"))
+
+    credentials = [item for item in session.added if isinstance(item, ProviderCredential)]
+    resolver_tokens = [item for item in session.added if isinstance(item, ResolverToken)]
+    assert session.committed is True
+    assert {credential.provider for credential in credentials} == {"resolver", "torbox"}
+    assert len(resolver_tokens) == 1
+    assert snapshot.resolver_configured is True
+    assert snapshot.resolver_source == "database"
+
+
+@pytest.mark.asyncio
 async def test_settings_repository_reads_database_values_when_env_is_missing() -> None:
     session = FakeSession(
         [

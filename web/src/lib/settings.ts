@@ -37,8 +37,6 @@ export interface SettingsFormValues {
   tmdbApiKey: string;
   resolverToken: string;
   aiostreamsBaseUrl: string;
-  aiostreamsMediaType: string;
-  aiostreamsMediaId: string;
 }
 
 export type SettingsPayload = Record<string, boolean | number | string>;
@@ -70,17 +68,12 @@ export function settingsToFormValues(settings: AppSettings | null): SettingsForm
     tmdbApiKey: "",
     resolverToken: "",
     aiostreamsBaseUrl: "",
-    aiostreamsMediaType: "movie",
-    aiostreamsMediaId: "",
   };
 }
 
 export function missingLabels(missing: string[]): string[] {
   const labels: Record<string, string> = {
-    database_url: "Database",
-    resolver_token: "Resolver token",
     sync_interval_minutes: "Sync interval",
-    tmdb_api_key: "TMDB key",
     torbox_api_key: "TorBox key",
   };
   return missing.flatMap((field) => (labels[field] ? [labels[field]] : []));

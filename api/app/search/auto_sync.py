@@ -28,7 +28,7 @@ async def auto_sync_after_stream_add(
     action_message: str,
 ) -> AutoSyncOutcome:
     try:
-        summary = await run_torbox_account_sync(session, settings)
+        summary = await run_torbox_account_sync(session, settings, source="auto")
     except SyncAlreadyRunningError:
         return AutoSyncOutcome(
             status="already_running",

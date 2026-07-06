@@ -80,13 +80,7 @@ async def test_setup_status_reports_missing_required_settings() -> None:
     assert response.status_code == httpx.codes.OK
     assert response.json() == {
         "configured": False,
-        "missing": [
-            "base_url",
-            "database_url",
-            "resolver_token",
-            "tmdb_api_key",
-            "torbox_api_key",
-        ],
+        "missing": ["torbox_api_key"],
     }
 
 

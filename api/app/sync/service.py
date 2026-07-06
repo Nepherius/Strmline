@@ -11,7 +11,7 @@ from app.core.config import Settings
 from app.db.repositories.library_exclusion import LibraryExclusionRepository
 from app.db.repositories.settings import AppSettingsRepository, SettingsSnapshot
 from app.db.repositories.stream_selection import StreamSelectionRepository
-from app.db.repositories.sync_state import SyncStateRepository
+from app.db.repositories.sync_state import SyncRunSource, SyncStateRepository
 from app.providers.aiostreams.client import AioStreamsClient
 from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
 from app.search.actions import ensure_selected_streams_in_torbox
@@ -54,6 +54,7 @@ async def run_torbox_account_sync(
     session: AsyncSession,
     settings: Settings,
     *,
+    source: SyncRunSource = "manual",
     client_factory: TorBoxClientFactory = TorBoxClient,
 ) -> SyncRunSummary:
     if _SYNC_LOCK.locked():
@@ -61,13 +62,19 @@ async def run_torbox_account_sync(
         raise SyncAlreadyRunningError(msg)
 
     async with _SYNC_LOCK:
-        return await _run_torbox_account_sync(session, settings, client_factory=client_factory)
+        return await _run_torbox_account_sync(
+            session,
+            settings,
+            source=source,
+            client_factory=client_factory,
+        )
 
 
 async def _run_torbox_account_sync(
     session: AsyncSession,
     settings: Settings,
     *,
+    source: SyncRunSource,
     client_factory: TorBoxClientFactory,
 ) -> SyncRunSummary:
     sync_state = SyncStateRepository(session)
@@ -80,7 +87,11 @@ async def _run_torbox_account_sync(
         library_root = _library_root(snapshot)
         resolver = _resolver_config(snapshot, resolver_token)
     except SyncConfigurationError as error:
-        _ = await sync_state.record_failure(phase="configuration", message=str(error))
+        _ = await sync_state.record_failure(
+            phase="configuration",
+            message=str(error),
+            source=source,
+        )
         raise
 
     try:
@@ -113,11 +124,13 @@ async def _run_torbox_account_sync(
             ).run()
     except (OSError, TorBoxAPIError, ValueError) as error:
         _ = await sync_state.record_failure(
-            phase="torbox_sync", message=_safe_failure_message(error)
+            phase="torbox_sync",
+            message=_safe_failure_message(error),
+            source=source,
         )
         raise SyncExecutionError("TorBox sync failed.") from error
 
-    sync_run_id = await sync_state.record_success(result, library_root)
+    sync_run_id = await sync_state.record_success(result, library_root, source=source)
     return SyncRunSummary(
         sync_run_id=sync_run_id,
         playback_mode=snapshot.playback_mode,

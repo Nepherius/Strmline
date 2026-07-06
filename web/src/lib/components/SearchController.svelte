@@ -10,11 +10,14 @@
     type StreamSearchResult,
   } from "$lib/searchApi";
   import { parseEpisodeTarget } from "$lib/episodeTarget";
+  import { sortStreamResults } from "$lib/streamSort";
   import SearchView from "./SearchView.svelte";
 
   let mode: "title" | "streams" = "title";
   let aiostreamsConfigured = false;
+  let tmdbConfigured = false;
   let query = "";
+  let lastSubmittedQuery = "";
 
   let searchingTitles = false;
   let titleResults: TitleSearchResult[] = [];
@@ -35,6 +38,7 @@
     try {
       const settings = await loadSettings();
       aiostreamsConfigured = settings.aiostreams_configured;
+      tmdbConfigured = settings.tmdb_configured;
     } catch (caughtError) {
       error = caughtError instanceof Error ? caughtError.message : "Failed to load settings.";
     } finally {
@@ -43,12 +47,14 @@
   });
 
   async function handleTitleSearch() {
-    if (!query.trim()) return;
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) return;
+    lastSubmittedQuery = trimmedQuery;
     error = "";
     searchingTitles = true;
     titleResults = [];
     try {
-      const res = await searchTitles(query.trim());
+      const res = await searchTitles(trimmedQuery);
       if (res.ok) {
         titleResults = res.results;
         // If it's a direct IMDB ID, we transition immediately to the streams view
@@ -86,7 +92,7 @@
         selectedTitle.tmdb_id !== 0 ? selectedTitle.tmdb_id : null,
       );
       if (res.ok) {
-        streamResults = sortStreams(dedupeStreams(res.streams));
+        streamResults = sortStreamResults(dedupeStreams(res.streams));
       } else {
         error = res.message;
       }
@@ -117,7 +123,7 @@
         target.episode,
       );
       if (res.ok) {
-        streamResults = sortStreams(dedupeStreams([...streamResults, ...res.streams]));
+        streamResults = sortStreamResults(dedupeStreams([...streamResults, ...res.streams]));
       }
     } catch {
       episodeLookupKeys = episodeLookupKeys.filter((key) => key !== lookupKey);
@@ -174,25 +180,6 @@
     }
   }
 
-  function sortStreams(streams: StreamSearchResult[]): StreamSearchResult[] {
-    const qualityRank: Record<string, number> = {
-      "4K": 4,
-      "1080p": 3,
-      "720p": 2,
-      "480p": 1,
-      "360p": 0,
-    };
-
-    return [...streams].sort((a, b) => {
-      const aQ = qualityRank[a.parsed.quality ?? ""] ?? -1;
-      const bQ = qualityRank[b.parsed.quality ?? ""] ?? -1;
-      if (aQ !== bQ) {
-        return bQ - aQ;
-      }
-      return (b.parsed.size_bytes ?? 0) - (a.parsed.size_bytes ?? 0);
-    });
-  }
-
   function dedupeStreams(streams: StreamSearchResult[]): StreamSearchResult[] {
     let seen: string[] = [];
     const unique: StreamSearchResult[] = [];
@@ -224,10 +211,12 @@
 <SearchView
   {mode}
   {aiostreamsConfigured}
+  {tmdbConfigured}
   {loadingSettings}
   bind:query
   {searchingTitles}
   {titleResults}
+  {lastSubmittedQuery}
   {selectedTitle}
   {searchingStreams}
   {searchingEpisodeStreams}

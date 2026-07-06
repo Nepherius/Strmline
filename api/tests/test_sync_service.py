@@ -16,9 +16,10 @@ class FakeSyncStateRepository:
     def __init__(self, session: object) -> None:
         _ = session
 
-    async def record_success(self, result: object, library_root: object) -> int:
+    async def record_success(self, result: object, library_root: object, **kwargs: object) -> int:
         _ = result
         _ = library_root
+        _ = kwargs
         return 12
 
     async def record_failure(self, **kwargs: object) -> int:
@@ -114,6 +115,7 @@ async def test_sync_service_records_provider_failures(
         {
             "phase": "torbox_sync",
             "message": "TorBox request failed with status 503.",
+            "source": "manual",
         }
     ]
 

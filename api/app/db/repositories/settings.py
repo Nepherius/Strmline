@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import secrets
 from dataclasses import dataclass
 from typing import Literal
 
@@ -14,6 +15,7 @@ from app.security.secrets import SecretBox
 SECRET_HINT_SUFFIX_LENGTH = 4
 DEFAULT_SYNC_INTERVAL_MINUTES = 360
 DEFAULT_PLAYBACK_MODE = "resolver"
+GENERATED_RESOLVER_TOKEN_BYTES = 32
 
 SettingSource = Literal["database", "environment"]
 ProviderName = Literal["tmdb", "torbox"]
@@ -123,6 +125,8 @@ class AppSettingsRepository:
         if update.resolver_token is not None:
             await self._save_resolver_token(update.resolver_token)
             await self._save_provider_secret("resolver", "token", update.resolver_token)
+        else:
+            await self._ensure_resolver_token()
         if update.aiostreams_base_url is not None:
             await self._save_provider_secret(
                 "aiostreams",
@@ -240,6 +244,15 @@ class AppSettingsRepository:
         )
         if result.scalar_one_or_none() is None:
             self._session.add(ResolverToken(label="default", token_hash=token_hash))
+
+    async def _ensure_resolver_token(self) -> None:
+        if self._settings.resolver_token is not None:
+            return
+        if await self._provider_secret_exists("resolver", "token"):
+            return
+        token = secrets.token_urlsafe(GENERATED_RESOLVER_TOKEN_BYTES)
+        await self._save_resolver_token(token)
+        await self._save_provider_secret("resolver", "token", token)
 
     async def _provider_secret_exists(self, provider: str, name: str) -> bool:
         result = await self._session.execute(

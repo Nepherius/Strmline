@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,11 +12,14 @@ from app.db.models import GeneratedFile, LibraryEntry, MediaItem, SyncError, Syn
 from app.library.paths import ensure_within_root
 from app.sync.torbox_strm import SyncedStrmFile, TorBoxStrmSyncResult
 
+SyncRunSource = Literal["manual", "auto"]
+
 
 @dataclass(frozen=True, slots=True)
 class SyncRunRecord:
     id: int
     status: str
+    source: str
     started_at: datetime
     finished_at: datetime | None
     scanned_count: int
@@ -36,6 +40,7 @@ class SyncErrorRecord:
 @dataclass(frozen=True, slots=True)
 class SyncStatusSnapshot:
     last_run: SyncRunRecord | None
+    last_auto_run: SyncRunRecord | None
     recent_errors: tuple[SyncErrorRecord, ...]
 
 
@@ -43,10 +48,17 @@ class SyncStateRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def record_success(self, result: TorBoxStrmSyncResult, library_root: Path) -> int:
+    async def record_success(
+        self,
+        result: TorBoxStrmSyncResult,
+        library_root: Path,
+        *,
+        source: SyncRunSource = "manual",
+    ) -> int:
         started_at = utc_now()
         sync_run = SyncRun(
             status="success",
+            source=source,
             started_at=started_at,
             finished_at=utc_now(),
             scanned_count=result.scanned_files,
@@ -67,11 +79,12 @@ class SyncStateRepository:
         await self._session.commit()
         return sync_run.id
 
-    async def record_failure(
+    async def record_failure(  # noqa: PLR0913
         self,
         *,
         phase: str,
         message: str,
+        source: SyncRunSource = "manual",
         item_ref: str | None = None,
         scanned_count: int = 0,
         written_count: int = 0,
@@ -80,6 +93,7 @@ class SyncStateRepository:
         started_at = utc_now()
         sync_run = SyncRun(
             status="failed",
+            source=source,
             started_at=started_at,
             finished_at=utc_now(),
             scanned_count=scanned_count,
@@ -103,14 +117,22 @@ class SyncStateRepository:
         last_run_result = await self._session.execute(
             select(SyncRun).order_by(SyncRun.started_at.desc(), SyncRun.id.desc()).limit(1)
         )
+        last_auto_run_result = await self._session.execute(
+            select(SyncRun)
+            .where(SyncRun.source == "auto")
+            .order_by(SyncRun.started_at.desc(), SyncRun.id.desc())
+            .limit(1)
+        )
         errors_result = await self._session.execute(
             select(SyncError)
             .order_by(SyncError.created_at.desc(), SyncError.id.desc())
             .limit(error_limit)
         )
         last_run = last_run_result.scalar_one_or_none()
+        last_auto_run = last_auto_run_result.scalar_one_or_none()
         return SyncStatusSnapshot(
             last_run=_sync_run_record(last_run) if last_run is not None else None,
+            last_auto_run=(_sync_run_record(last_auto_run) if last_auto_run is not None else None),
             recent_errors=tuple(_sync_error_record(error) for error in errors_result.scalars()),
         )
 
@@ -221,6 +243,7 @@ def _sync_run_record(sync_run: SyncRun) -> SyncRunRecord:
     return SyncRunRecord(
         id=sync_run.id,
         status=sync_run.status,
+        source=sync_run.source,
         started_at=sync_run.started_at,
         finished_at=sync_run.finished_at,
         scanned_count=sync_run.scanned_count,

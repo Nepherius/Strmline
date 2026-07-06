@@ -1,29 +1,26 @@
 <script lang="ts">
   import Notice from "$lib/components/ui/Notice.svelte";
-  import PageHeader from "$lib/components/ui/PageHeader.svelte";
   import TextField from "$lib/components/ui/TextField.svelte";
   import UiButton from "$lib/components/ui/UiButton.svelte";
-  import UiLink from "$lib/components/ui/UiLink.svelte";
   import type { TitleSearchResult } from "$lib/searchApi";
 
   export let query: string;
   export let searchingTitles: boolean;
   export let titleResults: TitleSearchResult[];
+  export let lastSubmittedQuery: string;
+  export let tmdbConfigured: boolean;
   export let error: string;
 
   export let onSearch: () => Promise<void>;
   export let onSelectTitle: (title: TitleSearchResult) => Promise<void>;
 </script>
 
-<PageHeader ariaLabel="Search controls" title="Discover content">
-  <svelte:fragment slot="actions">
-    <UiLink href="/">Home</UiLink>
-    <UiLink href="/setup">Setup</UiLink>
-  </svelte:fragment>
-</PageHeader>
-
 {#if error}
   <Notice variant="error">{error}</Notice>
+{/if}
+
+{#if !tmdbConfigured}
+  <Notice>Title search requires TMDB. Paste an IMDB ID to search AIOStreams directly.</Notice>
 {/if}
 
 <div class="search-form-wrap">
@@ -32,7 +29,9 @@
       <TextField
         bind:value={query}
         label=""
-        placeholder="Search by title (e.g. Inception) or paste IMDB ID (e.g. tt1375666)"
+        placeholder={tmdbConfigured
+          ? "Search by title (e.g. Inception) or paste IMDB ID (e.g. tt1375666)"
+          : "Paste IMDB ID (e.g. tt1375666)"}
       />
     </div>
     <UiButton type="submit" disabled={searchingTitles}>
@@ -70,7 +69,7 @@
       </button>
     {/each}
   </div>
-{:else if query.trim() !== ""}
+{:else if lastSubmittedQuery !== ""}
   <p class="no-results">No titles found. Try adjusting your query.</p>
 {/if}
 

@@ -85,11 +85,22 @@ async def test_sync_status_route_reports_last_run_and_errors(
                 last_run=SyncRunRecord(
                     id=8,
                     status="failed",
+                    source="manual",
                     started_at=started_at,
                     finished_at=started_at,
                     scanned_count=3,
                     written_count=2,
                     skipped_count=1,
+                ),
+                last_auto_run=SyncRunRecord(
+                    id=7,
+                    status="success",
+                    source="auto",
+                    started_at=started_at,
+                    finished_at=started_at,
+                    scanned_count=4,
+                    written_count=4,
+                    skipped_count=0,
                 ),
                 recent_errors=(
                     SyncErrorRecord(
@@ -112,11 +123,22 @@ async def test_sync_status_route_reports_last_run_and_errors(
         "last_run": {
             "id": 8,
             "status": "failed",
+            "source": "manual",
             "started_at": "2026-07-04T12:00:00+00:00",
             "finished_at": "2026-07-04T12:00:00+00:00",
             "scanned_count": 3,
             "written_count": 2,
             "skipped_count": 1,
+        },
+        "last_auto_run": {
+            "id": 7,
+            "status": "success",
+            "source": "auto",
+            "started_at": "2026-07-04T12:00:00+00:00",
+            "finished_at": "2026-07-04T12:00:00+00:00",
+            "scanned_count": 4,
+            "written_count": 4,
+            "skipped_count": 0,
         },
         "recent_errors": [
             {

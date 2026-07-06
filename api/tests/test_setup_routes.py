@@ -158,10 +158,13 @@ async def test_tmdb_connection_test_uses_safe_failure_message(
 
 
 @pytest.mark.asyncio
-async def test_setup_status_does_not_require_resolver_fields_in_direct_mode(
+async def test_setup_status_only_requires_torbox_api_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("STRMLINE_PLAYBACK_MODE", "direct")
+    monkeypatch.delenv("STRMLINE_TORBOX_API_KEY", raising=False)
+    monkeypatch.delenv("STRMLINE_TMDB_API_KEY", raising=False)
+    monkeypatch.delenv("STRMLINE_RESOLVER_TOKEN", raising=False)
+    monkeypatch.setenv("STRMLINE_BASE_URL", "http://strmline.test")
     get_settings.cache_clear()
 
     transport = httpx.ASGITransport(app=create_app())
@@ -170,8 +173,7 @@ async def test_setup_status_does_not_require_resolver_fields_in_direct_mode(
 
     get_settings.cache_clear()
     assert response.status_code == httpx.codes.OK
-    assert "base_url" not in response.json()["missing"]
-    assert "resolver_token" not in response.json()["missing"]
+    assert response.json()["missing"] == ["torbox_api_key"]
 
 
 async def _post_torbox_test(payload: dict[str, str] | None = None) -> httpx.Response:
