@@ -263,6 +263,54 @@ async def test_library_remove_entry_deletes_torbox_item_and_generated_files(
 
 
 @pytest.mark.asyncio
+async def test_library_remove_entry_can_skip_torbox_removal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("STRMLINE_LIBRARY_ROOT", str(tmp_path))
+    monkeypatch.setenv("STRMLINE_TORBOX_API_KEY", "torbox")
+    get_settings.cache_clear()
+    removed_items: list[tuple[str, str]] = []
+
+    class FakeTorBoxClient:
+        def __init__(self, **kwargs: object) -> None:
+            _ = kwargs
+
+        async def __aenter__(self) -> "FakeTorBoxClient":
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            _ = args
+
+        async def delete_download(self, kind: str, item_id: str) -> None:
+            removed_items.append((kind, item_id))
+
+    monkeypatch.setattr(library_api, "TorBoxClient", FakeTorBoxClient)
+    monkeypatch.setattr(library_api, "LibraryExclusionRepository", fake_exclusion_repository)
+    monkeypatch.setattr(library_api, "_remove_library_prefix", fake_remove_library_prefix)
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = fake_db_session
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.request(
+            "DELETE",
+            "/api/library/entries",
+            json={
+                "category": "shows",
+                "title": "Show One",
+                "relative_path": "shows/Show One/Season 01/Show One - S01E01.strm",
+                "remove_torbox": False,
+            },
+        )
+
+    get_settings.cache_clear()
+    assert response.status_code == httpx.codes.OK
+    assert response.json()["removed_torbox_items"] == 0
+    assert removed_items == []
+
+
+@pytest.mark.asyncio
 async def test_library_classification_override_routes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

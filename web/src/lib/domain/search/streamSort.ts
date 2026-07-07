@@ -1,4 +1,4 @@
-import type { StreamSearchResult } from "./searchApi";
+import type { StreamSearchResult } from "$lib/domain/search/types";
 
 export function sortStreamResults(streams: StreamSearchResult[]): StreamSearchResult[] {
   return [...streams].sort((a, b) => {

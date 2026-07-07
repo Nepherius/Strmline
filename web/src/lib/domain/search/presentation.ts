@@ -1,4 +1,4 @@
-import type { ParsedStreamResponse } from "./searchApi";
+import type { ParsedStreamResponse } from "$lib/domain/search/types";
 
 export function getQualityBadgeClass(quality: string | null): string {
   if (!quality) return "badge-gray";

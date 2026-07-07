@@ -1,4 +1,4 @@
-import { fetchJson, fetchNoContent } from "$lib/api";
+import { fetchJson, fetchNoContent } from "$lib/api/client";
 
 export interface SyncRunResult {
   sync_run_id: number;

@@ -4,9 +4,9 @@
   import Notice from "$lib/components/ui/Notice.svelte";
   import PageHeader from "$lib/components/ui/PageHeader.svelte";
   import UiLink from "$lib/components/ui/UiLink.svelte";
-  import type { TitleSearchResult, StreamSearchResult } from "$lib/searchApi";
-  import TitleSearchView from "./TitleSearchView.svelte";
-  import StreamResultsView from "./StreamResultsView.svelte";
+  import type { TitleSearchResult, StreamSearchResult } from "$lib/domain/search/types";
+  import TitleSearchView from "./components/TitleSearchView.svelte";
+  import StreamResultsView from "./components/StreamResultsView.svelte";
 
   export let mode: "title" | "streams";
   export let aiostreamsConfigured: boolean;

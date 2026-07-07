@@ -1,6 +1,10 @@
 <script lang="ts">
-  import { categoryLabels, type LibraryCategory, type LibraryEntry } from "$lib/librarySummary";
-  import type { ClassificationOverride } from "$lib/libraryApi";
+  import {
+    categoryLabels,
+    type LibraryCategory,
+    type LibraryEntry,
+  } from "$lib/domain/library/summary";
+  import type { ClassificationOverride } from "$lib/api/library";
 
   export let entry: LibraryEntry;
   export let currentOverride: ClassificationOverride | null;
@@ -12,8 +16,7 @@
   let targetCategory: LibraryCategory = "anime";
 
   $: targetCategory = defaultCategory(entry, currentOverride, targetCategory);
-  $: submitLabel =
-    targetCategory === currentOverride?.source_category ? "Restore" : "Move";
+  $: submitLabel = targetCategory === currentOverride?.source_category ? "Restore" : "Move";
 
   function defaultCategory(
     nextEntry: LibraryEntry,

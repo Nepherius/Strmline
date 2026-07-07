@@ -1,8 +1,8 @@
 <script lang="ts">
   import Notice from "$lib/components/ui/Notice.svelte";
   import TextField from "$lib/components/ui/TextField.svelte";
-  import type { TitleSearchResult, StreamSearchResult } from "$lib/searchApi";
-  import { filterStreams, type StreamFilterMode } from "$lib/streamFilters";
+  import type { TitleSearchResult, StreamSearchResult } from "$lib/domain/search/types";
+  import { filterStreams, type StreamFilterMode } from "$lib/domain/search/streamFilters";
   import StreamResultItem from "./StreamResultItem.svelte";
 
   export let selectedTitle: TitleSearchResult;

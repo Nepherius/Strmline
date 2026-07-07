@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import GeneratedFile, LibraryEntry, LibraryExclusion
@@ -43,7 +43,12 @@ class LibraryExclusionRepository:
         result = await self._session.execute(
             select(LibraryEntry)
             .join(GeneratedFile)
-            .where(GeneratedFile.relative_path.like(f"{relative_prefix}/%"))
+            .where(
+                or_(
+                    GeneratedFile.relative_path == relative_prefix,
+                    GeneratedFile.relative_path.like(f"{relative_prefix}/%"),
+                )
+            )
         )
         items: dict[tuple[DownloadKind, str], BackingProviderItem] = {}
         for entry in result.scalars():

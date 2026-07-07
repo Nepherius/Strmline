@@ -1,20 +1,20 @@
 <script lang="ts">
   import { onMount } from "svelte";
 
-  import { clearSavedSettings, loadSettings, saveSettings } from "$lib/settingsApi";
+  import { clearSavedSettings, loadSettings, saveSettings } from "$lib/api/settings";
   import {
     loadSetupStatus,
     testAioStreamsConnection,
     testTmdbConnection,
     testTorboxConnection,
-  } from "$lib/setupApi";
-  import type { AioStreamsTestResult, ConnectionTestResult } from "$lib/setupApi";
+  } from "$lib/api/setup";
+  import type { AioStreamsTestResult, ConnectionTestResult } from "$lib/api/setup";
   import {
     settingsToFormValues,
     type AppSettings,
     type SettingsFormValues,
     type SetupStatus,
-  } from "$lib/settings";
+  } from "$lib/domain/settings";
 
   import SetupView from "./SetupView.svelte";
 
@@ -132,9 +132,7 @@
     error = "";
     aiostreamsTestResult = null;
     try {
-      aiostreamsTestResult = await testAioStreamsConnection(
-        values.aiostreamsBaseUrl,
-      );
+      aiostreamsTestResult = await testAioStreamsConnection(values.aiostreamsBaseUrl);
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
       aiostreamsTestResult = {

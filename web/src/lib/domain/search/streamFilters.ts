@@ -1,4 +1,4 @@
-import type { StreamSearchResult } from "$lib/searchApi";
+import type { StreamSearchResult } from "$lib/domain/search/types";
 
 export type StreamFilterMode = "all" | "single" | "complete";
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { fetchJson } from "./lib/api";
-import { parseEpisodeTarget } from "./lib/episodeTarget";
+import { fetchJson } from "./lib/api/client";
+import { parseEpisodeTarget } from "./lib/domain/search/episodeTarget";
 import {
   duplicateFileCount,
   filterFiles,
@@ -9,21 +9,21 @@ import {
   validationIssueCount,
   type LibrarySummary,
   type LibraryValidation,
-} from "./lib/librarySummary";
+} from "./lib/domain/library/summary";
 import {
   buildSettingsPayload,
   missingLabels,
   settingSourceLabel,
   settingsToFormValues,
-} from "./lib/settings";
+} from "./lib/domain/settings";
 import {
   buildAioStreamsTestPayload,
   buildTmdbConnectionTestPayload,
   buildTorboxConnectionTestPayload,
-} from "./lib/setupApi";
-import { filterStreams } from "./lib/streamFilters";
-import type { StreamSearchResult } from "./lib/searchApi";
-import { sortStreamResults } from "./lib/streamSort";
+} from "./lib/api/setup";
+import { filterStreams } from "./lib/domain/search/streamFilters";
+import type { StreamSearchResult } from "./lib/domain/search/types";
+import { sortStreamResults } from "./lib/domain/search/streamSort";
 
 describe("frontend tooling", () => {
   it("runs the Vitest suite", () => {

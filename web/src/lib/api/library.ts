@@ -1,5 +1,9 @@
-import { fetchJson, fetchNoContent } from "$lib/api";
-import type { LibraryCategory, LibrarySummary, LibraryValidation } from "$lib/librarySummary";
+import { fetchJson, fetchNoContent } from "$lib/api/client";
+import type {
+  LibraryCategory,
+  LibrarySummary,
+  LibraryValidation,
+} from "$lib/domain/library/summary";
 
 export interface ClassificationOverride {
   source_category: LibraryCategory;
@@ -25,6 +29,7 @@ export interface RemoveLibraryEntryPayload {
   category: string;
   title: string;
   relative_path: string;
+  remove_torbox?: boolean;
 }
 
 export interface RemoveLibraryEntryResult {

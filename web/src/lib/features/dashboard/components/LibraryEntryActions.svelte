@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { categoryLabels, type LibraryCategory, type LibraryEntry } from "$lib/librarySummary";
-  import type { ClassificationOverride } from "$lib/libraryApi";
+  import { type LibraryCategory, type LibraryEntry } from "$lib/domain/library/summary";
+  import type { ClassificationOverride } from "$lib/api/library";
   import LibraryMoveDialog from "./LibraryMoveDialog.svelte";
 
   export let entry: LibraryEntry;
@@ -12,11 +12,8 @@
   export let onRemove: (entry: LibraryEntry) => Promise<void>;
 
   let moveDialogOpen = false;
-  $: restoreLabel = currentOverride
-    ? `Restore category`
-    : "";
-  $: showRestore =
-    currentOverride !== null && currentOverride.source_category !== entry.category;
+  $: restoreLabel = currentOverride ? `Restore category` : "";
+  $: showRestore = currentOverride !== null && currentOverride.source_category !== entry.category;
 
   async function moveEntry(nextEntry: LibraryEntry, targetCategory: LibraryCategory) {
     await onMove(nextEntry, targetCategory);

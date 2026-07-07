@@ -11,27 +11,28 @@
     removeLibraryEntry,
     saveClassificationOverride,
     type ClassificationOverride,
-  } from "$lib/libraryApi";
-  import { loadSetupStatus } from "$lib/setupApi";
+  } from "$lib/api/library";
+  import { loadSetupStatus } from "$lib/api/setup";
   import {
     dismissSyncError,
     loadSyncStatus,
     runSyncNow,
     type SyncRunResult,
     type SyncStatus,
-  } from "$lib/syncApi";
+  } from "$lib/api/sync";
   import {
     duplicateFileCount,
     filterFiles,
     sortFiles,
     type LibraryCategory,
     type LibraryEntry,
+    type LibraryFile,
     type LibrarySummary,
     type LibraryValidation,
     type SortDirection,
     type SortKey,
     validationIssueCount,
-  } from "$lib/librarySummary";
+  } from "$lib/domain/library/summary";
 
   import DashboardView from "./DashboardView.svelte";
 
@@ -150,6 +151,35 @@
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
       error = `Remove failed. ${message}`;
+    } finally {
+      removingEntryKey = "";
+    }
+  }
+
+  async function hideDuplicateFile(file: LibraryFile) {
+    if (removingEntryKey) return;
+    const confirmed = window.confirm(
+      `Hide "${file.relative_path}" from the generated library? This will not remove it from TorBox.`,
+    );
+    if (!confirmed) return;
+    removingEntryKey = file.relative_path;
+    error = "";
+    try {
+      const result = await removeLibraryEntry({
+        category: file.category,
+        title: file.title,
+        relative_path: file.relative_path,
+        remove_torbox: false,
+      });
+      syncResult = null;
+      if (result.ok) {
+        await loadDashboard();
+      } else {
+        error = result.message;
+      }
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
+      error = `Hide duplicate failed. ${message}`;
     } finally {
       removingEntryKey = "";
     }
@@ -278,6 +308,7 @@
   onRunSync={runManualSync}
   onSort={sortBy}
   onRemoveEntry={removeEntry}
+  onHideDuplicateFile={hideDuplicateFile}
   onMoveEntry={moveEntry}
   onResetEntryClassification={resetEntryClassification}
   onDismissSyncError={dismissRecentError}

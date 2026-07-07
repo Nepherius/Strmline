@@ -1,6 +1,6 @@
 <script lang="ts">
   import UiButton from "$lib/components/ui/UiButton.svelte";
-  import type { SyncError } from "$lib/syncApi";
+  import type { SyncError } from "$lib/api/sync";
 
   export let errors: SyncError[];
   export let dismissingErrorId: number | null;

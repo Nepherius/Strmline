@@ -1,5 +1,5 @@
-import { fetchJson } from "$lib/api";
-import type { SetupStatus } from "$lib/settings";
+import { fetchJson } from "$lib/api/client";
+import type { SetupStatus } from "$lib/domain/settings";
 
 export interface ConnectionTestResult {
   ok: boolean;

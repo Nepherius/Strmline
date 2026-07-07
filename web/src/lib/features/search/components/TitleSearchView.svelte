@@ -2,7 +2,7 @@
   import Notice from "$lib/components/ui/Notice.svelte";
   import TextField from "$lib/components/ui/TextField.svelte";
   import UiButton from "$lib/components/ui/UiButton.svelte";
-  import type { TitleSearchResult } from "$lib/searchApi";
+  import type { TitleSearchResult } from "$lib/domain/search/types";
 
   export let query: string;
   export let searchingTitles: boolean;

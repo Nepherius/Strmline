@@ -1,5 +1,5 @@
 <script lang="ts">
-  import DashboardController from "$lib/components/DashboardController.svelte";
+  import DashboardController from "$lib/features/dashboard/DashboardController.svelte";
 </script>
 
 <DashboardController />

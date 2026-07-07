@@ -13,8 +13,8 @@
     type AppSettings,
     type SettingsFormValues,
     type SetupStatus,
-  } from "$lib/settings";
-  import type { AioStreamsTestResult, ConnectionTestResult } from "$lib/setupApi";
+  } from "$lib/domain/settings";
+  import type { AioStreamsTestResult, ConnectionTestResult } from "$lib/api/setup";
 
   export let values: SettingsFormValues;
   export let error: string;

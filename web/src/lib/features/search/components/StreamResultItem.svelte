@@ -1,11 +1,11 @@
 <script lang="ts">
-  import type { StreamSearchResult } from "$lib/searchApi";
+  import type { StreamSearchResult } from "$lib/domain/search/types";
   import {
     getQualityBadgeClass,
     formatCodecAndHdr,
     formatAudio,
     formatLanguage,
-  } from "$lib/searchTypes";
+  } from "$lib/domain/search/presentation";
 
   export let stream: StreamSearchResult;
   export let pending = false;
@@ -60,7 +60,12 @@
   </div>
   {#if hasAction}
     <div class="stream-actions">
-      <button type="button" class:remove={stream.selected} disabled={pending} on:click={handleAction}>
+      <button
+        type="button"
+        class:remove={stream.selected}
+        disabled={pending}
+        on:click={handleAction}
+      >
         {#if pending}
           Working
         {:else if stream.selected}

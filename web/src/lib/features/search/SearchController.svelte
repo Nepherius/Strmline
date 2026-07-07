@@ -1,16 +1,15 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { loadSettings } from "$lib/settingsApi";
+  import { loadSettings } from "$lib/api/settings";
   import {
     addStreamToTorBox,
     removeStreamFromTorBox,
     searchTitles,
     searchStreams,
-    type TitleSearchResult,
-    type StreamSearchResult,
-  } from "$lib/searchApi";
-  import { parseEpisodeTarget } from "$lib/episodeTarget";
-  import { sortStreamResults } from "$lib/streamSort";
+  } from "$lib/api/search";
+  import type { StreamSearchResult, TitleSearchResult } from "$lib/domain/search/types";
+  import { parseEpisodeTarget } from "$lib/domain/search/episodeTarget";
+  import { sortStreamResults } from "$lib/domain/search/streamSort";
   import SearchView from "./SearchView.svelte";
 
   let mode: "title" | "streams" = "title";

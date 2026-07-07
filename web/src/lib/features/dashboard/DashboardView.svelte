@@ -1,24 +1,26 @@
 <script lang="ts">
   import AppShell from "$lib/components/ui/AppShell.svelte";
   import AppNavigation from "$lib/components/ui/AppNavigation.svelte";
-  import LibraryEntryActions from "$lib/components/LibraryEntryActions.svelte";
-  import SyncErrorsPanel from "$lib/components/SyncErrorsPanel.svelte";
+  import DuplicateGroupsPanel from "$lib/features/dashboard/components/DuplicateGroupsPanel.svelte";
+  import LibraryEntryActions from "$lib/features/dashboard/components/LibraryEntryActions.svelte";
+  import SyncErrorsPanel from "$lib/features/dashboard/components/SyncErrorsPanel.svelte";
   import MetricCard from "$lib/components/ui/MetricCard.svelte";
   import MetricGrid from "$lib/components/ui/MetricGrid.svelte";
   import Notice from "$lib/components/ui/Notice.svelte";
   import PageHeader from "$lib/components/ui/PageHeader.svelte";
   import TextField from "$lib/components/ui/TextField.svelte";
   import UiButton from "$lib/components/ui/UiButton.svelte";
-  import type { ClassificationOverride } from "$lib/libraryApi";
+  import type { ClassificationOverride } from "$lib/api/library";
   import {
     categoryLabels,
     type LibraryCategory,
     type LibraryEntry,
+    type LibraryFile,
     type LibrarySummary,
     type LibraryValidation,
     type SortKey,
-  } from "$lib/librarySummary";
-  import type { SyncRunResult, SyncStatus } from "$lib/syncApi";
+  } from "$lib/domain/library/summary";
+  import type { SyncRunResult, SyncStatus } from "$lib/api/sync";
 
   export let category: LibraryCategory | "all";
   export let query: string;
@@ -39,6 +41,7 @@
   export let removingEntryKey: string;
   export let onRunSync: () => Promise<void>;
   export let onRemoveEntry: (entry: LibraryEntry) => Promise<void>;
+  export let onHideDuplicateFile: (file: LibraryFile) => Promise<void>;
   export let onMoveEntry: (entry: LibraryEntry, targetCategory: LibraryCategory) => Promise<void>;
   export let onResetEntryClassification: (entry: LibraryEntry) => Promise<void>;
   export let onDismissSyncError: (errorId: number) => Promise<void>;
@@ -166,17 +169,12 @@
       </div>
 
       {#if summary.duplicate_groups.length > 0}
-        <section class="duplicates" aria-label="Duplicate groups">
-          <h2>Duplicate groups</h2>
-          <div class="duplicate-list">
-            {#each summary.duplicate_groups.slice(0, 6) as group (group.key)}
-              <article>
-                <strong>{group.files[0]?.title}</strong>
-                <span>{group.files.length} files</span>
-              </article>
-            {/each}
-          </div>
-        </section>
+        <DuplicateGroupsPanel
+          groups={summary.duplicate_groups.slice(0, 6)}
+          disabled={loading || syncing}
+          removingKey={removingEntryKey}
+          onHideFile={onHideDuplicateFile}
+        />
       {/if}
 
       <div class="table-wrap">
@@ -360,33 +358,6 @@
     border-color: #1f5b42;
     background: #1f5b42;
     color: #ffffff;
-  }
-
-  .duplicates {
-    display: grid;
-    gap: 10px;
-    margin-bottom: 12px;
-  }
-
-  .duplicate-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 8px;
-  }
-
-  .duplicate-list article {
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
-    border: 1px solid #d9b66c;
-    border-radius: 6px;
-    padding: 10px;
-    background: #fff9ea;
-  }
-
-  .duplicate-list span {
-    color: #765d1d;
-    white-space: nowrap;
   }
 
   .table-wrap {

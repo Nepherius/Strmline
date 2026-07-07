@@ -87,6 +87,7 @@ class LibraryRemoveRequest(BaseModel):
     category: str = Field(pattern=r"^(movies|shows|anime)$")
     title: str = Field(min_length=1, max_length=300)
     relative_path: str = Field(min_length=1, max_length=1000)
+    remove_torbox: bool = True
 
 
 class LibraryRemoveResponse(BaseModel):
@@ -186,7 +187,7 @@ async def delete_classification_override(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> None:
     _validate_relative_prefix(request.source_prefix, request.source_category)
-    await ClassificationOverrideRepository(session).delete(request.source_prefix)
+    _ = await ClassificationOverrideRepository(session).delete(request.source_prefix)
     await session.commit()
 
 
@@ -199,24 +200,25 @@ async def remove_library_entry(
     _validate_relative_prefix(request.relative_path, request.category)
     settings = get_settings()
     torbox_api_key = await effective_torbox_key(session, settings)
-    if torbox_api_key is None:
+    if request.remove_torbox and torbox_api_key is None:
         raise HTTPException(status_code=400, detail="TorBox API key is not configured.")
 
     repository = LibraryExclusionRepository(session)
-    backing_items = await repository.backing_items(request.relative_path)
     removed_torbox_items = 0
-    try:
-        async with TorBoxClient(
-            api_key=torbox_api_key,
-            base_url=settings.torbox_base_url,
-            timeout=settings.outbound_timeout_seconds,
-        ) as client:
-            for item in backing_items:
-                await client.delete_download(item.kind, item.item_id)
-                removed_torbox_items += 1
-    except TorBoxAPIError as error:
-        await session.rollback()
-        raise HTTPException(status_code=503, detail=str(error)) from error
+    if request.remove_torbox:
+        backing_items = await repository.backing_items(request.relative_path)
+        try:
+            async with TorBoxClient(
+                api_key=torbox_api_key or "",
+                base_url=settings.torbox_base_url,
+                timeout=settings.outbound_timeout_seconds,
+            ) as client:
+                for item in backing_items:
+                    await client.delete_download(item.kind, item.item_id)
+                    removed_torbox_items += 1
+        except TorBoxAPIError as error:
+            await session.rollback()
+            raise HTTPException(status_code=503, detail=str(error)) from error
 
     await repository.add(
         category=request.category,

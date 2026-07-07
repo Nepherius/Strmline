@@ -1,5 +1,9 @@
-import { fetchJson } from "$lib/api";
-import { buildSettingsPayload, type AppSettings, type SettingsFormValues } from "$lib/settings";
+import { fetchJson } from "$lib/api/client";
+import {
+  buildSettingsPayload,
+  type AppSettings,
+  type SettingsFormValues,
+} from "$lib/domain/settings";
 
 export function loadSettings(): Promise<AppSettings> {
   return fetchJson<AppSettings>("/api/settings");
