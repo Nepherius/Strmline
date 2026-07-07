@@ -5,7 +5,13 @@
 
   import { loadLibrarySummary, loadLibraryValidation, removeLibraryEntry } from "$lib/libraryApi";
   import { loadSetupStatus } from "$lib/setupApi";
-  import { loadSyncStatus, runSyncNow, type SyncRunResult, type SyncStatus } from "$lib/syncApi";
+  import {
+    dismissSyncError,
+    loadSyncStatus,
+    runSyncNow,
+    type SyncRunResult,
+    type SyncStatus,
+  } from "$lib/syncApi";
   import {
     duplicateFileCount,
     filterFiles,
@@ -35,6 +41,7 @@
   let syncStatus: SyncStatus | null = null;
   let validation: LibraryValidation | null = null;
   let removingEntryKey = "";
+  let dismissingErrorId: number | null = null;
 
   $: visibleEntries = summary
     ? sortFiles(filterFiles(summary.entries, query, category), sortKey, sortDirection)
@@ -135,6 +142,21 @@
       removingEntryKey = "";
     }
   }
+
+  async function dismissRecentError(errorId: number) {
+    if (dismissingErrorId !== null) return;
+    dismissingErrorId = errorId;
+    error = "";
+    try {
+      await dismissSyncError(errorId);
+      syncStatus = await loadSyncStatus();
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
+      error = `Dismiss failed. ${message}`;
+    } finally {
+      dismissingErrorId = null;
+    }
+  }
 </script>
 
 <DashboardView
@@ -151,8 +173,10 @@
   {validation}
   {validationIssues}
   {visibleEntries}
+  {dismissingErrorId}
   {removingEntryKey}
   onRunSync={runManualSync}
   onSort={sortBy}
   onRemoveEntry={removeEntry}
+  onDismissSyncError={dismissRecentError}
 />

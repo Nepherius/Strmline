@@ -6,6 +6,13 @@ export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T>
   return (await response.json()) as T;
 }
 
+export async function fetchNoContent(path: string, init?: RequestInit): Promise<void> {
+  const response = await fetch(path, init);
+  if (!response.ok) {
+    throw new Error(await errorMessage(response));
+  }
+}
+
 async function errorMessage(response: Response): Promise<string> {
   try {
     const payload = (await response.json()) as { detail?: unknown };

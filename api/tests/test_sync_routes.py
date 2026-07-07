@@ -153,6 +153,45 @@ async def test_sync_status_route_reports_last_run_and_errors(
     }
 
 
+@pytest.mark.asyncio
+async def test_sync_error_dismiss_route_reports_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeSyncStateRepository:
+        def __init__(self, session: object) -> None:
+            _ = session
+
+        async def dismiss_error(self, error_id: int) -> bool:
+            return error_id == 9
+
+    monkeypatch.setattr(sync_api, "SyncStateRepository", FakeSyncStateRepository)
+
+    response = await _post_dismiss_sync_error(9)
+
+    assert response.status_code == httpx.codes.NO_CONTENT
+    assert response.content == b""
+
+
+@pytest.mark.asyncio
+async def test_sync_error_dismiss_route_reports_missing_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeSyncStateRepository:
+        def __init__(self, session: object) -> None:
+            _ = session
+
+        async def dismiss_error(self, error_id: int) -> bool:
+            _ = error_id
+            return False
+
+    monkeypatch.setattr(sync_api, "SyncStateRepository", FakeSyncStateRepository)
+
+    response = await _post_dismiss_sync_error(404)
+
+    assert response.status_code == httpx.codes.NOT_FOUND
+    assert response.json() == {"detail": "Sync error was not found."}
+
+
 async def _post_sync_run() -> httpx.Response:
     app = create_app()
     app.dependency_overrides[get_db_session] = _session_override
@@ -167,6 +206,14 @@ async def _get_sync_status() -> httpx.Response:
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         return await client.get("/api/sync/status")
+
+
+async def _post_dismiss_sync_error(error_id: int) -> httpx.Response:
+    app = create_app()
+    app.dependency_overrides[get_db_session] = _session_override
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        return await client.post(f"/api/sync/errors/{error_id}/dismiss")
 
 
 async def _session_override() -> object:

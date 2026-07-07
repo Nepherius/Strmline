@@ -1,4 +1,4 @@
-import { fetchJson } from "$lib/api";
+import { fetchJson, fetchNoContent } from "$lib/api";
 
 export interface SyncRunResult {
   sync_run_id: number;
@@ -43,4 +43,10 @@ export function runSyncNow(): Promise<SyncRunResult> {
 
 export function loadSyncStatus(): Promise<SyncStatus> {
   return fetchJson<SyncStatus>("/api/sync/status");
+}
+
+export function dismissSyncError(errorId: number): Promise<void> {
+  return fetchNoContent(`/api/sync/errors/${String(errorId)}/dismiss`, {
+    method: "POST",
+  });
 }

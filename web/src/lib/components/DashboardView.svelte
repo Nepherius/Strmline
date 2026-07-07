@@ -1,6 +1,7 @@
 <script lang="ts">
   import AppShell from "$lib/components/ui/AppShell.svelte";
   import AppNavigation from "$lib/components/ui/AppNavigation.svelte";
+  import SyncErrorsPanel from "$lib/components/SyncErrorsPanel.svelte";
   import MetricCard from "$lib/components/ui/MetricCard.svelte";
   import MetricGrid from "$lib/components/ui/MetricGrid.svelte";
   import Notice from "$lib/components/ui/Notice.svelte";
@@ -30,9 +31,11 @@
   export let validation: LibraryValidation | null;
   export let validationIssues: number;
   export let visibleEntries: LibraryEntry[];
+  export let dismissingErrorId: number | null;
   export let removingEntryKey: string;
   export let onRunSync: () => Promise<void>;
   export let onRemoveEntry: (entry: LibraryEntry) => Promise<void>;
+  export let onDismissSyncError: (errorId: number) => Promise<void>;
   export let onSort: (sortKey: SortKey) => void;
 
   $: recentErrors = syncStatus?.recent_errors ?? [];
@@ -85,24 +88,7 @@
     <strong>{lastAutoSyncLabel}</strong>
   </section>
 
-  {#if recentErrors.length > 0}
-    <section class="sync-errors" aria-label="Recent sync errors">
-      <h2>Recent sync errors</h2>
-      <div class="error-list">
-        {#each recentErrors as syncError (syncError.id)}
-          <article>
-            <div>
-              <strong>{syncError.phase}</strong>
-              <span
-                >Run #{syncError.sync_run_id} &middot; {formatDateTime(syncError.created_at)}</span
-              >
-            </div>
-            <p>{syncError.message}</p>
-          </article>
-        {/each}
-      </div>
-    </section>
-  {/if}
+  <SyncErrorsPanel errors={recentErrors} {dismissingErrorId} onDismiss={onDismissSyncError} />
 
   {#if summary}
     <MetricGrid ariaLabel="Library status" columns={6}>
@@ -257,12 +243,6 @@
     font-size: 12px;
   }
 
-  .sync-errors {
-    display: grid;
-    gap: 10px;
-    margin-top: 18px;
-  }
-
   .sync-summary {
     display: flex;
     align-items: center;
@@ -277,37 +257,6 @@
     text-transform: uppercase;
     color: #15201b;
   }
-  .error-list {
-    display: grid;
-    gap: 8px;
-  }
-
-  .error-list article {
-    display: grid;
-    gap: 8px;
-    border: 1px solid #d9b66c;
-    border-radius: 6px;
-    padding: 10px 12px;
-    background: #fff9ea;
-  }
-
-  .error-list div {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    gap: 8px;
-  }
-
-  .error-list strong {
-    color: #3d3321;
-  }
-
-  .error-list span,
-  .error-list p {
-    margin: 0;
-    color: #765d1d;
-  }
-
   .workbench {
     margin-top: 18px;
   }

@@ -125,6 +125,7 @@ class SyncStateRepository:
         )
         errors_result = await self._session.execute(
             select(SyncError)
+            .where(SyncError.dismissed_at.is_(None))
             .order_by(SyncError.created_at.desc(), SyncError.id.desc())
             .limit(error_limit)
         )
@@ -135,6 +136,16 @@ class SyncStateRepository:
             last_auto_run=(_sync_run_record(last_auto_run) if last_auto_run is not None else None),
             recent_errors=tuple(_sync_error_record(error) for error in errors_result.scalars()),
         )
+
+    async def dismiss_error(self, error_id: int) -> bool:
+        result = await self._session.execute(select(SyncError).where(SyncError.id == error_id))
+        sync_error = result.scalar_one_or_none()
+        if sync_error is None:
+            return False
+        if sync_error.dismissed_at is None:
+            sync_error.dismissed_at = utc_now()
+            await self._session.commit()
+        return True
 
     async def _media_item(self, synced_file: SyncedStrmFile) -> MediaItem:
         result = await self._session.execute(

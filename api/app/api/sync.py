@@ -92,6 +92,16 @@ async def sync_status(
     )
 
 
+@router.post("/errors/{error_id}/dismiss", status_code=204)
+async def dismiss_sync_error(
+    error_id: int,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> None:
+    dismissed = await SyncStateRepository(session).dismiss_error(error_id)
+    if not dismissed:
+        raise HTTPException(status_code=404, detail="Sync error was not found.")
+
+
 def _sync_run_response(run: SyncRunRecord | None) -> SyncRunStatusResponse | None:
     if run is None:
         return None

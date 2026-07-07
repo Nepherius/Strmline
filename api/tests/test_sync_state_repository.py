@@ -158,6 +158,34 @@ async def test_sync_state_repository_reads_latest_status() -> None:
 
 
 @pytest.mark.asyncio
+async def test_sync_state_repository_dismisses_sync_errors() -> None:
+    sync_error = SyncError(
+        id=9,
+        sync_run_id=8,
+        phase="torbox_sync",
+        message="TorBox request failed with status 503.",
+        created_at=utc_now(),
+    )
+    session = FakeSession([FakeResult(scalar=sync_error)])
+
+    dismissed = await SyncStateRepository(cast(AsyncSession, session)).dismiss_error(9)
+
+    assert dismissed is True
+    assert sync_error.dismissed_at is not None
+    assert session.committed is True
+
+
+@pytest.mark.asyncio
+async def test_sync_state_repository_reports_missing_dismissed_error() -> None:
+    session = FakeSession([FakeResult()])
+
+    dismissed = await SyncStateRepository(cast(AsyncSession, session)).dismiss_error(404)
+
+    assert dismissed is False
+    assert session.committed is False
+
+
+@pytest.mark.asyncio
 async def test_sync_state_repository_removes_stale_generated_files(tmp_path: Path) -> None:
     stale_file = tmp_path / "movies" / "Old Movie (2023)" / "Old Movie (2023).strm"
     stale_file.parent.mkdir(parents=True)

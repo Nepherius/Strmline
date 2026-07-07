@@ -67,6 +67,12 @@ def test_sync_and_playback_tables_do_not_store_final_media_urls() -> None:
         assert "final_url" not in column_names
 
 
+def test_sync_errors_can_be_dismissed() -> None:
+    columns = set(SyncError.__table__.columns.keys())
+
+    assert "dismissed_at" in columns
+
+
 def test_core_models_have_expected_primary_keys() -> None:
     assert {column.name for column in AppSetting.__table__.primary_key} == {"key"}
     assert {column.name for column in MediaItem.__table__.primary_key} == {"id"}

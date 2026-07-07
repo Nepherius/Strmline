@@ -256,7 +256,10 @@ class SyncRun(Base):
 
 class SyncError(Base):
     __tablename__ = "sync_errors"
-    __table_args__ = (Index("ix_sync_errors_sync_run_id", "sync_run_id"),)
+    __table_args__ = (
+        Index("ix_sync_errors_sync_run_id", "sync_run_id"),
+        Index("ix_sync_errors_dismissed_created_at", "dismissed_at", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     sync_run_id: Mapped[int] = mapped_column(ForeignKey("sync_runs.id"), nullable=False)
@@ -268,6 +271,7 @@ class SyncError(Base):
         default=utc_now,
         nullable=False,
     )
+    dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     sync_run: Mapped[SyncRun] = relationship(back_populates="errors")
 
