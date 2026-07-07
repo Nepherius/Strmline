@@ -5,6 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from app.library.classification_override import (
+    LibraryClassificationOverride,
+    apply_classification_override,
+    source_prefix_for_entry,
+)
 from app.library.entries import LibraryEntry
 from app.library.naming import library_entry_from_file_name
 from app.library.paths import library_entry_relative_path
@@ -81,6 +86,7 @@ class TorBoxStrmSync:
         library_root: Path,
         resolver: ResolverUrlConfig | None = None,
         anime_classifier: AnimeClassifier | None = None,
+        classification_overrides: tuple[LibraryClassificationOverride, ...] = (),
         excluded_prefixes: tuple[str, ...] = (),
     ) -> None:
         self._client = client
@@ -89,6 +95,9 @@ class TorBoxStrmSync:
         self._library_root = library_root
         self._resolver = resolver
         self._anime_classifier = anime_classifier
+        self._classification_overrides = {
+            override.source_prefix: override for override in classification_overrides
+        }
         self._excluded_prefixes = excluded_prefixes
 
     async def run(
@@ -131,6 +140,7 @@ class TorBoxStrmSync:
                     torbox_file.folder_name,
                 )
                 entry = await self._with_anime_classification(entry)
+                entry = self._with_classification_override(entry)
                 if _is_excluded(entry, self._excluded_prefixes):
                     skipped_files += 1
                     continue
@@ -146,6 +156,10 @@ class TorBoxStrmSync:
             synced_files,
             manifest_entries,
         )
+
+    def _with_classification_override(self, entry: LibraryEntry) -> LibraryEntry:
+        override = self._classification_overrides.get(source_prefix_for_entry(entry))
+        return apply_classification_override(entry, override)
 
     async def _with_anime_classification(self, entry: LibraryEntry) -> LibraryEntry:
         if self._anime_classifier is None or entry.category == "anime":

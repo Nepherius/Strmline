@@ -6,6 +6,7 @@ import pytest
 from app.api import library as library_api, setup as setup_api
 from app.core.config import get_settings
 from app.db.dependencies import get_db_session, get_optional_db_session
+from app.library.classification_override import LibraryClassificationOverride
 from app.library.removal import LibraryRemovalResult
 from app.library.summary import LibraryEntrySummary, LibrarySummary
 from app.main import create_app
@@ -259,6 +260,76 @@ async def test_library_remove_entry_deletes_torbox_item_and_generated_files(
         "removed_torbox_items": 1,
     }
     assert removed_items == [("torrents", "123")]
+
+
+@pytest.mark.asyncio
+async def test_library_classification_override_routes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    saved: list[LibraryClassificationOverride] = []
+
+    class FakeClassificationOverrideRepository:
+        def __init__(self, session: object) -> None:
+            _ = session
+
+        async def list_all(self) -> tuple[LibraryClassificationOverride, ...]:
+            return tuple(saved)
+
+        async def upsert(self, **kwargs: object) -> LibraryClassificationOverride:
+            override = LibraryClassificationOverride(
+                source_category="shows",
+                source_prefix=str(kwargs["source_prefix"]),
+                title=str(kwargs["title"]),
+                target_category="anime",
+            )
+            saved[:] = [override]
+            return override
+
+        async def delete(self, source_prefix: str) -> bool:
+            if saved and saved[0].source_prefix == source_prefix:
+                saved.clear()
+                return True
+            return False
+
+    monkeypatch.setattr(
+        library_api,
+        "ClassificationOverrideRepository",
+        FakeClassificationOverrideRepository,
+    )
+
+    app = create_app()
+    app.dependency_overrides[get_db_session] = fake_db_session
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        save_response = await client.post(
+            "/api/library/classification-overrides",
+            json={
+                "source_category": "shows",
+                "source_prefix": "shows/Frieren",
+                "title": "Frieren",
+                "target_category": "anime",
+            },
+        )
+        list_response = await client.get("/api/library/classification-overrides")
+        delete_response = await client.request(
+            "DELETE",
+            "/api/library/classification-overrides",
+            json={
+                "source_category": "shows",
+                "source_prefix": "shows/Frieren",
+            },
+        )
+
+    assert save_response.status_code == httpx.codes.OK
+    assert save_response.json() == {
+        "source_category": "shows",
+        "source_prefix": "shows/Frieren",
+        "title": "Frieren",
+        "target_category": "anime",
+        "target_prefix": "anime/Frieren",
+    }
+    assert list_response.json() == [save_response.json()]
+    assert delete_response.status_code == httpx.codes.NO_CONTENT
 
 
 async def fake_optional_session() -> object:

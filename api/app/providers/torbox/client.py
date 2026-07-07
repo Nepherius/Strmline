@@ -190,7 +190,7 @@ class TorBoxClient:
             path,
             payload={
                 id_key: _numeric_id_payload(item_id),
-                "operation": "Delete",
+                "operation": "delete",
                 "all": False,
             },
         )

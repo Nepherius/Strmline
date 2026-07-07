@@ -1,6 +1,7 @@
 <script lang="ts">
   import AppShell from "$lib/components/ui/AppShell.svelte";
   import AppNavigation from "$lib/components/ui/AppNavigation.svelte";
+  import LibraryEntryActions from "$lib/components/LibraryEntryActions.svelte";
   import SyncErrorsPanel from "$lib/components/SyncErrorsPanel.svelte";
   import MetricCard from "$lib/components/ui/MetricCard.svelte";
   import MetricGrid from "$lib/components/ui/MetricGrid.svelte";
@@ -8,6 +9,7 @@
   import PageHeader from "$lib/components/ui/PageHeader.svelte";
   import TextField from "$lib/components/ui/TextField.svelte";
   import UiButton from "$lib/components/ui/UiButton.svelte";
+  import type { ClassificationOverride } from "$lib/libraryApi";
   import {
     categoryLabels,
     type LibraryCategory,
@@ -26,15 +28,19 @@
   export let loading: boolean;
   export let syncing: boolean;
   export let summary: LibrarySummary | null;
+  export let classificationOverrides: ClassificationOverride[];
   export let syncResult: SyncRunResult | null;
   export let syncStatus: SyncStatus | null;
   export let validation: LibraryValidation | null;
   export let validationIssues: number;
   export let visibleEntries: LibraryEntry[];
   export let dismissingErrorId: number | null;
+  export let pendingClassificationKey: string;
   export let removingEntryKey: string;
   export let onRunSync: () => Promise<void>;
   export let onRemoveEntry: (entry: LibraryEntry) => Promise<void>;
+  export let onMoveEntry: (entry: LibraryEntry, targetCategory: LibraryCategory) => Promise<void>;
+  export let onResetEntryClassification: (entry: LibraryEntry) => Promise<void>;
   export let onDismissSyncError: (errorId: number) => Promise<void>;
   export let onSort: (sortKey: SortKey) => void;
 
@@ -56,6 +62,14 @@
 
   function issueKey(issue: { code: string; relative_path: string | null }, index: number): string {
     return `${issue.code}-${issue.relative_path ?? String(index)}`;
+  }
+
+  function classificationOverride(entry: LibraryEntry): ClassificationOverride | null {
+    return (
+      classificationOverrides.find((override) => override.target_prefix === entry.relative_path) ??
+      classificationOverrides.find((override) => override.source_prefix === entry.relative_path) ??
+      null
+    );
   }
 </script>
 
@@ -205,16 +219,16 @@
                 <td><code>{entry.relative_path}</code></td>
                 <td>{entry.file_count}</td>
                 <td>
-                  <button
-                    type="button"
-                    class="remove-entry"
-                    disabled={removingEntryKey === entry.key || loading || syncing}
-                    on:click={() => {
-                      void onRemoveEntry(entry);
-                    }}
-                  >
-                    {removingEntryKey === entry.key ? "Removing" : "Remove"}
-                  </button>
+                  <LibraryEntryActions
+                    {entry}
+                    currentOverride={classificationOverride(entry)}
+                    disabled={loading || syncing}
+                    pending={removingEntryKey === entry.key ||
+                      pendingClassificationKey === entry.key}
+                    onMove={onMoveEntry}
+                    onReset={onResetEntryClassification}
+                    onRemove={onRemoveEntry}
+                  />
                 </td>
               </tr>
             {:else}
@@ -409,22 +423,6 @@
     padding: 0;
     background: transparent;
     color: inherit;
-  }
-
-  .remove-entry {
-    height: 30px;
-    border: 1px solid #a23a35;
-    border-radius: 6px;
-    padding: 0 10px;
-    background: #fff5f4;
-    color: #8e251f;
-    cursor: pointer;
-    font-weight: 800;
-  }
-
-  .remove-entry:disabled {
-    cursor: not-allowed;
-    opacity: 0.65;
   }
 
   td:first-child {

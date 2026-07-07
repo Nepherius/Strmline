@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 from anyio.to_thread import run_sync
 from fastapi import APIRouter, Depends, HTTPException
@@ -11,7 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.provider_config import effective_torbox_key
 from app.core.config import get_settings
 from app.db.dependencies import get_db_session
+from app.db.repositories.classification_override import ClassificationOverrideRepository
 from app.db.repositories.library_exclusion import LibraryExclusionRepository
+from app.library.classification_override import (
+    LibraryClassificationOverride,
+    target_prefix_for_override,
+)
+from app.library.entries import LibraryCategory
 from app.library.removal import LibraryRemovalResult, remove_library_prefix
 from app.library.summary import (
     LibraryDuplicateGroup,
@@ -90,6 +96,26 @@ class LibraryRemoveResponse(BaseModel):
     removed_torbox_items: int
 
 
+class ClassificationOverrideRequest(BaseModel):
+    source_category: str = Field(pattern=r"^(movies|shows|anime)$")
+    source_prefix: str = Field(min_length=1, max_length=1000)
+    title: str = Field(min_length=1, max_length=300)
+    target_category: str = Field(pattern=r"^(movies|shows|anime)$")
+
+
+class ClassificationOverrideDeleteRequest(BaseModel):
+    source_category: str = Field(pattern=r"^(movies|shows|anime)$")
+    source_prefix: str = Field(min_length=1, max_length=1000)
+
+
+class ClassificationOverrideResponse(BaseModel):
+    source_category: str
+    source_prefix: str
+    title: str
+    target_category: str
+    target_prefix: str
+
+
 async def get_library_root() -> Path:
     return get_settings().library_root
 
@@ -126,6 +152,42 @@ async def library_validation(
         warnings=[_issue_response(issue) for issue in report.warnings],
         errors=[_issue_response(issue) for issue in report.errors],
     )
+
+
+@router.get("/classification-overrides", response_model=list[ClassificationOverrideResponse])
+async def classification_overrides(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> list[ClassificationOverrideResponse]:
+    overrides = await ClassificationOverrideRepository(session).list_all()
+    return [_classification_override_response(override) for override in overrides]
+
+
+@router.post("/classification-overrides", response_model=ClassificationOverrideResponse)
+async def save_classification_override(
+    request: ClassificationOverrideRequest,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> ClassificationOverrideResponse:
+    _validate_relative_prefix(request.source_prefix, request.source_category)
+    if request.target_category == request.source_category:
+        raise HTTPException(status_code=400, detail="Target category must be different.")
+    override = await ClassificationOverrideRepository(session).upsert(
+        source_category=_category(request.source_category),
+        source_prefix=request.source_prefix,
+        title=request.title,
+        target_category=_category(request.target_category),
+    )
+    await session.commit()
+    return _classification_override_response(override)
+
+
+@router.delete("/classification-overrides", status_code=204)
+async def delete_classification_override(
+    request: ClassificationOverrideDeleteRequest,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> None:
+    _validate_relative_prefix(request.source_prefix, request.source_category)
+    await ClassificationOverrideRepository(session).delete(request.source_prefix)
+    await session.commit()
 
 
 @router.delete("/entries", response_model=LibraryRemoveResponse)
@@ -188,6 +250,18 @@ def _entry_response(entry: LibraryEntrySummary) -> LibraryEntryResponse:
     )
 
 
+def _classification_override_response(
+    override: LibraryClassificationOverride,
+) -> ClassificationOverrideResponse:
+    return ClassificationOverrideResponse(
+        source_category=override.source_category,
+        source_prefix=override.source_prefix,
+        title=override.title,
+        target_category=override.target_category,
+        target_prefix=target_prefix_for_override(override),
+    )
+
+
 def _file_response(file: LibraryFile) -> LibraryFileResponse:
     return LibraryFileResponse(
         category=file.category,
@@ -225,3 +299,9 @@ def _validate_relative_prefix(relative_path: str, category: str) -> None:
         raise HTTPException(status_code=400, detail="Library entry path is invalid.")
     if not relative_path.startswith(f"{category}/"):
         raise HTTPException(status_code=400, detail="Library entry category does not match path.")
+
+
+def _category(value: str) -> LibraryCategory:
+    if value in {"movies", "shows", "anime"}:
+        return cast(LibraryCategory, value)
+    raise HTTPException(status_code=400, detail="Library category is invalid.")

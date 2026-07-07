@@ -8,6 +8,7 @@ from typing import Protocol
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.db.repositories.classification_override import ClassificationOverrideRepository
 from app.db.repositories.library_exclusion import LibraryExclusionRepository
 from app.db.repositories.settings import AppSettingsRepository, SettingsSnapshot
 from app.db.repositories.stream_selection import StreamSelectionRepository
@@ -120,6 +121,7 @@ async def _run_torbox_account_sync(
                 library_root=library_root,
                 resolver=resolver,
                 anime_classifier=build_anilist_anime_classifier(session, settings),
+                classification_overrides=await ClassificationOverrideRepository(session).list_all(),
                 excluded_prefixes=await LibraryExclusionRepository(session).prefixes(),
             ).run()
     except (OSError, TorBoxAPIError, ValueError) as error:

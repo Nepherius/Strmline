@@ -2,6 +2,7 @@ from app.db.base import Base
 from app.db.models import (
     AniListCacheEntry,
     AppSetting,
+    ClassificationOverride,
     GeneratedFile,
     LibraryEntry,
     LibraryExclusion,
@@ -21,6 +22,7 @@ def test_initial_schema_tables_are_registered() -> None:
     assert set(Base.metadata.tables) == {
         "app_settings",
         "anilist_cache_entries",
+        "classification_overrides",
         "generated_files",
         "library_entries",
         "library_exclusions",
@@ -61,6 +63,7 @@ def test_sync_and_playback_tables_do_not_store_final_media_urls() -> None:
         TorBoxItem,
         StreamSelection,
         LibraryExclusion,
+        ClassificationOverride,
     ):
         column_names = set(model.__table__.columns.keys())
         assert "target_url" not in column_names
@@ -77,6 +80,13 @@ def test_core_models_have_expected_primary_keys() -> None:
     assert {column.name for column in AppSetting.__table__.primary_key} == {"key"}
     assert {column.name for column in MediaItem.__table__.primary_key} == {"id"}
     assert {column.name for column in LibraryEntry.__table__.primary_key} == {"id"}
+
+
+def test_classification_overrides_are_keyed_by_source_prefix() -> None:
+    columns = set(ClassificationOverride.__table__.columns.keys())
+
+    assert "source_prefix" in columns
+    assert "target_category" in columns
 
 
 def test_tmdb_cache_entries_do_not_store_api_keys() -> None:

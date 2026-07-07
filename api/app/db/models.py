@@ -160,6 +160,31 @@ class LibraryExclusion(Base):
     )
 
 
+class ClassificationOverride(Base):
+    __tablename__ = "classification_overrides"
+    __table_args__ = (
+        UniqueConstraint("source_prefix", name="uq_classification_overrides_source_prefix"),
+        Index("ix_classification_overrides_target_category", "target_category"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_category: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_prefix: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    target_category: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+
 class MediaItem(Base):
     __tablename__ = "media_items"
     __table_args__ = (Index("ix_media_items_type_title", "media_type", "title"),)

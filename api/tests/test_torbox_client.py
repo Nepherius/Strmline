@@ -200,7 +200,7 @@ async def test_torbox_client_deletes_torrent_with_control_endpoint() -> None:
 
     assert seen_json == {
         "torrent_id": 42,
-        "operation": "Delete",
+        "operation": "delete",
         "all": False,
     }
 
@@ -222,7 +222,7 @@ async def test_torbox_client_deletes_usenet_with_control_endpoint() -> None:
 
     assert seen == {
         "url": "https://api.torbox.app/v1/api/usenet/controlusenet",
-        "json": {"usenet_id": 42, "operation": "Delete", "all": False},
+        "json": {"usenet_id": 42, "operation": "delete", "all": False},
     }
 
 
@@ -243,7 +243,7 @@ async def test_torbox_client_deletes_webdl_with_control_endpoint() -> None:
 
     assert seen == {
         "url": "https://api.torbox.app/v1/api/webdl/controlwebdownload",
-        "json": {"web_id": "web-42", "operation": "Delete", "all": False},
+        "json": {"web_id": "web-42", "operation": "delete", "all": False},
     }
 
 

@@ -3,7 +3,15 @@
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
 
-  import { loadLibrarySummary, loadLibraryValidation, removeLibraryEntry } from "$lib/libraryApi";
+  import {
+    deleteClassificationOverride,
+    loadClassificationOverrides,
+    loadLibrarySummary,
+    loadLibraryValidation,
+    removeLibraryEntry,
+    saveClassificationOverride,
+    type ClassificationOverride,
+  } from "$lib/libraryApi";
   import { loadSetupStatus } from "$lib/setupApi";
   import {
     dismissSyncError,
@@ -40,6 +48,8 @@
   let syncResult: SyncRunResult | null = null;
   let syncStatus: SyncStatus | null = null;
   let validation: LibraryValidation | null = null;
+  let classificationOverrides: ClassificationOverride[] = [];
+  let pendingClassificationKey = "";
   let removingEntryKey = "";
   let dismissingErrorId: number | null = null;
 
@@ -75,14 +85,16 @@
     loading = true;
     error = "";
     try {
-      const [nextSummary, nextValidation, nextSyncStatus] = await Promise.all([
+      const [nextSummary, nextValidation, nextSyncStatus, nextOverrides] = await Promise.all([
         loadLibrarySummary(),
         loadLibraryValidation(),
         loadSyncStatus(),
+        loadClassificationOverrides(),
       ]);
       summary = nextSummary;
       validation = nextValidation;
       syncStatus = nextSyncStatus;
+      classificationOverrides = nextOverrides;
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
       error = `Dashboard unavailable. ${message}`;
@@ -143,6 +155,73 @@
     }
   }
 
+  async function moveEntry(entry: LibraryEntry, targetCategory: LibraryCategory) {
+    if (pendingClassificationKey) return;
+    pendingClassificationKey = entry.key;
+    syncing = true;
+    error = "";
+    syncResult = null;
+    try {
+      const currentOverride = overrideForEntry(entry);
+      if (currentOverride) {
+        await deleteMovedPathOverride(entry, currentOverride);
+        if (targetCategory === currentOverride.source_category) {
+          await deleteClassificationOverride({
+            source_category: currentOverride.source_category,
+            source_prefix: currentOverride.source_prefix,
+          });
+        } else {
+          await saveClassificationOverride({
+            source_category: currentOverride.source_category,
+            source_prefix: currentOverride.source_prefix,
+            title: currentOverride.title,
+            target_category: targetCategory,
+          });
+        }
+      } else if (targetCategory !== entry.category) {
+        await saveClassificationOverride({
+          source_category: entry.category,
+          source_prefix: entry.relative_path,
+          title: entry.title,
+          target_category: targetCategory,
+        });
+      }
+      syncResult = await runSyncNow();
+      await loadDashboard();
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
+      error = `Move failed. ${message}`;
+    } finally {
+      pendingClassificationKey = "";
+      syncing = false;
+    }
+  }
+
+  async function resetEntryClassification(entry: LibraryEntry) {
+    if (pendingClassificationKey) return;
+    pendingClassificationKey = entry.key;
+    syncing = true;
+    error = "";
+    syncResult = null;
+    try {
+      const currentOverride = overrideForEntry(entry);
+      if (!currentOverride) return;
+      await deleteMovedPathOverride(entry, currentOverride);
+      await deleteClassificationOverride({
+        source_category: currentOverride.source_category,
+        source_prefix: currentOverride.source_prefix,
+      });
+      syncResult = await runSyncNow();
+      await loadDashboard();
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
+      error = `Reset failed. ${message}`;
+    } finally {
+      pendingClassificationKey = "";
+      syncing = false;
+    }
+  }
+
   async function dismissRecentError(errorId: number) {
     if (dismissingErrorId !== null) return;
     dismissingErrorId = errorId;
@@ -157,6 +236,25 @@
       dismissingErrorId = null;
     }
   }
+
+  function overrideForEntry(entry: LibraryEntry): ClassificationOverride | null {
+    return (
+      classificationOverrides.find((override) => override.target_prefix === entry.relative_path) ??
+      classificationOverrides.find((override) => override.source_prefix === entry.relative_path) ??
+      null
+    );
+  }
+
+  async function deleteMovedPathOverride(
+    entry: LibraryEntry,
+    override: ClassificationOverride,
+  ): Promise<void> {
+    if (entry.relative_path === override.source_prefix) return;
+    await deleteClassificationOverride({
+      source_category: entry.category,
+      source_prefix: entry.relative_path,
+    });
+  }
 </script>
 
 <DashboardView
@@ -168,15 +266,19 @@
   {loading}
   {syncing}
   {summary}
+  {classificationOverrides}
   {syncResult}
   {syncStatus}
   {validation}
   {validationIssues}
   {visibleEntries}
   {dismissingErrorId}
+  {pendingClassificationKey}
   {removingEntryKey}
   onRunSync={runManualSync}
   onSort={sortBy}
   onRemoveEntry={removeEntry}
+  onMoveEntry={moveEntry}
+  onResetEntryClassification={resetEntryClassification}
   onDismissSyncError={dismissRecentError}
 />

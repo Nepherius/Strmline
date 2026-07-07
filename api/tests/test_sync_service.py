@@ -43,6 +43,14 @@ class FakeLibraryExclusionRepository:
         return ("shows/Removed Show",)
 
 
+class FakeClassificationOverrideRepository:
+    def __init__(self, session: object) -> None:
+        _ = session
+
+    async def list_all(self) -> tuple[object, ...]:
+        return ()
+
+
 @pytest.mark.asyncio
 async def test_sync_service_uses_saved_resolver_token(
     monkeypatch: pytest.MonkeyPatch,
@@ -55,6 +63,11 @@ async def test_sync_service_uses_saved_resolver_token(
         return FakeClient()
 
     monkeypatch.setattr(sync_service, "AppSettingsRepository", fake_settings_repository(tmp_path))
+    monkeypatch.setattr(
+        sync_service,
+        "ClassificationOverrideRepository",
+        FakeClassificationOverrideRepository,
+    )
     monkeypatch.setattr(sync_service, "LibraryExclusionRepository", FakeLibraryExclusionRepository)
     monkeypatch.setattr(sync_service, "SyncStateRepository", FakeSyncStateRepository)
     monkeypatch.setattr(sync_service, "TorBoxStrmSync", fake_torbox_strm_sync(captured))
@@ -70,6 +83,7 @@ async def test_sync_service_uses_saved_resolver_token(
     assert isinstance(resolver, ResolverUrlConfig)
     assert resolver.token == "saved-resolver-token"  # noqa: S105
     assert captured["anime_classifier"] is not None
+    assert captured["classification_overrides"] == ()
     assert captured["excluded_prefixes"] == ("shows/Removed Show",)
     assert summary.sync_run_id == 12
 
@@ -99,6 +113,11 @@ async def test_sync_service_records_provider_failures(
             raise TorBoxAPIError("TorBox request failed with status 503.")
 
     monkeypatch.setattr(sync_service, "AppSettingsRepository", fake_settings_repository(tmp_path))
+    monkeypatch.setattr(
+        sync_service,
+        "ClassificationOverrideRepository",
+        FakeClassificationOverrideRepository,
+    )
     monkeypatch.setattr(sync_service, "LibraryExclusionRepository", FakeLibraryExclusionRepository)
     monkeypatch.setattr(sync_service, "SyncStateRepository", CapturingSyncStateRepository)
     monkeypatch.setattr(sync_service, "TorBoxStrmSync", FailingTorBoxStrmSync)

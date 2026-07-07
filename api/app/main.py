@@ -1,3 +1,6 @@
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -11,6 +14,16 @@ from app.api.setup import router as setup_router
 from app.api.sync import router as sync_router
 from app.core.config import get_settings
 from app.static_ui import mount_static_ui
+from app.sync.scheduler import shutdown_auto_sync_scheduler, start_auto_sync_scheduler
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    await start_auto_sync_scheduler(app)
+    try:
+        yield
+    finally:
+        await shutdown_auto_sync_scheduler(app)
 
 
 def create_app() -> FastAPI:
@@ -18,6 +31,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.service_name,
         version=settings.version,
+        lifespan=lifespan,
     )
     app.add_middleware(
         CORSMiddleware,

@@ -3,6 +3,7 @@ from typing import Any
 
 import pytest
 
+from app.library.classification_override import LibraryClassificationOverride
 from app.providers.torbox.files import DownloadKind
 from app.resolver.manifest import resolve_manifest_target
 from app.sync.torbox_strm import DirectTorBoxStrmSync, ResolverUrlConfig
@@ -337,6 +338,32 @@ async def test_torbox_strm_sync_keeps_show_when_anilist_does_not_confirm(
 
     expected_path = tmp_path / "shows" / "Frieren" / "Season 01" / "Frieren - S01E01.strm"
     assert result.synced_files[0].category == "shows"
+    assert result.written_paths == (expected_path.resolve(strict=False),)
+
+
+@pytest.mark.asyncio
+async def test_torbox_strm_sync_applies_manual_classification_override(
+    tmp_path: Path,
+) -> None:
+    sync = DirectTorBoxStrmSync(
+        client=AnimeCandidateTorBoxClient(),
+        api_key="test-token",
+        torbox_base_url="https://api.torbox.app/v1/api",
+        library_root=tmp_path,
+        classification_overrides=(
+            LibraryClassificationOverride(
+                source_category="shows",
+                source_prefix="shows/Frieren",
+                title="Frieren",
+                target_category="anime",
+            ),
+        ),
+    )
+
+    result = await sync.run(kinds=("torrents",))
+
+    expected_path = tmp_path / "anime" / "Frieren" / "Season 01" / "Frieren - S01E01.strm"
+    assert result.synced_files[0].category == "anime"
     assert result.written_paths == (expected_path.resolve(strict=False),)
 
 

@@ -3,13 +3,14 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.dependencies import get_db_session
 from app.db.repositories.settings import AppSettingsRepository, AppSettingsUpdate, PlaybackMode
+from app.sync.scheduler import reschedule_auto_sync_scheduler
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -66,6 +67,7 @@ async def read_settings(
 @router.put("", response_model=SettingsResponse)
 async def update_settings(
     request: SettingsUpdateRequest,
+    http_request: Request,
     repository: Annotated[AppSettingsRepository, Depends(get_settings_repository)],
 ) -> SettingsResponse:
     try:
@@ -85,12 +87,15 @@ async def update_settings(
         )
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+    await reschedule_auto_sync_scheduler(http_request.app)
     return SettingsResponse.model_validate(snapshot, from_attributes=True)
 
 
 @router.delete("", response_model=SettingsResponse)
 async def clear_saved_settings(
+    http_request: Request,
     repository: Annotated[AppSettingsRepository, Depends(get_settings_repository)],
 ) -> SettingsResponse:
     snapshot = await repository.clear_saved_setup()
+    await reschedule_auto_sync_scheduler(http_request.app)
     return SettingsResponse.model_validate(snapshot, from_attributes=True)
