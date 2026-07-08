@@ -316,6 +316,80 @@ async def test_sync_state_repository_collapses_duplicates_by_tmdb_id(tmp_path: P
     assert media_items_added[0].tmdb_id == "unique-tmdb-123"
 
 
+@pytest.mark.asyncio
+async def test_sync_state_repository_collapses_duplicates_by_missing_year(tmp_path: Path) -> None:
+    file1 = tmp_path / "movies" / "Movie (2026)" / "Movie (2026).strm"
+    file2 = tmp_path / "movies" / "Movie" / "Movie.strm"
+    file1.parent.mkdir(parents=True, exist_ok=True)
+    file2.parent.mkdir(parents=True, exist_ok=True)
+    _ = file1.write_text("url1", encoding="utf-8")
+    _ = file2.write_text("url2", encoding="utf-8")
+
+    result = TorBoxStrmSyncResult(
+        scanned_files=2,
+        written_files=2,
+        skipped_files=0,
+        written_paths=(file1.resolve(strict=False), file2.resolve(strict=False)),
+        synced_files=(
+            SyncedStrmFile(
+                path=file1.resolve(strict=False),
+                entry_id="entry-1",
+                category="movies",
+                title="Movie",
+                year=2026,
+                season_number=None,
+                episode_number=None,
+                provider="torbox",
+                provider_item_id="1",
+                provider_file_id="2",
+                content_hash="hash1",
+                tmdb_id=None,
+            ),
+            SyncedStrmFile(
+                path=file2.resolve(strict=False),
+                entry_id="entry-2",
+                category="movies",
+                title="Movie",
+                year=None,
+                season_number=None,
+                episode_number=None,
+                provider="torbox",
+                provider_item_id="1",
+                provider_file_id="3",
+                content_hash="hash2",
+                tmdb_id=None,
+            ),
+        ),
+    )
+
+    existing_item = MediaItem(
+        media_type="movies",
+        title="Movie",
+        year=2026,
+        tmdb_id=None,
+    )
+
+    session = FakeSession(
+        [
+            FakeResult(None),  # 1.1 title+year check (returns None) -> creates item
+            FakeResult(None),  # 1.2 library entry
+            FakeResult(None),  # 1.3 generated file
+            FakeResult(existing_item),  # 2.1 title+year check (matches year is None fallback)
+            FakeResult(None),  # 2.2 library entry
+            FakeResult(None),  # 2.3 generated file
+            FakeResult(scalars=[]),  # cleanup query
+        ]
+    )
+
+    repo = SyncStateRepository(cast(AsyncSession, session))
+    _ = await repo.record_success(result, _resolved(tmp_path))
+
+    media_items_added = [x for x in session.added if isinstance(x, MediaItem)]
+    assert len(media_items_added) == 1
+    assert media_items_added[0].title == "Movie"
+    assert media_items_added[0].year == 2026
+
+
 def _resolved(path: Path) -> Path:
     return path.resolve(strict=False)
 

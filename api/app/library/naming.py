@@ -91,7 +91,7 @@ def _title(
     name: str,
     folder_name: str,
     season_episode: re.Match[str] | None,
-    year: int | None,
+    _year: int | None,
     *,
     use_folder_title: bool = False,
 ) -> tuple[str, bool]:
@@ -102,10 +102,10 @@ def _title(
     title_source = name
     if season_episode is not None:
         title_source = name[: season_episode.start()]
-    elif year is not None:
-        year_match = YEAR.search(name)
-        if year_match is not None:
-            title_source = name[: year_match.start("year")]
+
+    year_match = YEAR.search(title_source)
+    if year_match is not None:
+        title_source = title_source[: year_match.start("year")]
 
     title_source = TRAILING_QUALITY.sub("", title_source)
     title = _humanize_title(title_source)

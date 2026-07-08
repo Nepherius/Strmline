@@ -13,6 +13,18 @@ logger = logging.getLogger(__name__)
 
 MIN_MATCH_SCORE = 0.4
 MIN_DATE_LENGTH = 4
+MIN_LATIN_LENGTH = 3
+MIN_CJK_LENGTH = 2
+
+JUNK_PREFIXES = re.compile(
+    r"(?i)^(?:\bwww\b.*\bcom\b|\bwww\b.*\borg\b|\bwww\b\s*|\b\d*tamilmv\b|\bcards\b|\bcenter\b|\b TamilMV\b|\b\d*tamilultra\b|\bmasstamilan\b|\bisaimini\b|\btamilyogi\b|\btamilrockers\b|\bcenter\s*|"
+    r"\[[^\]]+\]|"  # Match any tag in square brackets like [RARBG]
+    r"\b(?:YIFY|YTS|RARBG|EZTV|ETTV|KAT|LimeTorrents|Demonoid|Scene|Tamilrockers|Tamilmv|Isaimini|Tamilyogi|Movierulz|Tamilgun|1337x|Worldfree4u|Madrasrockers|Thiruttumovies|Hiidude|Mymoviesda|Filmlinks4u|Tamildbox|Tamilrage|Mtamilrockers)\b|"  # Specific release groups and sites
+    r"\b(?:www|https?://)\S+|"  # URLs
+    r"\b(?:com|org|net|in|co\.uk|io)\b|"  # Common TLDs
+    r"\b(?:movies|films|download|free|watch|online)\b|"  # Common keywords
+    r"[\s._-])+"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,51 +92,51 @@ class MediaIdentityResolver:
                 media_type=query_media_type,
             )
 
-        endpoint = "/search/multi"
-        params = {"query": parsed_title, "include_adult": "false"}
-        db_key = tmdb_cache_key(endpoint, params)
+        queries = extract_search_queries(parsed_title)
 
-        # Check DB cache first
-        cached_val = await service._cache_repository.get_fresh(db_key)  # pyright: ignore[reportPrivateUsage]
-        if cached_val is not None:
-            payload = cached_val.response_payload
-        else:
-            # Cache miss: rate limit
-            async with self._semaphore:
-                await asyncio.sleep(self._delay_seconds)
-                payload = await service.get_json(endpoint, params=params)
+        for query in queries:
+            endpoint = "/search/multi"
+            params = {"query": query, "include_adult": "false"}
+            db_key = tmdb_cache_key(endpoint, params)
 
-        results = payload.get("results")
-        if not isinstance(results, list) or not results:
-            return MediaIdentity(
-                tmdb_id=None,
-                title=parsed_title,
-                year=year,
-                media_type=query_media_type,
+            # Check DB cache first
+            cached_val = await service._cache_repository.get_fresh(db_key)  # pyright: ignore[reportPrivateUsage]
+            if cached_val is not None:
+                payload = cached_val.response_payload
+            else:
+                # Cache miss: rate limit
+                async with self._semaphore:
+                    await asyncio.sleep(self._delay_seconds)
+                    payload = await service.get_json(endpoint, params=params)
+
+            results = payload.get("results")
+            if not isinstance(results, list) or not results:
+                continue
+
+            results_list = results
+            valid_results: list[dict[str, Any]] = [
+                cast("dict[str, Any]", r) for r in results_list if isinstance(r, dict)
+            ]
+            scored_candidates = self._score_results(
+                valid_results, parsed_title, query, year, query_media_type
             )
 
-        results_list = results
-        valid_results: list[dict[str, Any]] = [
-            cast("dict[str, Any]", r) for r in results_list if isinstance(r, dict)
-        ]
-        scored_candidates = self._score_results(valid_results, parsed_title, year, query_media_type)
+            if scored_candidates:
+                scored_candidates.sort(key=lambda x: x[0], reverse=True)
+                return scored_candidates[0][1]
 
-        if not scored_candidates:
-            return MediaIdentity(
-                tmdb_id=None,
-                title=parsed_title,
-                year=year,
-                media_type=query_media_type,
-            )
-
-        # Pick candidate with highest score
-        scored_candidates.sort(key=lambda x: x[0], reverse=True)
-        return scored_candidates[0][1]
+        return MediaIdentity(
+            tmdb_id=None,
+            title=parsed_title,
+            year=year,
+            media_type=query_media_type,
+        )
 
     def _score_results(
         self,
         results: list[dict[str, Any]],
         parsed_title: str,
+        search_query: str,
         year: int | None,
         query_media_type: str,
     ) -> list[tuple[float, MediaIdentity]]:
@@ -158,6 +170,17 @@ class MediaIdentityResolver:
                 result_media_type=str(raw_media_type),
             )
 
+            if search_query != parsed_title:
+                clean_score = score_match(
+                    query_title=search_query,
+                    query_year=year,
+                    query_media_type=query_media_type,
+                    result_title=res_title,
+                    result_year=res_year,
+                    result_media_type=str(raw_media_type),
+                )
+                score = max(score, clean_score)
+
             if score >= MIN_MATCH_SCORE:
                 scored_candidates.append(
                     (
@@ -171,6 +194,38 @@ class MediaIdentityResolver:
                     )
                 )
         return scored_candidates
+
+
+def clean_search_title(title: str) -> str:
+    cleaned = JUNK_PREFIXES.sub("", title).strip()
+    if not cleaned:
+        return title
+    return cleaned
+
+
+def extract_search_queries(title: str) -> list[str]:
+    cleaned = clean_search_title(title)
+    queries = [cleaned]
+
+    # Check for CJK + Latin mix
+    cjk_pattern = re.compile(r"[\u3040-\u30ff\u4e00-\u9faf\uac00-\ud7af]+")
+    has_cjk = bool(cjk_pattern.search(cleaned))
+
+    latin_pattern = re.compile(r"[a-zA-Z]{3,}")
+    has_latin = bool(latin_pattern.search(cleaned))
+
+    if has_cjk and has_latin:
+        # Extract Latin part
+        latin_parts = " ".join(re.findall(r"[a-zA-Z0-9']{2,}", cleaned))
+        if latin_parts and len(latin_parts) >= MIN_LATIN_LENGTH:
+            queries.append(latin_parts)
+
+        # Extract CJK part
+        cjk_parts = " ".join(cjk_pattern.findall(cleaned))
+        if cjk_parts and len(cjk_parts) >= MIN_CJK_LENGTH:
+            queries.append(cjk_parts)
+
+    return queries
 
 
 def parse_year(date_str: object) -> int | None:

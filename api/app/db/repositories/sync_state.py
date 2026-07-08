@@ -164,13 +164,17 @@ class SyncStateRepository:
             select(MediaItem).where(
                 MediaItem.media_type == synced_file.category,
                 MediaItem.title == synced_file.title,
-                MediaItem.year == synced_file.year,
+                (MediaItem.year == synced_file.year)
+                | (MediaItem.year.is_(None))
+                | (synced_file.year is None),
             )
         )
         media_item = result.scalar_one_or_none()
         if media_item is not None:
             if synced_file.tmdb_id is not None:
                 media_item.tmdb_id = synced_file.tmdb_id
+            if media_item.year is None and synced_file.year is not None:
+                media_item.year = synced_file.year
             return media_item
 
         media_item = MediaItem(

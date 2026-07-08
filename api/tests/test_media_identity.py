@@ -10,7 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import TmdbCacheEntry, utc_now
 from app.db.repositories.tmdb_cache import TmdbCacheRepository
 from app.providers.tmdb.metadata import TmdbMetadataService
-from app.sync.media_identity import MediaIdentityResolver, score_match, title_similarity
+from app.sync.media_identity import (
+    MediaIdentityResolver,
+    clean_search_title,
+    extract_search_queries,
+    score_match,
+    title_similarity,
+)
 
 
 class FakeResult:
@@ -142,6 +148,52 @@ async def test_media_identity_resolver_cache_miss_and_memory_cache() -> None:
     identity2 = await resolver.resolve("Breaking Bad", 2008, "shows")
     assert identity2 == identity1
     assert len(client.calls) == 1
+
+
+def test_clean_search_title() -> None:
+    assert clean_search_title("www 1TamilMV cards Teach You a Lesson") == "Teach You a Lesson"
+    assert clean_search_title("www 1TamilMV center If Wishes Could Kill") == "If Wishes Could Kill"
+    assert clean_search_title("Plain Show Name") == "Plain Show Name"
+
+
+def test_extract_search_queries() -> None:
+    # Standard
+    assert extract_search_queries("Teach You a Lesson") == ["Teach You a Lesson"]
+    # Mixed CJK and Latin
+    assert extract_search_queries("멋진 신세계 My Royal Nemesis") == [
+        "멋진 신세계 My Royal Nemesis",
+        "My Royal Nemesis",
+        "멋진 신세계",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_media_identity_resolver_with_junk_prefix() -> None:
+    # 1. resolver._do_resolve -> cache_repo.get_fresh -> execute (returns None)
+    # 2. metadata_service.get_json -> cache_repo.get_fresh -> execute (returns None)
+    # 3. metadata_service.get_json -> cache_repo.store -> execute (returns None)
+    session = FakeSession([FakeResult(None), FakeResult(None), FakeResult(None)])
+    cache_repo = TmdbCacheRepository(cast(AsyncSession, session))
+    client = FakeTmdbClient(
+        {
+            "results": [
+                {
+                    "id": 505,
+                    "media_type": "tv",
+                    "name": "Teach You a Lesson",
+                    "first_air_date": "2024-05-10",
+                }
+            ]
+        }
+    )
+    service = TmdbMetadataService(cache_repository=cache_repo, tmdb_client=client)
+    resolver = MediaIdentityResolver(service, delay_seconds=0.0)
+
+    identity = await resolver.resolve("www 1TamilMV cards Teach You a Lesson", 2024, "shows")
+    assert identity.tmdb_id == "505"
+    assert identity.title == "Teach You a Lesson"
+    assert identity.year == 2024
+    assert identity.media_type == "tv"
 
 
 def test_title_similarity() -> None:

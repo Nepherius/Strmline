@@ -119,3 +119,15 @@ def test_library_entry_prefers_file_year_over_folder_year() -> None:
 
     assert entry.title == "Frieren"
     assert entry.year == 2023
+
+
+def test_library_entry_strips_year_before_season_episode() -> None:
+    entry = library_entry_from_file_name(
+        "Slow.Horses.2022.S01E01.1080p.mkv",
+        "https://example.test/play",
+    )
+
+    assert entry.title == "Slow Horses"
+    assert entry.year == 2022
+    assert entry.season_number == 1
+    assert entry.episode_number == 1
