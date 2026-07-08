@@ -227,6 +227,21 @@ describe("stream search helpers", () => {
     expect(filterStreams([torboxStream], "instant", "all").streams).toEqual([torboxStream]);
   });
 
+  it("sorts stream results with balanced weighting", () => {
+    const uncachedLarge = streamFixture("large", null, true, true, null, 90);
+    const cachedSmall = streamFixture("cached-small", true, true, true, null, 5);
+    const instantMedium = streamFixture("instant-medium", null, true, true, "Instant TB", 40);
+    const uncachedMedium = streamFixture("medium", null, true, true, null, 40);
+
+    // balanced keeps cached streams first, then blends quality + size within
+    // each cache tier.
+    expect(
+      sortStreamResults([uncachedLarge, uncachedMedium, cachedSmall, instantMedium]).map(
+        (stream) => stream.title,
+      ),
+    ).toEqual(["instant-medium", "cached-small", "large", "medium"]);
+  });
+
   it("sorts stream results with cached sources first and then size", () => {
     const uncachedLarge = streamFixture("large", null, true, true, null, 90);
     const cachedSmall = streamFixture("cached-small", true, true, true, null, 5);
@@ -234,11 +249,32 @@ describe("stream search helpers", () => {
     const uncachedMedium = streamFixture("medium", null, true, true, null, 40);
 
     expect(
-      sortStreamResults([uncachedLarge, uncachedMedium, cachedSmall, instantMedium]).map(
+      sortStreamResults([uncachedLarge, uncachedMedium, cachedSmall, instantMedium], "cached").map(
         (stream) => stream.title,
       ),
     ).toEqual(["instant-medium", "cached-small", "large", "medium"]);
   });
+
+  it("can rank stream results by quality", () => {
+    const source720 = streamFixture("720p", null, true, true, null, 20, "720p");
+    const source4k = streamFixture("4k", null, true, true, null, 10, "4K");
+    const source1080 = streamFixture("1080p", true, true, true, null, 30, "1080p");
+
+    expect(
+      sortStreamResults([source720, source4k, source1080], "quality").map((s) => s.title),
+    ).toEqual(["4k", "1080p", "720p"]);
+  });
+
+  it("can rank stream results by size", () => {
+    const smallCached = streamFixture("small-cached", true, true, true, null, 2, "4K");
+    const largeUncached = streamFixture("large-uncached", null, true, true, null, 80, "720p");
+
+    expect(sortStreamResults([smallCached, largeUncached], "size").map((s) => s.title)).toEqual([
+      "large-uncached",
+      "small-cached",
+    ]);
+  });
+
 });
 
 function requestPath(input: RequestInfo | URL): string {
@@ -254,6 +290,8 @@ function streamFixture(
   hasInfoHash = true,
   providerLabel: string | null = null,
   sizeGiB: number | null = null,
+  quality: string | null = null,
+  seeders: number | null = null,
 ): StreamSearchResult {
   return {
     stream_key: title,
@@ -266,9 +304,9 @@ function streamFixture(
     addable: hasInfoHash,
     selected: false,
     provider_label: providerLabel,
-    seeders: null,
+    seeders,
     parsed: {
-      quality: null,
+      quality,
       codec: null,
       hdr: null,
       audio: null,

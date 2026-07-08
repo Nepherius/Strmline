@@ -3,6 +3,7 @@
   import TextField from "$lib/components/ui/TextField.svelte";
   import type { TitleSearchResult, StreamSearchResult } from "$lib/domain/search/types";
   import { filterStreams, type StreamFilterMode } from "$lib/domain/search/streamFilters";
+  import { sortStreamResults, type StreamSortMode } from "$lib/domain/search/streamSort";
   import StreamResultItem from "./StreamResultItem.svelte";
 
   export let selectedTitle: TitleSearchResult;
@@ -20,13 +21,14 @@
 
   let filterRegex = "";
   let filterMode: StreamFilterMode = "all";
+  let sortMode: StreamSortMode = "balanced";
   let visibleLimit = 100;
   let lookupTimer: ReturnType<typeof setTimeout> | null = null;
   let lastLookupFilter = "";
 
   $: queueEpisodeLookup(filterRegex);
   $: filteredResult = filterStreams(streamResults, filterRegex, filterMode);
-  $: visibleStreams = filteredResult.streams;
+  $: visibleStreams = sortStreamResults(filteredResult.streams, sortMode);
   $: displayedStreams = visibleStreams.slice(0, visibleLimit);
   $: canShowMore = displayedStreams.length < visibleStreams.length;
 
@@ -80,6 +82,34 @@
     <div class="filter-count">
       Showing {displayedStreams.length} of {visibleStreams.length}
     </div>
+  </div>
+
+  <div class="mode-chips" aria-label="Stream ranking">
+    <span>Rank</span>
+    <button
+      class:active={sortMode === "balanced"}
+      type="button"
+      on:click={() => (sortMode = "balanced")}
+    >
+      Balanced
+    </button>
+    <button
+      class:active={sortMode === "cached"}
+      type="button"
+      on:click={() => (sortMode = "cached")}
+    >
+      Cached
+    </button>
+    <button
+      class:active={sortMode === "quality"}
+      type="button"
+      on:click={() => (sortMode = "quality")}
+    >
+      Quality
+    </button>
+    <button class:active={sortMode === "size"} type="button" on:click={() => (sortMode = "size")}>
+      Size
+    </button>
   </div>
 
   {#if selectedTitle.media_type === "series"}
