@@ -3,7 +3,17 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -187,7 +197,15 @@ class ClassificationOverride(Base):
 
 class MediaItem(Base):
     __tablename__ = "media_items"
-    __table_args__ = (Index("ix_media_items_type_title", "media_type", "title"),)
+    __table_args__ = (
+        Index("ix_media_items_type_title", "media_type", "title"),
+        Index(
+            "ix_media_items_tmdb_id",
+            "tmdb_id",
+            unique=True,
+            postgresql_where=text("tmdb_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     media_type: Mapped[str] = mapped_column(String(20), nullable=False)

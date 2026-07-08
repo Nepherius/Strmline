@@ -148,6 +148,18 @@ class SyncStateRepository:
         return True
 
     async def _media_item(self, synced_file: SyncedStrmFile) -> MediaItem:
+        # Try TMDB ID match first
+        if synced_file.tmdb_id is not None:
+            result = await self._session.execute(
+                select(MediaItem).where(MediaItem.tmdb_id == synced_file.tmdb_id)
+            )
+            media_item = result.scalar_one_or_none()
+            if media_item is not None:
+                media_item.title = synced_file.title
+                media_item.year = synced_file.year
+                return media_item
+
+        # Fall back to title+year matching
         result = await self._session.execute(
             select(MediaItem).where(
                 MediaItem.media_type == synced_file.category,
@@ -157,11 +169,15 @@ class SyncStateRepository:
         )
         media_item = result.scalar_one_or_none()
         if media_item is not None:
+            if synced_file.tmdb_id is not None:
+                media_item.tmdb_id = synced_file.tmdb_id
             return media_item
+
         media_item = MediaItem(
             media_type=synced_file.category,
             title=synced_file.title,
             year=synced_file.year,
+            tmdb_id=synced_file.tmdb_id,
         )
         self._session.add(media_item)
         await self._session.flush()

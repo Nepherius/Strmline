@@ -13,13 +13,18 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import Settings, get_settings
 from app.db.repositories.library_exclusion import LibraryExclusionRepository
+from app.db.repositories.settings import AppSettingsRepository
 from app.db.repositories.sync_state import SyncStateRepository
+from app.db.repositories.tmdb_cache import TmdbCacheRepository
 from app.db.session import build_session_factory
 from app.library.strm_probe import StrmProbeError, probe_strm_file
 from app.library.validation import LibraryValidationIssue, validate_jellyfin_library
+from app.providers.tmdb.client import TmdbClient
+from app.providers.tmdb.metadata import TmdbMetadataService
 from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
 from app.providers.torbox.files import DOWNLOAD_KINDS, DownloadKind
 from app.sync.anime_classification import build_anilist_anime_classifier
+from app.sync.media_identity import MediaIdentityResolver
 from app.sync.torbox_strm import DirectTorBoxStrmSync, ResolverUrlConfig, TorBoxStrmSyncResult
 
 
@@ -262,6 +267,20 @@ async def _run_sync(
             if settings.database_url is not None:
                 session_factory = build_session_factory(settings.database_url)
                 async with session_factory() as session:
+                    settings_repo = AppSettingsRepository(session, settings)
+                    tmdb_api_key = await settings_repo.provider_api_key("tmdb")
+                    tmdb_service = None
+                    if tmdb_api_key:
+                        tmdb_service = TmdbMetadataService(
+                            cache_repository=TmdbCacheRepository(session),
+                            tmdb_client=TmdbClient(
+                                api_key=tmdb_api_key,
+                                base_url=settings.tmdb_base_url,
+                                timeout_seconds=settings.outbound_timeout_seconds,
+                            ),
+                        )
+                    identity_resolver = MediaIdentityResolver(tmdb_service)
+
                     sync = DirectTorBoxStrmSync(
                         client=client,
                         api_key=context.api_key,
@@ -270,6 +289,7 @@ async def _run_sync(
                         resolver=context.resolver,
                         anime_classifier=build_anilist_anime_classifier(session, settings),
                         excluded_prefixes=await LibraryExclusionRepository(session).prefixes(),
+                        media_identity_resolver=identity_resolver,
                     )
                     return await sync.run(kinds=options.kinds, max_files=options.max_files)
             sync = DirectTorBoxStrmSync(

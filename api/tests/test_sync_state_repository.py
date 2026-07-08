@@ -226,6 +226,96 @@ async def test_sync_state_repository_keeps_stale_files_for_partial_runs(tmp_path
     assert session.deleted == []
 
 
+@pytest.mark.asyncio
+async def test_sync_state_repository_collapses_duplicates_by_tmdb_id(tmp_path: Path) -> None:
+    # We will simulate syncing two files with different titles but the same tmdb_id.
+    # The repository should retrieve the existing media item by tmdb_id and use it.
+
+    file1 = tmp_path / "movies" / "Title One (2026)" / "Title One (2026).strm"
+    file2 = tmp_path / "movies" / "Title Two (2026)" / "Title Two (2026).strm"
+    file1.parent.mkdir(parents=True, exist_ok=True)
+    file2.parent.mkdir(parents=True, exist_ok=True)
+    _ = file1.write_text("url1", encoding="utf-8")
+    _ = file2.write_text("url2", encoding="utf-8")
+
+    result = TorBoxStrmSyncResult(
+        scanned_files=2,
+        written_files=2,
+        skipped_files=0,
+        written_paths=(file1.resolve(strict=False), file2.resolve(strict=False)),
+        synced_files=(
+            SyncedStrmFile(
+                path=file1.resolve(strict=False),
+                entry_id="entry-1",
+                category="movies",
+                title="Title One",
+                year=2026,
+                season_number=None,
+                episode_number=None,
+                provider="torbox",
+                provider_item_id="1",
+                provider_file_id="2",
+                content_hash="hash1",
+                tmdb_id="unique-tmdb-123",
+            ),
+            SyncedStrmFile(
+                path=file2.resolve(strict=False),
+                entry_id="entry-2",
+                category="movies",
+                title="Title Two",
+                year=2026,
+                season_number=None,
+                episode_number=None,
+                provider="torbox",
+                provider_item_id="1",
+                provider_file_id="3",
+                content_hash="hash2",
+                tmdb_id="unique-tmdb-123",
+            ),
+        ),
+    )
+
+    # 1st loop iteration:
+    #   - get_media_item executes select by tmdb_id (return None)
+    #   - get_media_item executes select by title+year (return None) -> MediaItem created
+    #   - get_library_entry executes select by entry_id (return None) -> LibraryEntry created
+    #   - get_generated_file executes select by path (return None) -> GeneratedFile created
+    # 2nd loop iteration:
+    #   - get_media_item executes select by tmdb_id (return existing MediaItem) -> Returns MediaItem
+    #   - get_library_entry executes select by entry_id (return None) -> LibraryEntry created
+    #   - get_generated_file executes select by path (return None) -> GeneratedFile created
+    # 3rd block (cleanup): select GeneratedFile (empty)
+
+    existing_item = MediaItem(
+        media_type="movies",
+        title="Title One",
+        year=2026,
+        tmdb_id="unique-tmdb-123",
+    )
+
+    session = FakeSession(
+        [
+            FakeResult(None),  # 1.1 tmdb_id check
+            FakeResult(None),  # 1.2 title+year check
+            FakeResult(None),  # 1.3 library entry
+            FakeResult(None),  # 1.4 generated file
+            FakeResult(existing_item),  # 2.1 tmdb_id check (finds existing)
+            FakeResult(None),  # 2.2 library entry
+            FakeResult(None),  # 2.3 generated file
+            FakeResult(scalars=[]),  # cleanup query
+        ]
+    )
+
+    repo = SyncStateRepository(cast(AsyncSession, session))
+    _ = await repo.record_success(result, _resolved(tmp_path))
+
+    # Should only have added 1 MediaItem (in iteration 1), none in iteration 2 since it reused existing_item
+    media_items_added = [x for x in session.added if isinstance(x, MediaItem)]
+    assert len(media_items_added) == 1
+    assert media_items_added[0].title == "Title One"
+    assert media_items_added[0].tmdb_id == "unique-tmdb-123"
+
+
 def _resolved(path: Path) -> Path:
     return path.resolve(strict=False)
 

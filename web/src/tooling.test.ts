@@ -274,7 +274,6 @@ describe("stream search helpers", () => {
       "small-cached",
     ]);
   });
-
 });
 
 function requestPath(input: RequestInfo | URL): string {

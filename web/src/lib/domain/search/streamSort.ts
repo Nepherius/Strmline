@@ -46,7 +46,7 @@ function compareSize(left: StreamSearchResult, right: StreamSearchResult): numbe
 function balancedScore(stream: StreamSearchResult): number {
   const cache = cacheRank(stream) * 1000;
   const quality = qualityRank(stream.parsed.quality) * 5;
-  const sizeGiB = (stream.parsed.size_bytes ?? 0) / (1024 ** 3);
+  const sizeGiB = (stream.parsed.size_bytes ?? 0) / 1024 ** 3;
   const size = Math.min(sizeGiB, 100);
   return cache + quality + size;
 }

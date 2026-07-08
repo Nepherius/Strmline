@@ -28,6 +28,7 @@ from app.resolver.manifest import (
     resolver_playback_url,
     write_manifest_entries,
 )
+from app.sync.media_identity import MediaIdentityResolver
 
 
 class TorBoxDownloadClient(Protocol):
@@ -68,6 +69,7 @@ class SyncedStrmFile:
     provider_item_id: str
     provider_file_id: str
     content_hash: str
+    tmdb_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +90,7 @@ class TorBoxStrmSync:
         anime_classifier: AnimeClassifier | None = None,
         classification_overrides: tuple[LibraryClassificationOverride, ...] = (),
         excluded_prefixes: tuple[str, ...] = (),
+        media_identity_resolver: MediaIdentityResolver | None = None,
     ) -> None:
         self._client = client
         self._api_key = api_key
@@ -99,6 +102,7 @@ class TorBoxStrmSync:
             override.source_prefix: override for override in classification_overrides
         }
         self._excluded_prefixes = excluded_prefixes
+        self._media_identity_resolver = media_identity_resolver
 
     async def run(
         self,
@@ -141,12 +145,33 @@ class TorBoxStrmSync:
                 )
                 entry = await self._with_anime_classification(entry)
                 entry = self._with_classification_override(entry)
+
+                tmdb_id: str | None = None
+                if self._media_identity_resolver is not None:
+                    identity = await self._media_identity_resolver.resolve(
+                        parsed_title=entry.title,
+                        year=entry.year,
+                        category=entry.category,
+                    )
+                    tmdb_id = identity.tmdb_id
+                    if identity.tmdb_id is not None:
+                        entry = LibraryEntry(
+                            category=entry.category,
+                            title=identity.title,
+                            year=identity.year,
+                            season_number=entry.season_number,
+                            episode_number=entry.episode_number,
+                            resolver_url=entry.resolver_url,
+                        )
+
                 if _is_excluded(entry, self._excluded_prefixes):
                     skipped_files += 1
                     continue
                 written_path = write_strm_file(self._library_root, entry)
                 written_paths.append(written_path)
-                synced_files.append(_synced_file(written_path, entry_id, entry, torbox_file))
+                synced_files.append(
+                    _synced_file(written_path, entry_id, entry, torbox_file, tmdb_id=tmdb_id)
+                )
 
         remove_stale_strm_files(self._library_root, set(written_paths))
         return self._result(
@@ -229,6 +254,7 @@ def _synced_file(
     entry_id: str,
     entry: LibraryEntry,
     torbox_file: TorBoxFile,
+    tmdb_id: str | None = None,
 ) -> SyncedStrmFile:
     return SyncedStrmFile(
         path=path,
@@ -242,6 +268,7 @@ def _synced_file(
         provider_item_id=torbox_file.item_id,
         provider_file_id=torbox_file.file_id,
         content_hash=hashlib.sha256(entry.resolver_url.encode("utf-8")).hexdigest(),
+        tmdb_id=tmdb_id,
     )
 
 
