@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
 
+  import { setupAdminUser } from "$lib/api/auth";
   import { clearSavedSettings, loadSettings, saveSettings } from "$lib/api/settings";
   import {
     loadSetupStatus,
@@ -62,6 +63,16 @@
     torboxTestResult = null;
     aiostreamsTestResult = null;
     try {
+      if (setupStatus?.missing.includes("admin_user")) {
+        if (!values.adminUsername.trim() || !values.adminPassword.trim()) {
+          throw new Error("Admin username and password are required.");
+        }
+        if (values.adminPassword.length < 8) {
+          throw new Error("Admin password must be at least 8 characters.");
+        }
+        await setupAdminUser(values.adminUsername.trim(), values.adminPassword);
+      }
+
       settings = await saveSettings(withBrowserBaseUrl(values));
       values = withBrowserBaseUrl(settingsToFormValues(settings));
       saved = true;

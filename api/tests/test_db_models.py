@@ -35,6 +35,7 @@ def test_initial_schema_tables_are_registered() -> None:
         "sync_runs",
         "tmdb_cache_entries",
         "torbox_items",
+        "users",
     }
 
 

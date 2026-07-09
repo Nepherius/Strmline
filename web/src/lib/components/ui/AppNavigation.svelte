@@ -1,6 +1,8 @@
 <script lang="ts">
   import { resolve } from "$app/paths";
   import { page } from "$app/stores";
+  import { logout } from "$lib/api/auth";
+  import { goto } from "$app/navigation";
 
   const items: { href: "/" | "/search" | "/setup"; label: string }[] = [
     { href: "/", label: "Library" },
@@ -14,6 +16,15 @@
     if (href === "/") return pathname === "/";
     return pathname === href || pathname.startsWith(`${href}/`);
   }
+
+  async function handleLogout() {
+    try {
+      await logout();
+      void goto(resolve("/login"));
+    } catch {
+      // Ignore fallback
+    }
+  }
 </script>
 
 <nav class="app-nav" aria-label="Primary navigation">
@@ -26,6 +37,11 @@
       {item.label}
     </a>
   {/each}
+  {#if pathname !== resolve("/login") && pathname !== resolve("/setup")}
+    <button on:click={handleLogout} class="logout-btn">
+      Logout
+    </button>
+  {/if}
 </nav>
 
 <style>
@@ -56,4 +72,20 @@
     background: #1f5b42;
     color: #ffffff;
   }
+
+  .logout-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 34px;
+    border: 1px solid #bdc8c2;
+    border-radius: 6px;
+    padding: 0 12px;
+    background: #ffffff;
+    color: #8e251f;
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+  }
 </style>
+

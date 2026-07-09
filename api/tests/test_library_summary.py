@@ -36,6 +36,7 @@ def test_summarize_library_groups_series_into_one_entry(tmp_path: Path) -> None:
     assert summary.entries[0].title == "Show One"
     assert summary.entries[0].relative_path == "shows/Show One"
     assert summary.entries[0].file_count == 2
+    assert summary.category_counts == {"movies": 0, "shows": 1, "anime": 0}
 
 
 def test_summarize_library_groups_duplicate_titles(tmp_path: Path) -> None:

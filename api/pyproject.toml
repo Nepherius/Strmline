@@ -16,6 +16,8 @@ dependencies = [
   "pydantic-settings",
   "sqlalchemy[asyncio]",
   "uvicorn[standard]",
+  "argon2-cffi",
+  "PyJWT",
 ]
 
 [project.optional-dependencies]

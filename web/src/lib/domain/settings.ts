@@ -37,6 +37,8 @@ export interface SettingsFormValues {
   tmdbApiKey: string;
   resolverToken: string;
   aiostreamsBaseUrl: string;
+  adminUsername: string;
+  adminPassword: string;
 }
 
 export type SettingsPayload = Record<string, boolean | number | string>;
@@ -68,6 +70,8 @@ export function settingsToFormValues(settings: AppSettings | null): SettingsForm
     tmdbApiKey: "",
     resolverToken: "",
     aiostreamsBaseUrl: "",
+    adminUsername: "",
+    adminPassword: "",
   };
 }
 
@@ -75,6 +79,7 @@ export function missingLabels(missing: string[]): string[] {
   const labels: Record<string, string> = {
     sync_interval_minutes: "Sync interval",
     torbox_api_key: "TorBox key",
+    admin_user: "Admin credentials",
   };
   return missing.flatMap((field) => (labels[field] ? [labels[field]] : []));
 }

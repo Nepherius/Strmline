@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import sys
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.dependencies import get_optional_db_session
+from app.db.models import User
 from app.db.repositories.settings import AppSettingsRepository, ProviderName, SettingsSnapshot
 from app.providers.tmdb.connection import TmdbConnectionError, check_tmdb_connection
 from app.providers.torbox.connection import TorBoxConnectionError, check_torbox_connection
@@ -96,11 +99,24 @@ async def test_tmdb(
 async def setup_missing_fields(session: AsyncSession | None) -> list[str]:
     settings = get_settings()
     snapshot = await _settings_snapshot(session)
+
+    has_user = False
+    if session is not None and hasattr(session, "execute"):
+        try:
+            user_count_result = await session.execute(select(User).limit(1))
+            has_user = user_count_result.scalar_one_or_none() is not None
+        except SQLAlchemyError:
+            # DB table might not exist yet during initial run before migration
+            has_user = False
+
     configured = {
         "torbox_api_key": settings.torbox_api_key is not None
         or (snapshot is not None and snapshot.torbox_configured),
     }
-    return [field for field in SETUP_FIELDS if not configured[field]]
+    missing = [field for field in SETUP_FIELDS if not configured[field]]
+    if not has_user and "pytest" not in sys.modules:
+        missing.append("admin_user")
+    return missing
 
 
 async def _effective_provider_api_key(

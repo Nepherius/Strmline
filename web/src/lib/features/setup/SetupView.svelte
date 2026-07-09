@@ -84,6 +84,24 @@
   {/if}
 
   <form class="settings-form" on:submit|preventDefault={onSave}>
+    {#if setupStatus?.missing.includes("admin_user")}
+      <div class="wide-field">
+        <Notice variant="default">Define your administrator account credentials.</Notice>
+      </div>
+      <TextField
+        bind:value={values.adminUsername}
+        autocomplete="off"
+        label="Admin Username"
+        placeholder="e.g. admin"
+      />
+      <TextField
+        bind:value={values.adminPassword}
+        autocomplete="off"
+        label="Admin Password"
+        placeholder="At least 8 characters"
+        type="password"
+      />
+    {/if}
     <SegmentedControl
       bind:value={values.playbackMode}
       label="Playback mode"

@@ -331,6 +331,8 @@ describe("settings helpers", () => {
         tmdbApiKey: "tmdb",
         resolverToken: "",
         aiostreamsBaseUrl: " https://aio.example/manifest.json ",
+        adminUsername: "",
+        adminPassword: "",
       }),
     ).toEqual({
       base_url: "http://127.0.0.1:8001",
@@ -376,6 +378,8 @@ describe("settings helpers", () => {
       tmdbApiKey: "",
       resolverToken: "",
       aiostreamsBaseUrl: "",
+      adminUsername: "",
+      adminPassword: "",
     });
   });
 

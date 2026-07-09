@@ -126,8 +126,12 @@ def _duplicate_key(category: str, title: str, path: Path) -> str:
 
 def _category_counts(files: tuple[LibraryFile, ...]) -> dict[str, int]:
     counts: dict[str, int] = dict.fromkeys(LIBRARY_CATEGORIES, 0)
+    seen_entries: set[str] = set()
     for file in files:
-        counts[file.category] += 1
+        entry_key = _entry_key(file)
+        if entry_key not in seen_entries:
+            seen_entries.add(entry_key)
+            counts[file.category] += 1
     return counts
 
 

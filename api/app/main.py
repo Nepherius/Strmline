@@ -1,10 +1,16 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.aiostreams import router as aiostreams_router
+from app.api.auth import router as auth_router
+from app.api.dependencies import (
+    csrf_protect,
+    get_current_user,
+    get_current_user_or_anonymous_if_no_users,
+)
 from app.api.health import router as health_router
 from app.api.library import router as library_router
 from app.api.resolver import router as resolver_router
@@ -40,15 +46,36 @@ def create_app() -> FastAPI:
         allow_methods=list(settings.cors_methods),
         allow_headers=list(settings.cors_headers),
     )
-    app.include_router(aiostreams_router)
+    app.include_router(auth_router)
     app.include_router(health_router)
-    app.include_router(library_router)
     app.include_router(resolver_router)
-    app.include_router(search_router)
-    app.include_router(settings_router)
     app.include_router(setup_router)
-    app.include_router(sync_router)
+
+    app.include_router(
+        settings_router,
+        dependencies=[
+            Depends(get_current_user_or_anonymous_if_no_users),
+            Depends(csrf_protect),
+        ],
+    )
+    app.include_router(
+        aiostreams_router,
+        dependencies=[Depends(get_current_user), Depends(csrf_protect)],
+    )
+    app.include_router(
+        library_router,
+        dependencies=[Depends(get_current_user), Depends(csrf_protect)],
+    )
+    app.include_router(
+        search_router,
+        dependencies=[Depends(get_current_user), Depends(csrf_protect)],
+    )
+    app.include_router(
+        sync_router,
+        dependencies=[Depends(get_current_user), Depends(csrf_protect)],
+    )
     mount_static_ui(app, settings.static_dir)
+
     return app
 
 

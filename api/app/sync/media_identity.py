@@ -17,13 +17,7 @@ MIN_LATIN_LENGTH = 3
 MIN_CJK_LENGTH = 2
 
 JUNK_PREFIXES = re.compile(
-    r"(?i)^(?:\bwww\b.*\bcom\b|\bwww\b.*\borg\b|\bwww\b\s*|\b\d*tamilmv\b|\bcards\b|\bcenter\b|\b TamilMV\b|\b\d*tamilultra\b|\bmasstamilan\b|\bisaimini\b|\btamilyogi\b|\btamilrockers\b|\bcenter\s*|"
-    r"\[[^\]]+\]|"  # Match any tag in square brackets like [RARBG]
-    r"\b(?:YIFY|YTS|RARBG|EZTV|ETTV|KAT|LimeTorrents|Demonoid|Scene|Tamilrockers|Tamilmv|Isaimini|Tamilyogi|Movierulz|Tamilgun|1337x|Worldfree4u|Madrasrockers|Thiruttumovies|Hiidude|Mymoviesda|Filmlinks4u|Tamildbox|Tamilrage|Mtamilrockers)\b|"  # Specific release groups and sites
-    r"\b(?:www|https?://)\S+|"  # URLs
-    r"\b(?:com|org|net|in|co\.uk|io)\b|"  # Common TLDs
-    r"\b(?:movies|films|download|free|watch|online)\b|"  # Common keywords
-    r"[\s._-])+"
+    r"(?i)^(?:\bwww\b.*\bcom\b|\bwww\b.*\borg\b|\bwww\b\s*|\b\d*tamilmv\b|\bcards\b|\bcenter\b|\b TamilMV\b|\b\d*tamilultra\b|\bmasstamilan\b|\bisaimini\b|\btamilyogi\b|\btamilrockers\b|\bcenter\s*|\[[^\]]+\]|\b(?:YIFY|YTS|RARBG|EZTV|ETTV|KAT|LimeTorrents|Demonoid|Scene|Tamilrockers|Tamilmv|Isaimini|Tamilyogi|Movierulz|Tamilgun|1337x|Worldfree4u|Madrasrockers|Thiruttumovies|Hiidude|Mymoviesda|Filmlinks4u|Tamildbox|Tamilrage|Mtamilrockers)\b|\b(?:www|https?://)\S+|\b(?:com|org|net|in|co\.uk|io)\b|\b(?:movies|films|download|free|watch|online)\b|[\s._-])+"
 )
 
 
@@ -113,7 +107,7 @@ class MediaIdentityResolver:
             if not isinstance(results, list) or not results:
                 continue
 
-            results_list = results
+            results_list = cast(list[Any], results)
             valid_results: list[dict[str, Any]] = [
                 cast("dict[str, Any]", r) for r in results_list if isinstance(r, dict)
             ]
