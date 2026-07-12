@@ -6,13 +6,6 @@ export function sortStreamResults(
   streams: StreamSearchResult[],
   mode: StreamSortMode = "balanced",
 ): StreamSearchResult[] {
-  if (mode === "balanced") {
-    return [...streams].sort((a, b) => {
-      const delta = balancedScore(b) - balancedScore(a);
-      if (delta !== 0) return delta;
-      return a.title.localeCompare(b.title);
-    });
-  }
   return [...streams].sort((a, b) => {
     for (const compare of comparatorsForMode(mode)) {
       const delta = compare(a, b);
@@ -25,8 +18,9 @@ export function sortStreamResults(
 type StreamComparator = (left: StreamSearchResult, right: StreamSearchResult) => number;
 
 function comparatorsForMode(mode: StreamSortMode): StreamComparator[] {
-  if (mode === "quality") return [compareQuality, compareCache, compareSize];
-  if (mode === "size") return [compareSize, compareCache, compareQuality];
+  if (mode === "balanced") return [compareCache, compareBalanced, compareQuality, compareSize];
+  if (mode === "quality") return [compareCache, compareQuality, compareSize];
+  if (mode === "size") return [compareCache, compareSize, compareQuality];
   return [compareCache, compareQuality, compareSize];
 }
 
@@ -42,20 +36,26 @@ function compareSize(left: StreamSearchResult, right: StreamSearchResult): numbe
   return (right.parsed.size_bytes ?? 0) - (left.parsed.size_bytes ?? 0);
 }
 
-/** Weighted composite: cached streams always first, then quality + size within each tier. */
-function balancedScore(stream: StreamSearchResult): number {
-  const cache = cacheRank(stream) * 1000;
+function compareBalanced(left: StreamSearchResult, right: StreamSearchResult): number {
+  return balancedContentScore(right) - balancedContentScore(left);
+}
+
+function balancedContentScore(stream: StreamSearchResult): number {
   const quality = qualityRank(stream.parsed.quality) * 5;
   const sizeGiB = (stream.parsed.size_bytes ?? 0) / 1024 ** 3;
   const size = Math.min(sizeGiB, 100);
-  return cache + quality + size;
+  return quality + size;
 }
 
 function cacheRank(stream: StreamSearchResult): number {
   if (stream.cached === true) return 3;
-  if (stream.provider_label === "Instant TB") return 3;
-  if (stream.provider_label === "Cast TB") return 2;
-  if (stream.provider_label === "DL with TB") return 1;
+  const text = `${stream.provider_label ?? ""} ${stream.title}`.toLowerCase();
+  if (CACHED_MARKER_PATTERN.test(text)) return 3;
+  if (UNCACHED_MARKER_PATTERN.test(text)) return 0;
+  if (text.includes("tb⚡")) return 3;
+  if (text.includes("instant tb")) return 3;
+  if (text.includes("cast tb") || text.includes("cast (tb")) return 2;
+  if (text.includes("dl with tb")) return 1;
   return 0;
 }
 
@@ -69,3 +69,6 @@ function qualityRank(quality: string | null): number {
   if (["cam", "ts", "scr"].includes(value)) return -1;
   return 0;
 }
+
+const CACHED_MARKER_PATTERN = /\[[^\]]*⚡[^\]]*\]/u;
+const UNCACHED_MARKER_PATTERN = /\[[^\]]*⏳[^\]]*\]/u;

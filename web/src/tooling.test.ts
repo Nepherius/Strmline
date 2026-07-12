@@ -262,16 +262,26 @@ describe("stream search helpers", () => {
 
     expect(
       sortStreamResults([source720, source4k, source1080], "quality").map((s) => s.title),
-    ).toEqual(["4k", "1080p", "720p"]);
+    ).toEqual(["1080p", "4k", "720p"]);
   });
 
-  it("can rank stream results by size", () => {
+  it("keeps cached streams first when ranking by size", () => {
     const smallCached = streamFixture("small-cached", true, true, true, null, 2, "4K");
     const largeUncached = streamFixture("large-uncached", null, true, true, null, 80, "720p");
 
     expect(sortStreamResults([smallCached, largeUncached], "size").map((s) => s.title)).toEqual([
-      "large-uncached",
       "small-cached",
+      "large-uncached",
+    ]);
+  });
+
+  it("recognizes provider-agnostic cached markers in stream titles", () => {
+    const cachedTiny = streamFixture("[RD⚡] Cached release", null, true, true, null, 2, "1080p");
+    const uncachedHuge = streamFixture("[PM⏳] Uncached release", null, true, true, null, 80, "4K");
+
+    expect(sortStreamResults([uncachedHuge, cachedTiny], "size").map((s) => s.title)).toEqual([
+      "[RD⚡] Cached release",
+      "[PM⏳] Uncached release",
     ]);
   });
 });
