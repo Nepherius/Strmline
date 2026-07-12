@@ -36,6 +36,7 @@
   export let onTestTorbox: () => Promise<void>;
 
   $: requiredLabels = setupStatus ? missingLabels(setupStatus.missing) : [];
+  $: showLogout = setupStatus !== null && !setupStatus.missing.includes("admin_user");
   const playbackOptions = [
     { label: "Resolver", value: "resolver" },
     { label: "Direct URLs", value: "direct" },
@@ -49,7 +50,7 @@
 <AppShell>
   <PageHeader ariaLabel="Setup controls" title="Setup">
     <svelte:fragment slot="actions">
-      <AppNavigation />
+      <AppNavigation {showLogout} />
     </svelte:fragment>
   </PageHeader>
 

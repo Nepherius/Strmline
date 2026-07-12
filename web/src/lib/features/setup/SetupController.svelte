@@ -70,7 +70,16 @@
         if (values.adminPassword.length < 8) {
           throw new Error("Admin password must be at least 8 characters.");
         }
-        await setupAdminUser(values.adminUsername.trim(), values.adminPassword);
+        try {
+          await setupAdminUser(values.adminUsername.trim(), values.adminPassword);
+        } catch (setupError) {
+          // If the user was already created (e.g. previous partial save), continue
+          // to settings save rather than blocking the entire setup flow.
+          const msg = setupError instanceof Error ? setupError.message : "";
+          if (!msg.toLowerCase().includes("already exists")) {
+            throw setupError;
+          }
+        }
       }
 
       settings = await saveSettings(withBrowserBaseUrl(values));

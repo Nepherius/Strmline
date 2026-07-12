@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     postgres_user: str = "strmline"
     postgres_password: SecretStr | None = None
     app_secret_key: SecretStr | None = None
+    secure_cookies: bool | None = None
     static_dir: Path | None = None
     library_root: Path = Path("/library")
     tmdb_api_key: SecretStr | None = None
@@ -44,7 +45,12 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
     )
     cors_methods: tuple[str, ...] = ("GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS")
-    cors_headers: tuple[str, ...] = ("content-type", "authorization")
+    cors_headers: tuple[str, ...] = (
+        "content-type",
+        "authorization",
+        "x-requested-with",
+        "x-csrf-token",
+    )
 
     def missing_setup_fields(self) -> list[str]:
         return [

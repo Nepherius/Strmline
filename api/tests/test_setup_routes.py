@@ -173,7 +173,7 @@ async def test_setup_status_only_requires_torbox_api_key(
 
     get_settings.cache_clear()
     assert response.status_code == httpx.codes.OK
-    assert response.json()["missing"] == ["torbox_api_key"]
+    assert response.json()["missing"] == ["torbox_api_key", "admin_user"]
 
 
 async def _post_torbox_test(payload: dict[str, str] | None = None) -> httpx.Response:

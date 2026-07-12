@@ -49,7 +49,13 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(health_router)
     app.include_router(resolver_router)
-    app.include_router(setup_router)
+    app.include_router(
+        setup_router,
+        dependencies=[
+            Depends(get_current_user_or_anonymous_if_no_users),
+            Depends(csrf_protect),
+        ],
+    )
 
     app.include_router(
         settings_router,

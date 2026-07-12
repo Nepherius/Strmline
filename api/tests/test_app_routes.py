@@ -10,6 +10,7 @@ from app.library.classification_override import LibraryClassificationOverride
 from app.library.removal import LibraryRemovalResult
 from app.library.summary import LibraryEntrySummary, LibrarySummary
 from app.main import create_app
+from tests.conftest import override_auth
 
 
 @pytest.mark.asyncio
@@ -81,7 +82,7 @@ async def test_setup_status_reports_missing_required_settings() -> None:
     assert response.status_code == httpx.codes.OK
     assert response.json() == {
         "configured": False,
-        "missing": ["torbox_api_key"],
+        "missing": ["torbox_api_key", "admin_user"],
     }
 
 
@@ -103,7 +104,8 @@ async def test_setup_status_can_use_database_saved_settings(
     )
 
     app = create_app()
-    app.dependency_overrides[get_optional_db_session] = fake_optional_session
+    override_auth(app)
+    app.dependency_overrides[get_optional_db_session] = fake_user_session
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         response = await client.get("/api/setup/status")
@@ -130,6 +132,7 @@ async def test_library_summary_reports_configured_library(
     get_settings.cache_clear()
 
     app = create_app()
+    override_auth(app)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         response = await client.get("/api/library/summary")
@@ -156,6 +159,7 @@ async def test_library_validation_reports_ready_library(
     get_settings.cache_clear()
 
     app = create_app()
+    override_auth(app)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         response = await client.get("/api/library/validation")
@@ -182,6 +186,7 @@ async def test_library_validation_reports_curation_errors(
     get_settings.cache_clear()
 
     app = create_app()
+    override_auth(app)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         response = await client.get("/api/library/validation")
@@ -238,6 +243,7 @@ async def test_library_remove_entry_deletes_torbox_item_and_generated_files(
     monkeypatch.setattr(library_api, "_remove_library_prefix", fake_remove_library_prefix)
 
     app = create_app()
+    override_auth(app)
     app.dependency_overrides[get_db_session] = fake_db_session
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -290,6 +296,7 @@ async def test_library_remove_entry_can_skip_torbox_removal(
     monkeypatch.setattr(library_api, "_remove_library_prefix", fake_remove_library_prefix)
 
     app = create_app()
+    override_auth(app)
     app.dependency_overrides[get_db_session] = fake_db_session
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -346,6 +353,7 @@ async def test_library_classification_override_routes(
     )
 
     app = create_app()
+    override_auth(app)
     app.dependency_overrides[get_db_session] = fake_db_session
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -380,8 +388,19 @@ async def test_library_classification_override_routes(
     assert delete_response.status_code == httpx.codes.NO_CONTENT
 
 
-async def fake_optional_session() -> object:
-    yield object()
+async def fake_user_session() -> object:
+    yield FakeUserSession()
+
+
+class FakeResult:
+    def scalar_one_or_none(self) -> object:
+        return object()
+
+
+class FakeUserSession:
+    async def execute(self, statement: object) -> FakeResult:
+        _ = statement
+        return FakeResult()
 
 
 class FakeDbSession:
@@ -419,41 +438,6 @@ async def fake_remove_library_prefix(
 ) -> LibraryRemovalResult:
     _ = (library_root, relative_prefix)
     return LibraryRemovalResult(removed_files=2)
-
-
-class FakeSessionContext:
-    async def __aenter__(self) -> object:
-        return object()
-
-    async def __aexit__(
-        self,
-        exc_type: object,
-        exc: object,
-        traceback: object,
-    ) -> None:
-        _ = exc_type
-        _ = exc
-        _ = traceback
-
-
-def fake_session_factory() -> object:
-    class FakeSessionFactory:
-        def __call__(self) -> FakeSessionContext:
-            return FakeSessionContext()
-
-    return FakeSessionFactory()
-
-
-def fake_settings_repository(library_root: Path) -> object:
-    class FakeSettingsRepository:
-        def __init__(self, session: object, settings: object) -> None:
-            _ = session
-            _ = settings
-
-        async def snapshot_with_env(self) -> object:
-            return type("Snapshot", (), {"library_root": str(library_root)})()
-
-    return FakeSettingsRepository
 
 
 async def fake_library_summary(library_root: Path) -> LibrarySummary:

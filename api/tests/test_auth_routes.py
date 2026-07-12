@@ -3,6 +3,7 @@
 # pyright: reportOptionalMemberAccess=false
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -87,8 +88,18 @@ class FakeSettingsRepository:
 
 
 def override_session(app: FastAPI, session: object) -> None:
-    app.dependency_overrides[get_db_session] = lambda: session
-    app.dependency_overrides[get_optional_db_session] = lambda: session
+    async def session_override() -> AsyncIterator[object]:
+        yield session
+
+    app.dependency_overrides[get_db_session] = session_override
+    app.dependency_overrides[get_optional_db_session] = session_override
+
+
+def override_settings_repository(app: FastAPI) -> None:
+    async def repository_override() -> AsyncIterator[FakeSettingsRepository]:
+        yield FakeSettingsRepository()
+
+    app.dependency_overrides[get_settings_repository] = repository_override
 
 
 @pytest.fixture
@@ -120,11 +131,14 @@ async def test_setup_first_user_success() -> None:
 
     cookies = response.cookies
     assert "strmline_session" in cookies
+    assert "strmline_csrf" in cookies
     token = cookies["strmline_session"]
 
     settings = get_settings()
     decoded = jwt.decode(token, settings.app_secret_key.get_secret_value(), algorithms=["HS256"])
     assert decoded["sub"] == "1"
+    assert "iat" in decoded
+    assert decoded["csrf"] == cookies["strmline_csrf"]
 
 
 @pytest.mark.asyncio
@@ -232,6 +246,10 @@ async def test_logout() -> None:
         "strmline_session=;" in h or 'strmline_session=""' in h or "max-age=0" in h.lower()
         for h in cookie_headers
     )
+    assert any(
+        "strmline_csrf=;" in h or 'strmline_csrf=""' in h or "max-age=0" in h.lower()
+        for h in cookie_headers
+    )
 
 
 @pytest.mark.asyncio
@@ -271,18 +289,24 @@ async def test_csrf_protection_fails_on_post_without_header() -> None:
 
     app = create_app()
     override_session(app, session)
-    app.dependency_overrides[get_settings_repository] = FakeSettingsRepository
+    override_settings_repository(app)
 
     settings = get_settings()
     token = jwt.encode(
-        {"sub": "123", "exp": int((datetime.now(UTC) + timedelta(hours=1)).timestamp())},
+        {
+            "sub": "123",
+            "csrf": "csrf-token",
+            "exp": int((datetime.now(UTC) + timedelta(hours=1)).timestamp()),
+        },
         settings.app_secret_key.get_secret_value(),
         algorithm="HS256",
     )
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
-        transport=transport, base_url="http://testserver", cookies={"strmline_session": token}
+        transport=transport,
+        base_url="http://testserver",
+        cookies={"strmline_session": token, "strmline_csrf": "csrf-token"},
     ) as client:
         response = await client.put(
             "/api/settings",
@@ -302,11 +326,129 @@ async def test_csrf_protection_succeeds_with_header() -> None:
 
     app = create_app()
     override_session(app, session)
-    app.dependency_overrides[get_settings_repository] = FakeSettingsRepository
+    override_settings_repository(app)
 
     settings = get_settings()
     token = jwt.encode(
-        {"sub": "123", "exp": int((datetime.now(UTC) + timedelta(hours=1)).timestamp())},
+        {
+            "sub": "123",
+            "csrf": "csrf-token",
+            "exp": int((datetime.now(UTC) + timedelta(hours=1)).timestamp()),
+        },
+        settings.app_secret_key.get_secret_value(),
+        algorithm="HS256",
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://testserver",
+        cookies={"strmline_session": token, "strmline_csrf": "csrf-token"},
+    ) as client:
+        response = await client.put(
+            "/api/settings",
+            json={"movies_enabled": True},
+            headers={"X-CSRF-Token": "csrf-token"},
+        )
+
+    assert response.status_code == httpx.codes.OK
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_does_not_count_successful_logins() -> None:
+    """Successful logins must not increment the rate-limit counter."""
+    password = "correctpassword"  # noqa: S105
+    hashed = ph.hash(password)
+    user = User(username="admin", hashed_password=hashed)
+    user.id = 1
+
+    session = FakeSession(user)
+    app = create_app()
+    override_session(app, session)
+    auth_module._login_attempts.clear()
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        # 6 successful logins — would trip old buggy counter
+        for _ in range(6):
+            resp = await client.post(
+                "/api/auth/login",
+                json={"username": "admin", "password": password},
+            )
+            assert resp.status_code == httpx.codes.OK
+
+    # IP should have no recorded attempts
+    assert auth_module._login_attempts.get("127.0.0.1", []) == []
+
+
+@pytest.mark.asyncio
+async def test_failed_login_records_attempt() -> None:
+    """A failed login should record an attempt for rate limiting."""
+    hashed = ph.hash("correctpassword")
+    user = User(username="admin", hashed_password=hashed)
+    user.id = 1
+
+    session = FakeSession(user)
+    app = create_app()
+    override_session(app, session)
+    auth_module._login_attempts.clear()
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        _ = await client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": "wrongpassword"},
+        )
+
+    assert len(auth_module._login_attempts.get("127.0.0.1", [])) == 1
+    auth_module._login_attempts.clear()
+
+
+@pytest.mark.asyncio
+async def test_login_returns_503_when_secret_key_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Login should return 503 when STRMLINE_APP_SECRET_KEY is not set."""
+    password = "correctpassword"  # noqa: S105
+    hashed = ph.hash(password)
+    user = User(username="admin", hashed_password=hashed)
+    user.id = 1
+
+    session = FakeSession(user)
+
+    monkeypatch.delenv("STRMLINE_APP_SECRET_KEY", raising=False)
+    get_settings.cache_clear()
+
+    app = create_app()
+    override_session(app, session)
+    auth_module._login_attempts.clear()
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": password},
+        )
+
+    assert response.status_code == httpx.codes.SERVICE_UNAVAILABLE
+    assert "secret key" in response.json()["detail"].lower()
+    auth_module._login_attempts.clear()
+
+
+@pytest.mark.asyncio
+async def test_get_current_user_returns_503_when_no_db() -> None:
+    """Protected routes should return 503 when the database is not available."""
+    app = create_app()
+
+    async def no_session_override() -> AsyncIterator[None]:
+        yield None
+
+    app.dependency_overrides[get_db_session] = no_session_override
+    app.dependency_overrides[get_optional_db_session] = no_session_override
+
+    settings = get_settings()
+    token = jwt.encode(
+        {"sub": "1", "exp": int((datetime.now(UTC) + timedelta(hours=1)).timestamp())},
         settings.app_secret_key.get_secret_value(),
         algorithm="HS256",
     )
@@ -315,10 +457,7 @@ async def test_csrf_protection_succeeds_with_header() -> None:
     async with httpx.AsyncClient(
         transport=transport, base_url="http://testserver", cookies={"strmline_session": token}
     ) as client:
-        response = await client.put(
-            "/api/settings",
-            json={"movies_enabled": True},
-            headers={"X-Requested-With": "XMLHttpRequest"},
-        )
+        response = await client.get("/api/auth/me")
 
-    assert response.status_code == httpx.codes.OK
+    assert response.status_code == httpx.codes.SERVICE_UNAVAILABLE
+    assert "database" in response.json()["detail"].lower()

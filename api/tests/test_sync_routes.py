@@ -8,6 +8,7 @@ from app.db.dependencies import get_db_session
 from app.db.repositories.sync_state import SyncErrorRecord, SyncRunRecord, SyncStatusSnapshot
 from app.main import create_app
 from app.sync.service import SyncAlreadyRunningError, SyncConfigurationError, SyncRunSummary
+from tests.conftest import override_auth
 
 
 @pytest.mark.asyncio
@@ -194,6 +195,7 @@ async def test_sync_error_dismiss_route_reports_missing_error(
 
 async def _post_sync_run() -> httpx.Response:
     app = create_app()
+    override_auth(app)
     app.dependency_overrides[get_db_session] = _session_override
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -202,6 +204,7 @@ async def _post_sync_run() -> httpx.Response:
 
 async def _get_sync_status() -> httpx.Response:
     app = create_app()
+    override_auth(app)
     app.dependency_overrides[get_db_session] = _session_override
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -210,6 +213,7 @@ async def _get_sync_status() -> httpx.Response:
 
 async def _post_dismiss_sync_error(error_id: int) -> httpx.Response:
     app = create_app()
+    override_auth(app)
     app.dependency_overrides[get_db_session] = _session_override
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:

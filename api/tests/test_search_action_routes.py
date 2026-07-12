@@ -16,6 +16,7 @@ from app.main import create_app
 from app.providers.aiostreams.client import AioStreamsClient
 from app.providers.torbox.client import TorBoxClient
 from app.search.auto_sync import AutoSyncOutcome
+from tests.conftest import override_auth
 
 
 class FakeSession:
@@ -76,6 +77,7 @@ class FakeStreamSelectionRepository:
 
 def _client_with_fake_session() -> httpx.AsyncClient:
     app = create_app()
+    override_auth(app)
 
     async def fake_session() -> AsyncIterator[FakeSession]:
         yield FakeSession()

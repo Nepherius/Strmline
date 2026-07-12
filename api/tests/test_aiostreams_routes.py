@@ -5,6 +5,7 @@ from app.api import aiostreams as aiostreams_api
 from app.core.config import get_settings
 from app.db.dependencies import get_optional_db_session
 from app.main import create_app
+from tests.conftest import override_auth
 from app.providers.aiostreams.client import (
     AioStreamsClientError,
     AioStreamsManifest,
@@ -84,6 +85,7 @@ async def test_aiostreams_test_route_uses_saved_url(
     monkeypatch.setattr(aiostreams_api, "AppSettingsRepository", FakeSettingsRepository)
 
     app = create_app()
+    override_auth(app)
     app.dependency_overrides[get_optional_db_session] = fake_optional_session
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -106,7 +108,9 @@ async def test_aiostreams_test_route_returns_safe_failure(
 
 
 async def _post_test(payload: dict[str, str]) -> httpx.Response:
-    transport = httpx.ASGITransport(app=create_app())
+    app = create_app()
+    override_auth(app)
+    transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         return await client.post("/api/providers/aiostreams/test", json=payload)
 

@@ -6,7 +6,11 @@ function buildInit(init?: RequestInit): RequestInit {
   const requestInit = init ?? {};
   const headers = new Headers(requestInit.headers);
   headers.set("X-Requested-With", "XMLHttpRequest");
-  
+  const csrfToken = readCookie("strmline_csrf");
+  if (csrfToken) {
+    headers.set("X-CSRF-Token", csrfToken);
+  }
+
   return {
     ...requestInit,
     headers,
@@ -17,7 +21,7 @@ function buildInit(init?: RequestInit): RequestInit {
 function handleResponse(response: Response): void {
   if (response.status === 401 && browser) {
     const pathname = window.location.pathname;
-    if (pathname !== resolve("/login") && pathname !== resolve("/setup")) {
+    if (pathname !== resolve("/login")) {
       void goto(resolve("/login"));
     }
   }
@@ -55,3 +59,14 @@ async function errorMessage(response: Response): Promise<string> {
   return `API returned ${String(response.status)}`;
 }
 
+function readCookie(name: string): string | null {
+  if (!browser) {
+    return null;
+  }
+  const prefix = `${name}=`;
+  const cookie = document.cookie.split("; ").find((value) => value.startsWith(prefix));
+  if (!cookie) {
+    return null;
+  }
+  return decodeURIComponent(cookie.slice(prefix.length));
+}

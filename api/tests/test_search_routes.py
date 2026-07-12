@@ -11,11 +11,14 @@ from app.core.config import get_settings
 from app.main import create_app
 from app.providers.aiostreams.client import AioStreamsClient
 from app.providers.tmdb.client import TmdbClient
+from tests.conftest import override_auth
 
 
 @pytest.fixture
 def app_client() -> httpx.AsyncClient:
-    transport = httpx.ASGITransport(app=create_app())
+    app = create_app()
+    override_auth(app)
+    transport = httpx.ASGITransport(app=app)
     return httpx.AsyncClient(transport=transport, base_url="http://testserver")
 
 

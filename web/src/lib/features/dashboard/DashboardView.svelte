@@ -83,12 +83,13 @@
 <AppShell>
   <PageHeader ariaLabel="Strmline controls" title="Library dashboard">
     <svelte:fragment slot="actions">
-      <AppNavigation />
-      <form on:submit|preventDefault={onRunSync}>
+          <form on:submit|preventDefault={onRunSync}>
         <UiButton type="submit" disabled={loading || syncing}>
           {syncing ? "Syncing" : "Run sync"}
         </UiButton>
       </form>
+      <AppNavigation />
+
     </svelte:fragment>
   </PageHeader>
 

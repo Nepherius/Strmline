@@ -4,6 +4,8 @@
   import { logout } from "$lib/api/auth";
   import { goto } from "$app/navigation";
 
+  export let showLogout = true;
+
   const items: { href: "/" | "/search" | "/setup"; label: string }[] = [
     { href: "/", label: "Library" },
     { href: "/search", label: "Search" },
@@ -37,7 +39,7 @@
       {item.label}
     </a>
   {/each}
-  {#if pathname !== resolve("/login") && pathname !== resolve("/setup")}
+  {#if showLogout && pathname !== resolve("/login")}
     <button on:click={handleLogout} class="logout-btn">
       Logout
     </button>
@@ -88,4 +90,3 @@
     cursor: pointer;
   }
 </style>
-

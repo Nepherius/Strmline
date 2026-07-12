@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -114,7 +113,7 @@ async def setup_missing_fields(session: AsyncSession | None) -> list[str]:
         or (snapshot is not None and snapshot.torbox_configured),
     }
     missing = [field for field in SETUP_FIELDS if not configured[field]]
-    if not has_user and "pytest" not in sys.modules:
+    if not has_user:
         missing.append("admin_user")
     return missing
 
