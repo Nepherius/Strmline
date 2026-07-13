@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -53,6 +54,7 @@ class SyncRunSummary:
 
 
 _SYNC_LOCK = asyncio.Lock()
+logger = logging.getLogger(__name__)
 
 
 async def run_torbox_account_sync(
@@ -82,6 +84,7 @@ async def _run_torbox_account_sync(
     source: SyncRunSource,
     client_factory: TorBoxClientFactory,
 ) -> SyncRunSummary:
+    logger.debug("Starting TorBox account sync from %s.", source)
     sync_state = SyncStateRepository(session)
     settings_repository = AppSettingsRepository(session, settings)
     snapshot = await settings_repository.snapshot_with_env()
@@ -151,6 +154,13 @@ async def _run_torbox_account_sync(
         raise SyncExecutionError("TorBox sync failed.") from error
 
     sync_run_id = await sync_state.record_success(result, library_root, source=source)
+    logger.debug(
+        "Completed TorBox account sync from %s: %d scanned, %d written, %d skipped.",
+        source,
+        result.scanned_files,
+        result.written_files,
+        result.skipped_files,
+    )
     return SyncRunSummary(
         sync_run_id=sync_run_id,
         playback_mode=snapshot.playback_mode,

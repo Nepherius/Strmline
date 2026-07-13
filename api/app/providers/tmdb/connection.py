@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import httpx
 
+from app.providers.tmdb.client import uses_bearer_token
+
 
 class TmdbConnectionError(RuntimeError):
     """Raised when a safe TMDB connection test fails."""
@@ -19,9 +21,12 @@ async def check_tmdb_connection(
         timeout=timeout_seconds,
         transport=transport,
     ) as client:
-        if await _request_succeeded(client, headers={"Authorization": f"Bearer {api_key}"}):
-            return
-        if await _request_succeeded(client, params={"api_key": api_key}):
+        if uses_bearer_token(api_key):
+            if await _request_succeeded(client, headers={"Authorization": f"Bearer {api_key}"}):
+                return
+            if await _request_succeeded(client, params={"api_key": api_key}):
+                return
+        elif await _request_succeeded(client, params={"api_key": api_key}):
             return
     raise TmdbConnectionError("TMDB connection failed.")
 

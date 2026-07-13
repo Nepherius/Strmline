@@ -5,7 +5,7 @@ from app.providers.tmdb.connection import TmdbConnectionError, check_tmdb_connec
 
 
 @pytest.mark.asyncio
-async def test_tmdb_connection_uses_bearer_token_first() -> None:
+async def test_tmdb_connection_uses_bearer_token_for_v4_tokens() -> None:
     seen_headers: list[str | None] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -13,35 +13,32 @@ async def test_tmdb_connection_uses_bearer_token_first() -> None:
         return httpx.Response(200, json={"images": {}})
 
     await check_tmdb_connection(
-        api_key="tmdb-secret",
+        api_key="eyJvYXV0aC10b2tlbiJ9.payload.signature",
         base_url="https://api.themoviedb.org/3",
         timeout_seconds=5,
         transport=httpx.MockTransport(handler),
     )
 
-    assert seen_headers == ["Bearer tmdb-secret"]
+    assert seen_headers == ["Bearer eyJvYXV0aC10b2tlbiJ9.payload.signature"]
 
 
 @pytest.mark.asyncio
-async def test_tmdb_connection_falls_back_to_v3_api_key_query_param() -> None:
+async def test_tmdb_connection_uses_v3_api_key_query_param_without_a_401_retry() -> None:
     seen_urls: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen_urls.append(str(request.url))
-        if len(seen_urls) == 1:
-            return httpx.Response(401, json={"status_message": "Invalid API key"})
         return httpx.Response(200, json={"images": {}})
 
     await check_tmdb_connection(
-        api_key="tmdb-secret",
+        api_key="39647d09ad21d4536609cd28f0f50c14",
         base_url="https://api.themoviedb.org/3",
         timeout_seconds=5,
         transport=httpx.MockTransport(handler),
     )
 
     assert seen_urls == [
-        "https://api.themoviedb.org/3/configuration",
-        "https://api.themoviedb.org/3/configuration?api_key=tmdb-secret",
+        "https://api.themoviedb.org/3/configuration?api_key=39647d09ad21d4536609cd28f0f50c14"
     ]
 
 

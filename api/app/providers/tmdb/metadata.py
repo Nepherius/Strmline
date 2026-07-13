@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from typing import Any, Protocol
 
@@ -7,6 +8,8 @@ from app.db.repositories.tmdb_cache import TmdbCacheRepository
 from app.providers.tmdb.cache_keys import tmdb_cache_key
 
 DEFAULT_TMDB_CACHE_TTL = timedelta(days=7)
+SEASON_COMPLETION_TMDB_CACHE_TTL = timedelta(days=365)
+logger = logging.getLogger(__name__)
 
 
 class TmdbJsonClient(Protocol):
@@ -39,8 +42,10 @@ class TmdbMetadataService:
         cache_key = tmdb_cache_key(endpoint, request_params)
         cached = await self._cache_repository.get_fresh(cache_key)
         if cached is not None:
+            logger.debug("TMDB metadata cache hit for %s.", endpoint)
             return cached.response_payload
 
+        logger.debug("TMDB metadata cache miss for %s.", endpoint)
         payload = await self._tmdb_client.get_json(endpoint, params=request_params)
         await self._cache_repository.store(
             cache_key=cache_key,
@@ -51,3 +56,16 @@ class TmdbMetadataService:
         )
         await self._cache_repository.commit()
         return payload
+
+    async def get_season_completion_json(
+        self,
+        endpoint: str,
+        *,
+        params: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Load stable series metadata with a long-lived cache for completion jobs."""
+        return await self.get_json(
+            endpoint,
+            params=params,
+            ttl=SEASON_COMPLETION_TMDB_CACHE_TTL,
+        )

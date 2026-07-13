@@ -114,3 +114,10 @@ def _set_resolver_env(monkeypatch: pytest.MonkeyPatch, library_root: Path) -> No
     monkeypatch.setenv("STRMLINE_LIBRARY_ROOT", str(library_root))
     monkeypatch.setenv("STRMLINE_RESOLVER_TOKEN", "secret")
     get_settings.cache_clear()
+
+
+def test_play_operations_have_unique_openapi_ids() -> None:
+    operations = create_app().openapi()["paths"]["/play/{entry_id}"]
+
+    assert operations["get"]["operationId"] == "play"
+    assert operations["head"]["operationId"] == "play_head"

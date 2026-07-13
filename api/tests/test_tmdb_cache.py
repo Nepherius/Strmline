@@ -9,7 +9,10 @@ from app.db.models import TmdbCacheEntry, utc_now
 from app.db.repositories.tmdb_cache import TmdbCacheRepository
 from app.providers.tmdb.cache_keys import tmdb_cache_key
 from app.providers.tmdb.client import TmdbClient, TmdbClientError
-from app.providers.tmdb.metadata import TmdbMetadataService
+from app.providers.tmdb.metadata import (
+    SEASON_COMPLETION_TMDB_CACHE_TTL,
+    TmdbMetadataService,
+)
 
 
 class FakeResult:
@@ -72,7 +75,7 @@ async def test_tmdb_client_uses_bearer_token_without_storing_secret_in_url() -> 
         return httpx.Response(200, json={"results": []})
 
     payload = await TmdbClient(
-        api_key="tmdb-secret",
+        api_key="eyJvYXV0aC10b2tlbiJ9.payload.signature",
         base_url="https://api.themoviedb.org/3",
         timeout_seconds=5,
         transport=httpx.MockTransport(handler),
@@ -80,21 +83,19 @@ async def test_tmdb_client_uses_bearer_token_without_storing_secret_in_url() -> 
 
     assert payload == {"results": []}
     assert seen_urls == ["https://api.themoviedb.org/3/search/movie?query=Alien"]
-    assert seen_headers == ["Bearer tmdb-secret"]
+    assert seen_headers == ["Bearer eyJvYXV0aC10b2tlbiJ9.payload.signature"]
 
 
 @pytest.mark.asyncio
-async def test_tmdb_client_falls_back_to_v3_api_key_query_param() -> None:
+async def test_tmdb_client_uses_v3_api_key_query_param_without_a_401_retry() -> None:
     seen_urls: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen_urls.append(str(request.url))
-        if len(seen_urls) == 1:
-            return httpx.Response(401, json={"status_message": "Invalid API key"})
         return httpx.Response(200, json={"results": []})
 
     payload = await TmdbClient(
-        api_key="tmdb-secret",
+        api_key="39647d09ad21d4536609cd28f0f50c14",
         base_url="https://api.themoviedb.org/3",
         timeout_seconds=5,
         transport=httpx.MockTransport(handler),
@@ -102,8 +103,7 @@ async def test_tmdb_client_falls_back_to_v3_api_key_query_param() -> None:
 
     assert payload == {"results": []}
     assert seen_urls == [
-        "https://api.themoviedb.org/3/search/movie?query=Alien",
-        "https://api.themoviedb.org/3/search/movie?query=Alien&api_key=tmdb-secret",
+        "https://api.themoviedb.org/3/search/movie?query=Alien&api_key=39647d09ad21d4536609cd28f0f50c14"
     ]
 
 
@@ -214,3 +214,17 @@ async def test_tmdb_metadata_service_fetches_and_caches_misses() -> None:
     assert payload == {"results": [{"id": 1, "title": "Alien"}]}
     assert client.calls == [("/search/movie", {"query": "Alien"})]
     assert session.committed is True
+
+
+@pytest.mark.asyncio
+async def test_season_completion_metadata_uses_a_one_year_cache() -> None:
+    session = FakeSession([FakeResult(scalar=None), FakeResult(scalar=None)])
+    client = FakeTmdbClient({"episodes": []})
+
+    _ = await TmdbMetadataService(
+        cache_repository=TmdbCacheRepository(cast(AsyncSession, session)),
+        tmdb_client=client,
+    ).get_season_completion_json("/tv/220074/season/1")
+
+    cache_entry = next(item for item in session.added if isinstance(item, TmdbCacheEntry))
+    assert cache_entry.expires_at - cache_entry.fetched_at == SEASON_COMPLETION_TMDB_CACHE_TTL

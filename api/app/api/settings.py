@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.logging import configure_debug_logging
 from app.db.dependencies import get_db_session
 from app.db.repositories.settings import AppSettingsRepository, AppSettingsUpdate, PlaybackMode
 from app.sync.scheduler import reschedule_auto_sync_scheduler
@@ -23,6 +24,11 @@ class SettingsResponse(BaseModel):
     anime_enabled: bool
     playback_mode: PlaybackMode
     sync_interval_minutes: int
+    debug_logging: bool = False
+    season_auto_complete_enabled: bool = False
+    season_auto_complete_interval_days: int = 1
+    season_auto_complete_allow_uncached: bool = False
+    season_auto_complete_shows_per_minute: int = 1
     torbox_configured: bool
     tmdb_configured: bool
     resolver_configured: bool
@@ -42,6 +48,11 @@ class SettingsUpdateRequest(BaseModel):
     anime_enabled: bool | None = None
     playback_mode: PlaybackMode | None = None
     sync_interval_minutes: int | None = Field(default=None, ge=1)
+    debug_logging: bool | None = None
+    season_auto_complete_enabled: bool | None = None
+    season_auto_complete_interval_days: int | None = Field(default=None, ge=1)
+    season_auto_complete_allow_uncached: bool | None = None
+    season_auto_complete_shows_per_minute: int | None = Field(default=None, ge=1, le=60)
     torbox_api_key: str | None = Field(default=None, min_length=1)
     tmdb_api_key: str | None = Field(default=None, min_length=1)
     resolver_token: str | None = Field(default=None, min_length=1)
@@ -79,6 +90,11 @@ async def update_settings(
                 anime_enabled=request.anime_enabled,
                 playback_mode=request.playback_mode,
                 sync_interval_minutes=request.sync_interval_minutes,
+                debug_logging=request.debug_logging,
+                season_auto_complete_enabled=request.season_auto_complete_enabled,
+                season_auto_complete_interval_days=request.season_auto_complete_interval_days,
+                season_auto_complete_allow_uncached=request.season_auto_complete_allow_uncached,
+                season_auto_complete_shows_per_minute=request.season_auto_complete_shows_per_minute,
                 torbox_api_key=request.torbox_api_key,
                 tmdb_api_key=request.tmdb_api_key,
                 resolver_token=request.resolver_token,
@@ -87,6 +103,7 @@ async def update_settings(
         )
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+    configure_debug_logging(enabled=getattr(snapshot, "debug_logging", False))
     await reschedule_auto_sync_scheduler(http_request.app)
     return SettingsResponse.model_validate(snapshot, from_attributes=True)
 
@@ -97,5 +114,6 @@ async def clear_saved_settings(
     repository: Annotated[AppSettingsRepository, Depends(get_settings_repository)],
 ) -> SettingsResponse:
     snapshot = await repository.clear_saved_setup()
+    configure_debug_logging(enabled=getattr(snapshot, "debug_logging", False))
     await reschedule_auto_sync_scheduler(http_request.app)
     return SettingsResponse.model_validate(snapshot, from_attributes=True)

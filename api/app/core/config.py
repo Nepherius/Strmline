@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     resolver_token: SecretStr | None = None
     playback_mode: Literal["resolver", "direct"] | None = None
     sync_interval_minutes: int | None = Field(default=None, ge=1)
+    debug_logging: bool | None = None
+    season_auto_complete_enabled: bool | None = None
+    season_auto_complete_interval_days: int | None = Field(default=None, ge=1)
+    season_auto_complete_allow_uncached: bool | None = None
+    season_auto_complete_shows_per_minute: int | None = Field(default=None, ge=1, le=60)
     torbox_base_url: str = Field(default="https://api.torbox.app/v1/api")
     tmdb_base_url: str = Field(default="https://api.themoviedb.org/3")
     anilist_base_url: str = Field(default="https://graphql.anilist.co")

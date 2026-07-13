@@ -17,11 +17,28 @@ from app.resolver.manifest import ResolverManifestError, resolve_manifest_target
 router = APIRouter(tags=["resolver"])
 
 
-@router.api_route("/play/{entry_id}", methods=["GET", "HEAD"])
+@router.get("/play/{entry_id}", operation_id="play")
 async def play(
     entry_id: str,
     token: Annotated[str, Query(min_length=1)],
     session: Annotated[AsyncSession | None, Depends(get_optional_db_session)],
+) -> RedirectResponse:
+    return await _play(entry_id, token, session)
+
+
+@router.head("/play/{entry_id}", operation_id="play_head")
+async def play_head(
+    entry_id: str,
+    token: Annotated[str, Query(min_length=1)],
+    session: Annotated[AsyncSession | None, Depends(get_optional_db_session)],
+) -> RedirectResponse:
+    return await _play(entry_id, token, session)
+
+
+async def _play(
+    entry_id: str,
+    token: str,
+    session: AsyncSession | None,
 ) -> RedirectResponse:
     settings = get_settings()
     if not await _resolver_token_is_valid(settings, token, session):

@@ -66,6 +66,31 @@ class FakeSettingsRepository:
                 if update.sync_interval_minutes is not None
                 else self.snapshot.sync_interval_minutes
             ),
+            debug_logging=(
+                update.debug_logging
+                if update.debug_logging is not None
+                else self.snapshot.debug_logging
+            ),
+            season_auto_complete_enabled=(
+                update.season_auto_complete_enabled
+                if update.season_auto_complete_enabled is not None
+                else self.snapshot.season_auto_complete_enabled
+            ),
+            season_auto_complete_interval_days=(
+                update.season_auto_complete_interval_days
+                if update.season_auto_complete_interval_days is not None
+                else self.snapshot.season_auto_complete_interval_days
+            ),
+            season_auto_complete_allow_uncached=(
+                update.season_auto_complete_allow_uncached
+                if update.season_auto_complete_allow_uncached is not None
+                else self.snapshot.season_auto_complete_allow_uncached
+            ),
+            season_auto_complete_shows_per_minute=(
+                update.season_auto_complete_shows_per_minute
+                if update.season_auto_complete_shows_per_minute is not None
+                else self.snapshot.season_auto_complete_shows_per_minute
+            ),
             torbox_configured=update.torbox_api_key is not None or self.snapshot.torbox_configured,
             tmdb_configured=update.tmdb_api_key is not None or self.snapshot.tmdb_configured,
             resolver_configured=update.resolver_token is not None
@@ -91,6 +116,11 @@ class FakeSettingsRepository:
             anime_enabled=True,
             playback_mode="resolver",
             sync_interval_minutes=360,
+            debug_logging=False,
+            season_auto_complete_enabled=False,
+            season_auto_complete_interval_days=1,
+            season_auto_complete_allow_uncached=False,
+            season_auto_complete_shows_per_minute=1,
             torbox_configured=False,
             tmdb_configured=False,
             resolver_configured=False,
@@ -124,6 +154,11 @@ async def test_settings_route_returns_redacted_configuration() -> None:
         "anime_enabled": False,
         "playback_mode": "resolver",
         "sync_interval_minutes": 360,
+        "debug_logging": False,
+        "season_auto_complete_enabled": False,
+        "season_auto_complete_interval_days": 1,
+        "season_auto_complete_allow_uncached": False,
+        "season_auto_complete_shows_per_minute": 1,
         "torbox_configured": True,
         "tmdb_configured": False,
         "resolver_configured": True,
@@ -154,6 +189,11 @@ async def test_settings_route_saves_secrets_without_returning_them() -> None:
                 "anime_enabled": True,
                 "playback_mode": "direct",
                 "sync_interval_minutes": 120,
+                "debug_logging": True,
+                "season_auto_complete_enabled": True,
+                "season_auto_complete_interval_days": 3,
+                "season_auto_complete_allow_uncached": True,
+                "season_auto_complete_shows_per_minute": 2,
                 "torbox_api_key": "torbox-secret",
                 "tmdb_api_key": "tmdb-secret",
                 "resolver_token": "resolver-secret",
@@ -170,6 +210,11 @@ async def test_settings_route_saves_secrets_without_returning_them() -> None:
     assert repository.saved_update.shows_enabled is False
     assert repository.saved_update.playback_mode == "direct"
     assert repository.saved_update.sync_interval_minutes == 120
+    assert repository.saved_update.debug_logging is True
+    assert repository.saved_update.season_auto_complete_enabled is True
+    assert repository.saved_update.season_auto_complete_interval_days == 3
+    assert repository.saved_update.season_auto_complete_allow_uncached is True
+    assert repository.saved_update.season_auto_complete_shows_per_minute == 2
     assert response.json()["tmdb_configured"] is True
     assert response.json()["tmdb_source"] == "database"
     assert response.json()["aiostreams_configured"] is True
@@ -187,6 +232,22 @@ async def test_settings_route_rejects_invalid_numeric_settings() -> None:
         response = await client.put(
             "/api/settings",
             json={"sync_interval_minutes": 0},
+        )
+
+    assert response.status_code == httpx.codes.UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.asyncio
+async def test_settings_route_rejects_invalid_season_completion_rate() -> None:
+    repository = FakeSettingsRepository()
+    app = create_app()
+    app.dependency_overrides[get_settings_repository] = _repository_override(repository)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.put(
+            "/api/settings",
+            json={"season_auto_complete_shows_per_minute": 0},
         )
 
     assert response.status_code == httpx.codes.UNPROCESSABLE_ENTITY

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
 import pytest
@@ -12,6 +12,7 @@ from app.db.repositories.settings import SettingsSnapshot
 from app.sync import scheduler as scheduler_module
 from app.sync.scheduler import (
     AUTO_SYNC_JOB_ID,
+    SEASON_COMPLETION_JOB_ID,
     AsyncSessionFactory,
     AutoSyncScheduler,
     SchedulerBackend,
@@ -61,6 +62,23 @@ class FakeSchedulerBackend:
         self.removed.append(AUTO_SYNC_JOB_ID)
         _ = self.jobs.pop(AUTO_SYNC_JOB_ID, None)
 
+    def schedule_season_completion(
+        self,
+        job: Callable[[], Awaitable[None]],
+        *,
+        interval_days: int,
+        next_run_time: datetime,
+    ) -> None:
+        self.jobs[SEASON_COMPLETION_JOB_ID] = {
+            "job": job,
+            "interval_days": interval_days,
+            "next_run_time": next_run_time,
+        }
+
+    def remove_season_completion(self) -> None:
+        self.removed.append(SEASON_COMPLETION_JOB_ID)
+        _ = self.jobs.pop(SEASON_COMPLETION_JOB_ID, None)
+
 
 @pytest.mark.asyncio
 async def test_auto_sync_scheduler_uses_saved_interval(
@@ -102,7 +120,7 @@ async def test_auto_sync_scheduler_removes_job_without_torbox(
     await auto_sync.reschedule_from_settings()
 
     assert AUTO_SYNC_JOB_ID not in backend.jobs
-    assert backend.removed == [AUTO_SYNC_JOB_ID]
+    assert backend.removed == [AUTO_SYNC_JOB_ID, SEASON_COMPLETION_JOB_ID]
 
 
 @pytest.mark.asyncio
@@ -124,6 +142,54 @@ async def test_auto_sync_scheduler_runs_sync_with_auto_source() -> None:
     await auto_sync.run_once()
 
     assert captured_kwargs["source"] == "auto"
+
+
+@pytest.mark.asyncio
+async def test_season_completion_runs_immediately_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = FakeSchedulerBackend()
+    snapshot = _settings_snapshot(
+        season_auto_complete_enabled=True,
+        season_auto_complete_interval_days=3,
+    )
+    monkeypatch.setattr(scheduler_module, "AppSettingsRepository", _repository(snapshot))
+    before = datetime.now(UTC)
+
+    scheduler = AutoSyncScheduler(
+        session_factory=cast(AsyncSessionFactory, FakeSessionFactory()),
+        backend=cast(SchedulerBackend, backend),
+        settings_provider=Settings,
+    )
+    await scheduler.start()
+
+    job = backend.jobs[SEASON_COMPLETION_JOB_ID]
+    assert job["interval_days"] == 3
+    next_run_time = job["next_run_time"]
+    assert isinstance(next_run_time, datetime)
+    assert next_run_time >= before
+    assert next_run_time <= before + timedelta(seconds=1)
+
+
+@pytest.mark.asyncio
+async def test_season_completion_remains_disabled_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = FakeSchedulerBackend()
+    monkeypatch.setattr(
+        scheduler_module,
+        "AppSettingsRepository",
+        _repository(_settings_snapshot()),
+    )
+    scheduler = AutoSyncScheduler(
+        session_factory=cast(AsyncSessionFactory, FakeSessionFactory()),
+        backend=cast(SchedulerBackend, backend),
+        settings_provider=Settings,
+    )
+
+    await scheduler.start()
+
+    assert SEASON_COMPLETION_JOB_ID not in backend.jobs
 
 
 def _settings_snapshot(**changes: object) -> SettingsSnapshot:

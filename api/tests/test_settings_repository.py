@@ -121,6 +121,11 @@ async def test_settings_repository_saves_public_values_and_secrets() -> None:
             anime_enabled=True,
             playback_mode="direct",
             sync_interval_minutes=120,
+            debug_logging=True,
+            season_auto_complete_enabled=True,
+            season_auto_complete_interval_days=3,
+            season_auto_complete_allow_uncached=True,
+            season_auto_complete_shows_per_minute=2,
             torbox_api_key="torbox-secret",
             tmdb_api_key="tmdb-secret",
             resolver_token=resolver_secret,
@@ -137,10 +142,20 @@ async def test_settings_repository_saves_public_values_and_secrets() -> None:
         "anime_enabled",
         "playback_mode",
         "sync_interval_minutes",
+        "debug_logging",
+        "season_auto_complete_enabled",
+        "season_auto_complete_interval_days",
+        "season_auto_complete_allow_uncached",
+        "season_auto_complete_shows_per_minute",
     ]
     assert merged_settings[1].value == {"value": False}
     assert merged_settings[4].value == {"value": "direct"}
     assert merged_settings[5].value == {"value": 120}
+    assert merged_settings[6].value == {"value": True}
+    assert merged_settings[7].value == {"value": True}
+    assert merged_settings[8].value == {"value": 3}
+    assert merged_settings[9].value == {"value": True}
+    assert merged_settings[10].value == {"value": 2}
     credentials = [item for item in session.added if isinstance(item, ProviderCredential)]
     resolver_tokens = [item for item in session.added if isinstance(item, ResolverToken)]
     assert len(credentials) == 4
@@ -206,6 +221,20 @@ async def test_settings_repository_reads_database_values_when_env_is_missing() -
                     AppSetting(key="shows_enabled", value={"value": True}),
                     AppSetting(key="playback_mode", value={"value": "direct"}),
                     AppSetting(key="sync_interval_minutes", value={"value": 45}),
+                    AppSetting(key="debug_logging", value={"value": True}),
+                    AppSetting(key="season_auto_complete_enabled", value={"value": True}),
+                    AppSetting(
+                        key="season_auto_complete_interval_days",
+                        value={"value": 2},
+                    ),
+                    AppSetting(
+                        key="season_auto_complete_allow_uncached",
+                        value={"value": True},
+                    ),
+                    AppSetting(
+                        key="season_auto_complete_shows_per_minute",
+                        value={"value": 2},
+                    ),
                 ]
             ),
             FakeResult(scalar=1),
@@ -228,6 +257,11 @@ async def test_settings_repository_reads_database_values_when_env_is_missing() -
     assert snapshot.anime_enabled is True
     assert snapshot.playback_mode == "direct"
     assert snapshot.sync_interval_minutes == 45
+    assert snapshot.debug_logging is True
+    assert snapshot.season_auto_complete_enabled is True
+    assert snapshot.season_auto_complete_interval_days == 2
+    assert snapshot.season_auto_complete_allow_uncached is True
+    assert snapshot.season_auto_complete_shows_per_minute == 2
     assert snapshot.torbox_configured is True
     assert snapshot.tmdb_configured is False
     assert snapshot.resolver_configured is True

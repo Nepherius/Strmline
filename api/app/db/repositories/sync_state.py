@@ -12,7 +12,7 @@ from app.db.models import GeneratedFile, LibraryEntry, MediaItem, SyncError, Syn
 from app.library.paths import ensure_within_root
 from app.sync.torbox_strm import SyncedStrmFile, TorBoxStrmSyncResult
 
-SyncRunSource = Literal["manual", "auto"]
+SyncRunSource = Literal["manual", "auto", "season_auto_complete"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,9 +113,46 @@ class SyncStateRepository:
         await self._session.commit()
         return sync_run.id
 
+    async def record_season_completion(
+        self,
+        *,
+        checked_shows: int,
+        missing_episodes: int,
+        added_torrents: int,
+        diagnostics: tuple[tuple[str | None, str], ...],
+    ) -> int:
+        started_at = utc_now()
+        sync_run = SyncRun(
+            status="partial" if diagnostics else "success",
+            source="season_auto_complete",
+            started_at=started_at,
+            finished_at=utc_now(),
+            scanned_count=checked_shows,
+            written_count=added_torrents,
+            skipped_count=missing_episodes,
+        )
+        self._session.add(sync_run)
+        await self._session.flush()
+        self._session.add_all(
+            [
+                SyncError(
+                    sync_run_id=sync_run.id,
+                    phase="season_auto_complete",
+                    item_ref=item_ref,
+                    message=message,
+                )
+                for item_ref, message in diagnostics
+            ]
+        )
+        await self._session.commit()
+        return sync_run.id
+
     async def status(self, *, error_limit: int = 5) -> SyncStatusSnapshot:
         last_run_result = await self._session.execute(
-            select(SyncRun).order_by(SyncRun.started_at.desc(), SyncRun.id.desc()).limit(1)
+            select(SyncRun)
+            .where(SyncRun.source.in_(("manual", "auto")))
+            .order_by(SyncRun.started_at.desc(), SyncRun.id.desc())
+            .limit(1)
         )
         last_auto_run_result = await self._session.execute(
             select(SyncRun)

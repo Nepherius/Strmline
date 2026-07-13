@@ -45,13 +45,20 @@ class TmdbClient:
         *,
         params: dict[str, str],
     ) -> dict[str, Any]:
-        response = await _safe_get(
-            client,
-            endpoint,
-            headers={"Authorization": f"Bearer {self._api_key}"},
-            params=params,
-        )
-        if response.status_code == HTTP_UNAUTHORIZED:
+        if uses_bearer_token(self._api_key):
+            response = await _safe_get(
+                client,
+                endpoint,
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                params=params,
+            )
+        else:
+            response = await _safe_get(
+                client,
+                endpoint,
+                params={**params, "api_key": self._api_key},
+            )
+        if response.status_code == HTTP_UNAUTHORIZED and uses_bearer_token(self._api_key):
             response = await _safe_get(
                 client,
                 endpoint,
@@ -66,6 +73,11 @@ class TmdbClient:
         if not isinstance(payload, dict):
             raise TmdbClientError("TMDB response was not an object.")
         return cast(dict[str, Any], payload)
+
+
+def uses_bearer_token(value: str) -> bool:
+    """TMDB v4 read tokens are JWTs; v3 API keys belong in the query string."""
+    return value.startswith("eyJ")
 
 
 async def _safe_get(

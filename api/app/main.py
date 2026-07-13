@@ -19,6 +19,7 @@ from app.api.settings import router as settings_router
 from app.api.setup import router as setup_router
 from app.api.sync import router as sync_router
 from app.core.config import get_settings
+from app.core.logging import configure_debug_logging
 from app.static_ui import mount_static_ui
 from app.sync.scheduler import shutdown_auto_sync_scheduler, start_auto_sync_scheduler
 
@@ -34,6 +35,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    configure_debug_logging(enabled=settings.debug_logging is True)
     app = FastAPI(
         title=settings.service_name,
         version=settings.version,

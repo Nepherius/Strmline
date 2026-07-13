@@ -38,6 +38,9 @@
               {dismissingErrorId === syncError.id ? "Dismissing" : "Dismiss"}
             </UiButton>
           </div>
+          {#if syncError.item_ref}
+            <p class="item-ref">{syncError.item_ref}</p>
+          {/if}
           <p>{syncError.message}</p>
         </article>
       {/each}
@@ -93,5 +96,10 @@
   .error-list p {
     margin: 0;
     color: #765d1d;
+  }
+
+  .error-list .item-ref {
+    color: #3d3321;
+    font-weight: 700;
   }
 </style>

@@ -14,6 +14,8 @@ from app.security.secrets import SecretBox
 
 SECRET_HINT_SUFFIX_LENGTH = 4
 DEFAULT_SYNC_INTERVAL_MINUTES = 360
+DEFAULT_SEASON_AUTO_COMPLETE_INTERVAL_DAYS = 1
+DEFAULT_SEASON_AUTO_COMPLETE_SHOWS_PER_MINUTE = 1
 DEFAULT_PLAYBACK_MODE = "resolver"
 GENERATED_RESOLVER_TOKEN_BYTES = 32
 
@@ -35,6 +37,11 @@ class SettingsSnapshot:
     tmdb_configured: bool
     resolver_configured: bool
     aiostreams_configured: bool
+    debug_logging: bool = False
+    season_auto_complete_enabled: bool = False
+    season_auto_complete_interval_days: int = DEFAULT_SEASON_AUTO_COMPLETE_INTERVAL_DAYS
+    season_auto_complete_allow_uncached: bool = False
+    season_auto_complete_shows_per_minute: int = DEFAULT_SEASON_AUTO_COMPLETE_SHOWS_PER_MINUTE
     base_url_source: SettingSource | None = None
     library_root_source: SettingSource | None = None
     torbox_source: SettingSource | None = None
@@ -51,6 +58,11 @@ class AppSettingsUpdate:
     anime_enabled: bool | None = None
     playback_mode: PlaybackMode | None = None
     sync_interval_minutes: int | None = None
+    debug_logging: bool | None = None
+    season_auto_complete_enabled: bool | None = None
+    season_auto_complete_interval_days: int | None = None
+    season_auto_complete_allow_uncached: bool | None = None
+    season_auto_complete_shows_per_minute: int | None = None
     torbox_api_key: str | None = None
     tmdb_api_key: str | None = None
     resolver_token: str | None = None
@@ -101,6 +113,43 @@ class AppSettingsRepository:
                 "sync_interval_minutes",
                 default=DEFAULT_SYNC_INTERVAL_MINUTES,
             ),
+            debug_logging=(
+                self._settings.debug_logging
+                if self._settings.debug_logging is not None
+                else _setting_bool(rows, "debug_logging", default=False)
+            ),
+            season_auto_complete_enabled=(
+                self._settings.season_auto_complete_enabled
+                if self._settings.season_auto_complete_enabled is not None
+                else _setting_bool(rows, "season_auto_complete_enabled", default=False)
+            ),
+            season_auto_complete_interval_days=(
+                self._settings.season_auto_complete_interval_days
+                if self._settings.season_auto_complete_interval_days is not None
+                else _setting_int(
+                    rows,
+                    "season_auto_complete_interval_days",
+                    default=DEFAULT_SEASON_AUTO_COMPLETE_INTERVAL_DAYS,
+                )
+            ),
+            season_auto_complete_allow_uncached=(
+                self._settings.season_auto_complete_allow_uncached
+                if self._settings.season_auto_complete_allow_uncached is not None
+                else _setting_bool(
+                    rows,
+                    "season_auto_complete_allow_uncached",
+                    default=False,
+                )
+            ),
+            season_auto_complete_shows_per_minute=(
+                self._settings.season_auto_complete_shows_per_minute
+                if self._settings.season_auto_complete_shows_per_minute is not None
+                else _setting_int(
+                    rows,
+                    "season_auto_complete_shows_per_minute",
+                    default=DEFAULT_SEASON_AUTO_COMPLETE_SHOWS_PER_MINUTE,
+                )
+            ),
             torbox_configured=torbox_source is not None,
             tmdb_configured=tmdb_source is not None,
             resolver_configured=resolver_source is not None,
@@ -143,12 +192,17 @@ class AppSettingsRepository:
                     (
                         "anime_enabled",
                         "base_url",
+                        "debug_logging",
                         "library_root",
                         "movies_enabled",
                         "playback_mode",
                         "pgid",
                         "puid",
                         "shows_enabled",
+                        "season_auto_complete_allow_uncached",
+                        "season_auto_complete_enabled",
+                        "season_auto_complete_interval_days",
+                        "season_auto_complete_shows_per_minute",
                         "sync_interval_minutes",
                     )
                 )
@@ -205,6 +259,20 @@ class AppSettingsRepository:
             ("anime_enabled", update.anime_enabled),
             ("playback_mode", update.playback_mode),
             ("sync_interval_minutes", update.sync_interval_minutes),
+            ("debug_logging", update.debug_logging),
+            ("season_auto_complete_enabled", update.season_auto_complete_enabled),
+            (
+                "season_auto_complete_interval_days",
+                update.season_auto_complete_interval_days,
+            ),
+            (
+                "season_auto_complete_allow_uncached",
+                update.season_auto_complete_allow_uncached,
+            ),
+            (
+                "season_auto_complete_shows_per_minute",
+                update.season_auto_complete_shows_per_minute,
+            ),
         )
         for key, value in public_settings:
             if value is not None:

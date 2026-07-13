@@ -3,6 +3,7 @@
   export let value = "";
   export let placeholder = "";
   export let min: string | undefined = "0";
+  export let max: string | undefined = undefined;
   export let step = "1";
 
   function updateValue(event: Event): void {
@@ -15,6 +16,7 @@
   <input
     inputmode="numeric"
     {min}
+    {max}
     {placeholder}
     {step}
     type="number"

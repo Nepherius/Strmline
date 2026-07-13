@@ -9,6 +9,11 @@ export interface AppSettings {
   anime_enabled: boolean;
   playback_mode: PlaybackMode;
   sync_interval_minutes: number;
+  debug_logging: boolean;
+  season_auto_complete_enabled: boolean;
+  season_auto_complete_interval_days: number;
+  season_auto_complete_allow_uncached: boolean;
+  season_auto_complete_shows_per_minute: number;
   torbox_configured: boolean;
   tmdb_configured: boolean;
   resolver_configured: boolean;
@@ -33,6 +38,11 @@ export interface SettingsFormValues {
   animeEnabled: boolean;
   playbackMode: PlaybackMode;
   syncIntervalMinutes: string;
+  debugLogging: boolean;
+  seasonAutoCompleteEnabled: boolean;
+  seasonAutoCompleteIntervalDays: string;
+  seasonAutoCompleteAllowUncached: boolean;
+  seasonAutoCompleteShowsPerMinute: string;
   torboxApiKey: string;
   tmdbApiKey: string;
   resolverToken: string;
@@ -51,6 +61,19 @@ export function buildSettingsPayload(values: SettingsFormValues): SettingsPayloa
   payload["anime_enabled"] = values.animeEnabled;
   payload["playback_mode"] = values.playbackMode;
   setIntegerIfPresent(payload, "sync_interval_minutes", values.syncIntervalMinutes);
+  payload["debug_logging"] = values.debugLogging;
+  payload["season_auto_complete_enabled"] = values.seasonAutoCompleteEnabled;
+  setIntegerIfPresent(
+    payload,
+    "season_auto_complete_interval_days",
+    values.seasonAutoCompleteIntervalDays,
+  );
+  payload["season_auto_complete_allow_uncached"] = values.seasonAutoCompleteAllowUncached;
+  setIntegerIfPresent(
+    payload,
+    "season_auto_complete_shows_per_minute",
+    values.seasonAutoCompleteShowsPerMinute,
+  );
   setIfPresent(payload, "torbox_api_key", values.torboxApiKey);
   setIfPresent(payload, "tmdb_api_key", values.tmdbApiKey);
   setIfPresent(payload, "resolver_token", values.resolverToken);
@@ -66,6 +89,13 @@ export function settingsToFormValues(settings: AppSettings | null): SettingsForm
     animeEnabled: settings?.anime_enabled ?? true,
     playbackMode: settings?.playback_mode ?? "resolver",
     syncIntervalMinutes: String(settings?.sync_interval_minutes ?? 360),
+    debugLogging: settings?.debug_logging ?? false,
+    seasonAutoCompleteEnabled: settings?.season_auto_complete_enabled ?? false,
+    seasonAutoCompleteIntervalDays: String(settings?.season_auto_complete_interval_days ?? 1),
+    seasonAutoCompleteAllowUncached: settings?.season_auto_complete_allow_uncached ?? false,
+    seasonAutoCompleteShowsPerMinute: String(
+      settings?.season_auto_complete_shows_per_minute ?? 1,
+    ),
     torboxApiKey: "",
     tmdbApiKey: "",
     resolverToken: "",

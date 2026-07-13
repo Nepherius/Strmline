@@ -119,6 +119,36 @@
       min="1"
       placeholder="360"
     />
+    <fieldset class="category-options">
+      <legend>Season auto-complete</legend>
+      <CheckboxField
+        bind:checked={values.seasonAutoCompleteEnabled}
+        label="Complete missing regular episodes"
+      />
+      {#if values.seasonAutoCompleteEnabled}
+        <NumberField
+          bind:value={values.seasonAutoCompleteIntervalDays}
+          label="Check interval days"
+          min="1"
+          placeholder="1"
+        />
+        <NumberField
+          bind:value={values.seasonAutoCompleteShowsPerMinute}
+          label="Shows checked per minute"
+          min="1"
+          max="60"
+          placeholder="1"
+        />
+        <CheckboxField
+          bind:checked={values.seasonAutoCompleteAllowUncached}
+          label="Allow uncached torrents"
+        />
+      {/if}
+    </fieldset>
+    <fieldset class="category-options">
+      <legend>Diagnostics</legend>
+      <CheckboxField bind:checked={values.debugLogging} label="Enable debug logging" />
+    </fieldset>
     <TextField
       bind:value={values.torboxApiKey}
       autocomplete="off"
