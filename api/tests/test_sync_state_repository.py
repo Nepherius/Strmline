@@ -4,7 +4,16 @@ from typing import cast
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import GeneratedFile, LibraryEntry, MediaItem, SyncError, SyncRun, utc_now
+from app.db.models import (
+    GeneratedFile,
+    LibraryEntry,
+    MediaItem,
+    SyncError,
+    SyncRun,
+    TorBoxItem,
+    TorBoxStoredFile,
+    utc_now,
+)
 from app.db.repositories.sync_state import SyncStateRepository
 from app.sync.torbox_strm import SyncedStrmFile, TorBoxStrmSyncResult
 
@@ -18,6 +27,9 @@ class FakeResult:
         return self._scalar
 
     def scalars(self) -> list[object]:
+        return self._scalars
+
+    def all(self) -> list[object]:
         return self._scalars
 
 
@@ -38,7 +50,18 @@ class FakeSession:
 
     async def flush(self) -> None:
         for instance in self.added:
-            if isinstance(instance, (GeneratedFile, LibraryEntry, MediaItem, SyncError, SyncRun)):
+            if isinstance(
+                instance,
+                (
+                    GeneratedFile,
+                    LibraryEntry,
+                    MediaItem,
+                    SyncError,
+                    SyncRun,
+                    TorBoxItem,
+                    TorBoxStoredFile,
+                ),
+            ):
                 instance.id = instance.id or self._next_id
                 self._next_id += 1
 
@@ -75,7 +98,7 @@ async def test_sync_state_repository_records_generated_library_state(tmp_path: P
             ),
         ),
     )
-    session = FakeSession([FakeResult(), FakeResult(), FakeResult(), FakeResult(scalars=[])])
+    session = FakeSession([FakeResult() for _ in range(8)])
     library_root = _resolved(tmp_path)
 
     sync_run_id = await SyncStateRepository(cast(AsyncSession, session)).record_success(
@@ -88,6 +111,8 @@ async def test_sync_state_repository_records_generated_library_state(tmp_path: P
     assert any(isinstance(item, SyncRun) for item in session.added)
     assert any(isinstance(item, MediaItem) for item in session.added)
     assert any(isinstance(item, LibraryEntry) for item in session.added)
+    assert any(isinstance(item, TorBoxItem) for item in session.added)
+    assert any(isinstance(item, TorBoxStoredFile) for item in session.added)
     generated_file = next(item for item in session.added if isinstance(item, GeneratedFile))
     assert generated_file.relative_path == "movies/Movie Name (2024)/Movie Name (2024).strm"
     assert generated_file.content_hash == "abc123"
@@ -197,7 +222,16 @@ async def test_sync_state_repository_removes_stale_generated_files(tmp_path: Pat
     )
     result = _sync_result(tmp_path)
     session = FakeSession(
-        [FakeResult(), FakeResult(), FakeResult(), FakeResult(scalars=[stale_record])]
+        [
+            FakeResult(),
+            FakeResult(),
+            FakeResult(),
+            FakeResult(),
+            FakeResult(),
+            FakeResult(scalars=[stale_record]),
+            FakeResult(scalars=[]),
+            FakeResult(scalars=[]),
+        ]
     )
 
     _ = await SyncStateRepository(cast(AsyncSession, session)).record_success(
@@ -215,7 +249,7 @@ async def test_sync_state_repository_keeps_stale_files_for_partial_runs(tmp_path
     stale_file.parent.mkdir(parents=True)
     _ = stale_file.write_text("http://old.example\n", encoding="utf-8")
     result = _sync_result(tmp_path, partial=True)
-    session = FakeSession([FakeResult(), FakeResult(), FakeResult()])
+    session = FakeSession([FakeResult() for _ in range(5)])
 
     _ = await SyncStateRepository(cast(AsyncSession, session)).record_success(
         result,
@@ -297,12 +331,18 @@ async def test_sync_state_repository_collapses_duplicates_by_tmdb_id(tmp_path: P
         [
             FakeResult(None),  # 1.1 tmdb_id check
             FakeResult(None),  # 1.2 title+year check
-            FakeResult(None),  # 1.3 library entry
-            FakeResult(None),  # 1.4 generated file
+            FakeResult(None),  # 1.3 TorBox item
+            FakeResult(None),  # 1.4 TorBox file
+            FakeResult(None),  # 1.5 library entry
+            FakeResult(None),  # 1.6 generated file
             FakeResult(existing_item),  # 2.1 tmdb_id check (finds existing)
-            FakeResult(None),  # 2.2 library entry
-            FakeResult(None),  # 2.3 generated file
-            FakeResult(scalars=[]),  # cleanup query
+            FakeResult(None),  # 2.2 TorBox item
+            FakeResult(None),  # 2.3 TorBox file
+            FakeResult(None),  # 2.4 library entry
+            FakeResult(None),  # 2.5 generated file
+            FakeResult(scalars=[]),  # generated cleanup query
+            FakeResult(scalars=[]),  # TorBox files cleanup query
+            FakeResult(scalars=[]),  # TorBox items cleanup query
         ]
     )
 
@@ -372,12 +412,18 @@ async def test_sync_state_repository_collapses_duplicates_by_missing_year(tmp_pa
     session = FakeSession(
         [
             FakeResult(None),  # 1.1 title+year check (returns None) -> creates item
-            FakeResult(None),  # 1.2 library entry
-            FakeResult(None),  # 1.3 generated file
+            FakeResult(None),  # 1.2 TorBox item
+            FakeResult(None),  # 1.3 TorBox file
+            FakeResult(None),  # 1.4 library entry
+            FakeResult(None),  # 1.5 generated file
             FakeResult(existing_item),  # 2.1 title+year check (matches year is None fallback)
-            FakeResult(None),  # 2.2 library entry
-            FakeResult(None),  # 2.3 generated file
-            FakeResult(scalars=[]),  # cleanup query
+            FakeResult(None),  # 2.2 TorBox item
+            FakeResult(None),  # 2.3 TorBox file
+            FakeResult(None),  # 2.4 library entry
+            FakeResult(None),  # 2.5 generated file
+            FakeResult(scalars=[]),  # generated cleanup query
+            FakeResult(scalars=[]),  # TorBox files cleanup query
+            FakeResult(scalars=[]),  # TorBox items cleanup query
         ]
     )
 

@@ -9,7 +9,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.db.models import AppSetting, ProviderCredential, ResolverToken
+from app.db.models import ApplicationSettings, ProviderCredential, ResolverToken
 from app.security.secrets import SecretBox
 
 SECRET_HINT_SUFFIX_LENGTH = 4
@@ -75,8 +75,8 @@ class AppSettingsRepository:
         self._settings = settings
 
     async def snapshot_with_env(self) -> SettingsSnapshot:
-        rows = await self._app_settings()
-        database_base_url = _setting_value(rows, "base_url")
+        database_settings = await self._application_settings()
+        database_base_url = database_settings.base_url if database_settings is not None else None
         torbox_source = await self._secret_source(
             env_configured=self._settings.torbox_api_key is not None,
             provider="torbox",
@@ -98,36 +98,38 @@ class AppSettingsRepository:
         return SettingsSnapshot(
             base_url=self._settings.base_url or database_base_url,
             library_root=str(self._settings.library_root),
-            movies_enabled=_setting_bool(rows, "movies_enabled", default=True),
-            shows_enabled=_setting_bool(rows, "shows_enabled", default=True),
-            anime_enabled=_setting_bool(rows, "anime_enabled", default=True),
+            movies_enabled=_database_value(database_settings, "movies_enabled", default=True),
+            shows_enabled=_database_value(database_settings, "shows_enabled", default=True),
+            anime_enabled=_database_value(database_settings, "anime_enabled", default=True),
             playback_mode=(
                 self._settings.playback_mode
                 if self._settings.playback_mode is not None
-                else _setting_playback_mode(rows, "playback_mode")
+                else _database_playback_mode(database_settings)
             ),
             sync_interval_minutes=self._settings.sync_interval_minutes
             if self._settings.sync_interval_minutes is not None
-            else _setting_int(
-                rows,
+            else _database_value(
+                database_settings,
                 "sync_interval_minutes",
                 default=DEFAULT_SYNC_INTERVAL_MINUTES,
             ),
             debug_logging=(
                 self._settings.debug_logging
                 if self._settings.debug_logging is not None
-                else _setting_bool(rows, "debug_logging", default=False)
+                else _database_value(database_settings, "debug_logging", default=False)
             ),
             season_auto_complete_enabled=(
                 self._settings.season_auto_complete_enabled
                 if self._settings.season_auto_complete_enabled is not None
-                else _setting_bool(rows, "season_auto_complete_enabled", default=False)
+                else _database_value(
+                    database_settings, "season_auto_complete_enabled", default=False
+                )
             ),
             season_auto_complete_interval_days=(
                 self._settings.season_auto_complete_interval_days
                 if self._settings.season_auto_complete_interval_days is not None
-                else _setting_int(
-                    rows,
+                else _database_value(
+                    database_settings,
                     "season_auto_complete_interval_days",
                     default=DEFAULT_SEASON_AUTO_COMPLETE_INTERVAL_DAYS,
                 )
@@ -135,8 +137,8 @@ class AppSettingsRepository:
             season_auto_complete_allow_uncached=(
                 self._settings.season_auto_complete_allow_uncached
                 if self._settings.season_auto_complete_allow_uncached is not None
-                else _setting_bool(
-                    rows,
+                else _database_value(
+                    database_settings,
                     "season_auto_complete_allow_uncached",
                     default=False,
                 )
@@ -144,8 +146,8 @@ class AppSettingsRepository:
             season_auto_complete_shows_per_minute=(
                 self._settings.season_auto_complete_shows_per_minute
                 if self._settings.season_auto_complete_shows_per_minute is not None
-                else _setting_int(
-                    rows,
+                else _database_value(
+                    database_settings,
                     "season_auto_complete_shows_per_minute",
                     default=DEFAULT_SEASON_AUTO_COMPLETE_SHOWS_PER_MINUTE,
                 )
@@ -186,28 +188,7 @@ class AppSettingsRepository:
         return await self.snapshot_with_env()
 
     async def clear_saved_setup(self) -> SettingsSnapshot:
-        _ = await self._session.execute(
-            delete(AppSetting).where(
-                AppSetting.key.in_(
-                    (
-                        "anime_enabled",
-                        "base_url",
-                        "debug_logging",
-                        "library_root",
-                        "movies_enabled",
-                        "playback_mode",
-                        "pgid",
-                        "puid",
-                        "shows_enabled",
-                        "season_auto_complete_allow_uncached",
-                        "season_auto_complete_enabled",
-                        "season_auto_complete_interval_days",
-                        "season_auto_complete_shows_per_minute",
-                        "sync_interval_minutes",
-                    )
-                )
-            )
-        )
+        _ = await self._session.execute(delete(ApplicationSettings))
         _ = await self._session.execute(
             delete(ProviderCredential).where(
                 ProviderCredential.provider.in_(("resolver", "torbox", "tmdb")),
@@ -247,41 +228,35 @@ class AppSettingsRepository:
             return None
         return self._secret_box().open(credential.encrypted_value)
 
-    async def _app_settings(self) -> dict[str, AppSetting]:
-        result = await self._session.execute(select(AppSetting))
-        return {setting.key: setting for setting in result.scalars()}
+    async def _application_settings(self) -> ApplicationSettings | None:
+        result = await self._session.execute(
+            select(ApplicationSettings).where(ApplicationSettings.id == 1)
+        )
+        return result.scalar_one_or_none()
 
     async def _save_public_settings(self, update: AppSettingsUpdate) -> None:
-        public_settings: tuple[tuple[str, bool | int | str | None], ...] = (
-            ("base_url", update.base_url),
-            ("movies_enabled", update.movies_enabled),
-            ("shows_enabled", update.shows_enabled),
-            ("anime_enabled", update.anime_enabled),
-            ("playback_mode", update.playback_mode),
-            ("sync_interval_minutes", update.sync_interval_minutes),
-            ("debug_logging", update.debug_logging),
-            ("season_auto_complete_enabled", update.season_auto_complete_enabled),
-            (
-                "season_auto_complete_interval_days",
-                update.season_auto_complete_interval_days,
-            ),
-            (
-                "season_auto_complete_allow_uncached",
-                update.season_auto_complete_allow_uncached,
-            ),
-            (
-                "season_auto_complete_shows_per_minute",
-                update.season_auto_complete_shows_per_minute,
-            ),
-        )
-        for key, value in public_settings:
+        values = {
+            "base_url": update.base_url,
+            "movies_enabled": update.movies_enabled,
+            "shows_enabled": update.shows_enabled,
+            "anime_enabled": update.anime_enabled,
+            "playback_mode": update.playback_mode,
+            "sync_interval_minutes": update.sync_interval_minutes,
+            "debug_logging": update.debug_logging,
+            "season_auto_complete_enabled": update.season_auto_complete_enabled,
+            "season_auto_complete_interval_days": update.season_auto_complete_interval_days,
+            "season_auto_complete_allow_uncached": update.season_auto_complete_allow_uncached,
+            "season_auto_complete_shows_per_minute": update.season_auto_complete_shows_per_minute,
+        }
+        if not any(value is not None for value in values.values()):
+            return
+        application_settings = await self._application_settings()
+        if application_settings is None:
+            application_settings = ApplicationSettings()
+            self._session.add(application_settings)
+        for field, value in values.items():
             if value is not None:
-                await self._save_setting(key, value=value)
-
-    async def _save_setting(self, key: str, *, value: bool | int | str) -> None:
-        _ = await self._session.merge(
-            AppSetting(key=key, value={"value": value}, is_secret=False),
-        )
+                setattr(application_settings, field, value)
 
     async def _save_provider_secret(self, provider: str, name: str, value: str) -> None:
         box = self._secret_box()
@@ -386,43 +361,21 @@ class AppSettingsRepository:
         return self._secret_box().open(credential.encrypted_value)
 
 
-def _setting_value(rows: dict[str, AppSetting], key: str) -> str | None:
-    setting = rows.get(key)
-    if setting is None or setting.value is None:
-        return None
-    raw_value = setting.value.get("value")
-    if isinstance(raw_value, str) and raw_value.strip():
-        return raw_value
-    return None
-
-
-def _setting_bool(rows: dict[str, AppSetting], key: str, *, default: bool) -> bool:
-    setting = rows.get(key)
-    if setting is None or setting.value is None:
+def _database_value[SettingValue: (bool, int)](
+    settings: ApplicationSettings | None,
+    field: str,
+    *,
+    default: SettingValue,
+) -> SettingValue:
+    if settings is None:
         return default
-    raw_value = setting.value.get("value")
-    if isinstance(raw_value, bool):
-        return raw_value
-    return default
+    value = getattr(settings, field)
+    return value if isinstance(value, type(default)) else default
 
 
-def _setting_int(rows: dict[str, AppSetting], key: str, *, default: int) -> int:
-    setting = rows.get(key)
-    if setting is None or setting.value is None:
-        return default
-    raw_value = setting.value.get("value")
-    if isinstance(raw_value, int):
-        return raw_value
-    return default
-
-
-def _setting_playback_mode(rows: dict[str, AppSetting], key: str) -> PlaybackMode:
-    setting = rows.get(key)
-    if setting is None or setting.value is None:
-        return DEFAULT_PLAYBACK_MODE
-    raw_value = setting.value.get("value")
-    if raw_value in ("resolver", "direct"):
-        return raw_value
+def _database_playback_mode(settings: ApplicationSettings | None) -> PlaybackMode:
+    if settings is not None and settings.playback_mode in ("resolver", "direct"):
+        return settings.playback_mode
     return DEFAULT_PLAYBACK_MODE
 
 

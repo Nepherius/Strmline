@@ -8,7 +8,16 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import GeneratedFile, LibraryEntry, MediaItem, SyncError, SyncRun, utc_now
+from app.db.models import (
+    GeneratedFile,
+    LibraryEntry,
+    MediaItem,
+    SyncError,
+    SyncRun,
+    TorBoxItem,
+    TorBoxStoredFile,
+    utc_now,
+)
 from app.library.paths import ensure_within_root
 from app.sync.torbox_strm import SyncedStrmFile, TorBoxStrmSyncResult
 
@@ -70,11 +79,13 @@ class SyncStateRepository:
 
         for synced_file in result.synced_files:
             media_item = await self._media_item(synced_file)
-            library_entry = await self._library_entry(media_item, synced_file)
+            torbox_file = await self._torbox_file(synced_file)
+            library_entry = await self._library_entry(media_item, torbox_file, synced_file)
             await self._generated_file(library_entry, synced_file, library_root)
 
         if not result.partial:
             await self._remove_stale_generated_files(result, library_root)
+            await self._remove_stale_torbox_sources(result)
 
         await self._session.commit()
         return sync_run.id
@@ -192,6 +203,7 @@ class SyncStateRepository:
             )
             media_item = result.scalar_one_or_none()
             if media_item is not None:
+                media_item.media_type = synced_file.category
                 media_item.title = synced_file.title
                 media_item.year = synced_file.year
                 return media_item
@@ -227,6 +239,7 @@ class SyncStateRepository:
     async def _library_entry(
         self,
         media_item: MediaItem,
+        torbox_file: TorBoxStoredFile,
         synced_file: SyncedStrmFile,
     ) -> LibraryEntry:
         result = await self._session.execute(
@@ -237,25 +250,67 @@ class SyncStateRepository:
             library_entry = LibraryEntry(
                 opaque_id=synced_file.entry_id,
                 media_item_id=media_item.id,
+                torbox_file_id=torbox_file.id,
                 category=synced_file.category,
                 season_number=synced_file.season_number,
                 episode_number=synced_file.episode_number,
-                provider=synced_file.provider,
-                provider_item_id=synced_file.provider_item_id,
-                provider_file_id=synced_file.provider_file_id,
             )
             self._session.add(library_entry)
             await self._session.flush()
             return library_entry
 
         library_entry.media_item_id = media_item.id
+        library_entry.torbox_file_id = torbox_file.id
         library_entry.category = synced_file.category
         library_entry.season_number = synced_file.season_number
         library_entry.episode_number = synced_file.episode_number
-        library_entry.provider = synced_file.provider
-        library_entry.provider_item_id = synced_file.provider_item_id
-        library_entry.provider_file_id = synced_file.provider_file_id
         return library_entry
+
+    async def _torbox_file(self, synced_file: SyncedStrmFile) -> TorBoxStoredFile:
+        item_result = await self._session.execute(
+            select(TorBoxItem).where(
+                TorBoxItem.kind == synced_file.provider,
+                TorBoxItem.external_id == synced_file.provider_item_id,
+            )
+        )
+        torbox_item = item_result.scalar_one_or_none()
+        if torbox_item is None:
+            torbox_item = TorBoxItem(
+                kind=synced_file.provider,
+                external_id=synced_file.provider_item_id,
+                name=synced_file.provider_item_name or synced_file.provider_item_id,
+                raw_payload={},
+            )
+            self._session.add(torbox_item)
+            await self._session.flush()
+        else:
+            torbox_item.name = synced_file.provider_item_name or torbox_item.name
+            torbox_item.fetched_at = utc_now()
+
+        file_result = await self._session.execute(
+            select(TorBoxStoredFile).where(
+                TorBoxStoredFile.torbox_item_id == torbox_item.id,
+                TorBoxStoredFile.external_id == synced_file.provider_file_id,
+            )
+        )
+        torbox_file = file_result.scalar_one_or_none()
+        if torbox_file is None:
+            torbox_file = TorBoxStoredFile(
+                torbox_item_id=torbox_item.id,
+                external_id=synced_file.provider_file_id,
+                file_name=synced_file.provider_file_name,
+                path=synced_file.provider_file_path,
+                mime_type=synced_file.provider_file_mime_type,
+                size=synced_file.provider_file_size,
+            )
+            self._session.add(torbox_file)
+            await self._session.flush()
+            return torbox_file
+        torbox_file.file_name = synced_file.provider_file_name
+        torbox_file.path = synced_file.provider_file_path
+        torbox_file.mime_type = synced_file.provider_file_mime_type
+        torbox_file.size = synced_file.provider_file_size
+        return torbox_file
 
     async def _generated_file(
         self,
@@ -300,6 +355,24 @@ class SyncStateRepository:
             if stale_path.suffix == ".strm" and stale_path.exists():
                 stale_path.unlink()
             await self._session.delete(generated_file)
+
+    async def _remove_stale_torbox_sources(self, result: TorBoxStrmSyncResult) -> None:
+        current_sources = {
+            (synced_file.provider, synced_file.provider_item_id, synced_file.provider_file_id)
+            for synced_file in result.synced_files
+        }
+        source_result = await self._session.execute(
+            select(TorBoxStoredFile, TorBoxItem).join(TorBoxItem)
+        )
+        for torbox_file, torbox_item in source_result.all():
+            source = (torbox_item.kind, torbox_item.external_id, torbox_file.external_id)
+            if source not in current_sources:
+                await self._session.delete(torbox_file)
+        current_items = {(kind, item_id) for kind, item_id, _ in current_sources}
+        item_result = await self._session.execute(select(TorBoxItem))
+        for torbox_item in item_result.scalars():
+            if (torbox_item.kind, torbox_item.external_id) not in current_items:
+                await self._session.delete(torbox_item)
 
 
 def _relative_generated_path(library_root: Path, path: Path) -> str:

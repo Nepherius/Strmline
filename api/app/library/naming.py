@@ -10,6 +10,9 @@ SEASON_EPISODE = re.compile(
 )
 FOLDER_SEASON = re.compile(r"(?i)\bseason[\s._-]*(?P<season>\d{1,2})\b")
 LEADING_EPISODE = re.compile(r"(?i)^(?:episode[\s._-]*)?(?P<episode>\d{1,3})(?:\D|$)")
+BARE_ANIME_EPISODE = re.compile(
+    r"(?i)(?:^|[\s._-])(?P<episode>\d{1,3})(?=[\s._-]+(?:jp|jpn|bd|bluray|hi10)\b)"
+)
 YEAR = re.compile(r"(?:^|[^\d])(?P<year>(?:19|20)\d{2})(?:[^\d]|$)")
 QUALITY_TERMS = (
     "2160p",
@@ -45,10 +48,13 @@ def library_entry_from_file_name(
     cleaned_name = _clean_release_name(PurePath(file_name).stem)
     season_episode = SEASON_EPISODE.search(cleaned_name)
     folder_episode = _folder_episode(cleaned_name, folder_name, season_episode)
+    bare_episode = _bare_anime_episode(cleaned_name, season_episode, folder_episode)
     category = _category(
         cleaned_name,
         folder_name,
-        has_episode=season_episode is not None or folder_episode is not None,
+        has_episode=season_episode is not None
+        or folder_episode is not None
+        or bare_episode is not None,
     )
     file_year = _year(cleaned_name)
     title, _ = _title(
@@ -59,6 +65,17 @@ def library_entry_from_file_name(
         use_folder_title=folder_episode is not None,
     )
     year = file_year or _year_from_folder(folder_name)
+
+    if bare_episode is not None:
+        title = _humanize_title(cleaned_name[: bare_episode[0]])
+        return LibraryEntry(
+            category=category,
+            title=title or "Unknown",
+            year=year,
+            season_number=1,
+            episode_number=bare_episode[1],
+            resolver_url=playback_url,
+        )
 
     if season_episode is None and folder_episode is None:
         return LibraryEntry(
@@ -128,6 +145,19 @@ def _folder_episode(
     if folder_season is None or leading_episode is None:
         return None
     return int(folder_season.group("season")), int(leading_episode.group("episode"))
+
+
+def _bare_anime_episode(
+    name: str,
+    season_episode: re.Match[str] | None,
+    folder_episode: tuple[int, int] | None,
+) -> tuple[int, int] | None:
+    if season_episode is not None or folder_episode is not None:
+        return None
+    match = BARE_ANIME_EPISODE.search(name)
+    if match is None:
+        return None
+    return match.start("episode"), int(match.group("episode"))
 
 
 def _season_number(

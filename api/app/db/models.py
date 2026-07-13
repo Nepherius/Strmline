@@ -4,7 +4,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -24,12 +26,33 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-class AppSetting(Base):
-    __tablename__ = "app_settings"
+class ApplicationSettings(Base):
+    __tablename__ = "application_settings"
+    __table_args__ = (CheckConstraint("id = 1", name="ck_application_settings_singleton"),)
 
-    key: Mapped[str] = mapped_column(String(100), primary_key=True)
-    value: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
-    is_secret: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    base_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    movies_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    shows_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    anime_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    playback_mode: Mapped[str] = mapped_column(String(20), default="resolver", nullable=False)
+    sync_interval_minutes: Mapped[int] = mapped_column(Integer, default=360, nullable=False)
+    debug_logging: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    season_auto_complete_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    season_auto_complete_interval_days: Mapped[int] = mapped_column(
+        Integer, default=1, nullable=False
+    )
+    season_auto_complete_allow_uncached: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    season_auto_complete_shows_per_minute: Mapped[int] = mapped_column(
+        Integer, default=1, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utc_now,
@@ -79,6 +102,30 @@ class TorBoxItem(Base):
         default=utc_now,
         nullable=False,
     )
+    files: Mapped[list[TorBoxStoredFile]] = relationship(
+        back_populates="torbox_item", cascade="all, delete-orphan"
+    )
+
+
+class TorBoxStoredFile(Base):
+    __tablename__ = "torbox_files"
+    __table_args__ = (
+        UniqueConstraint("torbox_item_id", "external_id", name="uq_torbox_files_item_external_id"),
+        Index("ix_torbox_files_torbox_item_id", "torbox_item_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    torbox_item_id: Mapped[int] = mapped_column(
+        ForeignKey("torbox_items.id", ondelete="CASCADE"), nullable=False
+    )
+    external_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    file_name: Mapped[str] = mapped_column(Text, nullable=False)
+    path: Mapped[str] = mapped_column(Text, nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    torbox_item: Mapped[TorBoxItem] = relationship(back_populates="files")
+    library_entries: Mapped[list[LibraryEntry]] = relationship(back_populates="torbox_file")
 
 
 class TmdbCacheEntry(Base):
@@ -225,18 +272,19 @@ class LibraryEntry(Base):
     __tablename__ = "library_entries"
     __table_args__ = (
         UniqueConstraint("opaque_id", name="uq_library_entries_opaque_id"),
+        UniqueConstraint("torbox_file_id", name="uq_library_entries_torbox_file_id"),
         Index("ix_library_entries_category", "category"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     opaque_id: Mapped[str] = mapped_column(String(64), nullable=False)
     media_item_id: Mapped[int] = mapped_column(ForeignKey("media_items.id"), nullable=False)
+    torbox_file_id: Mapped[int] = mapped_column(
+        ForeignKey("torbox_files.id", ondelete="CASCADE"), nullable=False
+    )
     category: Mapped[str] = mapped_column(String(20), nullable=False)
     season_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     episode_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    provider: Mapped[str] = mapped_column(String(40), nullable=False)
-    provider_item_id: Mapped[str] = mapped_column(String(100), nullable=False)
-    provider_file_id: Mapped[str] = mapped_column(String(100), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utc_now,
@@ -250,7 +298,10 @@ class LibraryEntry(Base):
     )
 
     media_item: Mapped[MediaItem] = relationship(back_populates="library_entries")
-    generated_files: Mapped[list[GeneratedFile]] = relationship(back_populates="library_entry")
+    torbox_file: Mapped[TorBoxStoredFile] = relationship(back_populates="library_entries")
+    generated_files: Mapped[list[GeneratedFile]] = relationship(
+        back_populates="library_entry", cascade="all, delete-orphan"
+    )
     playback_attempts: Mapped[list[PlaybackAttempt]] = relationship(back_populates="library_entry")
 
 
@@ -262,7 +313,9 @@ class GeneratedFile(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    library_entry_id: Mapped[int] = mapped_column(ForeignKey("library_entries.id"), nullable=False)
+    library_entry_id: Mapped[int] = mapped_column(
+        ForeignKey("library_entries.id", ondelete="CASCADE"), nullable=False
+    )
     relative_path: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     generated_at: Mapped[datetime] = mapped_column(
@@ -342,7 +395,7 @@ class PlaybackAttempt(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     library_entry_id: Mapped[int | None] = mapped_column(
-        ForeignKey("library_entries.id"),
+        ForeignKey("library_entries.id", ondelete="SET NULL"),
         nullable=True,
     )
     entry_opaque_id: Mapped[str] = mapped_column(String(64), nullable=False)

@@ -80,6 +80,29 @@ def test_library_entry_uses_pack_folder_for_bare_episode_number() -> None:
     assert entry.episode_number == 1
 
 
+def test_library_entry_recognizes_bare_numbered_anime_episode_release() -> None:
+    entry = library_entry_from_file_name(
+        "Ascendance of a Bookworm 01 JP BD Hi10.mkv",
+        "https://example.test/play",
+    )
+
+    assert entry.category == "shows"
+    assert entry.title == "Ascendance of a Bookworm"
+    assert entry.season_number == 1
+    assert entry.episode_number == 1
+
+
+def test_library_entry_does_not_treat_numbered_movie_quality_as_an_episode() -> None:
+    entry = library_entry_from_file_name(
+        "Movie 01 1080p WEB-DL.mkv",
+        "https://example.test/play",
+    )
+
+    assert entry.category == "movies"
+    assert entry.season_number is None
+    assert entry.episode_number is None
+
+
 def test_library_entry_falls_back_to_cleaned_folder_title() -> None:
     """When file name is bare SxEy, title and year come from the folder."""
     entry = library_entry_from_file_name(

@@ -17,12 +17,10 @@ from app.providers.aiostreams.client import AioStreamsClient, AioStreamsClientEr
 from app.providers.tmdb.client import TmdbClient, TmdbClientError
 from app.providers.tmdb.metadata import TmdbMetadataService
 from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
-from app.providers.torbox.files import DOWNLOAD_KINDS
 from app.season_completion.discovery import AioStreamsRequestLimiter, discover_candidates
 from app.season_completion.inventory import (
     LibraryShow,
     SeasonInventoryRepository,
-    source_filename_index,
 )
 from app.season_completion.matching import title_matches_show
 from app.season_completion.metadata import imdb_id, regular_released_episodes, season_numbers
@@ -113,8 +111,7 @@ async def _run_season_completion(
         base_url=settings.torbox_base_url,
         timeout=settings.outbound_timeout_seconds,
     ) as torbox:
-        downloads = {kind: await torbox.list_downloads(kind) for kind in DOWNLOAD_KINDS}
-        shows = await SeasonInventoryRepository(session).shows(source_filename_index(downloads))
+        shows = await SeasonInventoryRepository(session).shows()
         missing_count, added_hashes, diagnostics = await _complete_inventory(
             shows=shows,
             metadata=metadata,

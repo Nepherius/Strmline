@@ -3,7 +3,7 @@ from typing import cast
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import LibraryEntry, PlaybackAttempt
+from app.db.models import LibraryEntry, PlaybackAttempt, TorBoxItem, TorBoxStoredFile
 from app.db.repositories.resolver import PlaybackResolverRepository, ResolverLookupError
 from app.providers.torbox.files import TorBoxFile
 from app.resolver.manifest import resolver_entry_id
@@ -48,10 +48,20 @@ async def test_resolver_repository_builds_torbox_target_and_records_attempt() ->
         id=42,
         opaque_id=entry_id,
         media_item_id=1,
+        torbox_file_id=2,
         category="movies",
-        provider="torbox",
-        provider_item_id="1",
-        provider_file_id="2",
+    )
+    library_entry.torbox_file = TorBoxStoredFile(
+        id=2,
+        torbox_item_id=1,
+        external_id="2",
+        file_name="Movie.2024.mkv",
+        path="Movie/Movie.2024.mkv",
+        mime_type="video/x-matroska",
+        size=1_000,
+    )
+    library_entry.torbox_file.torbox_item = TorBoxItem(
+        id=1, kind="torrents", external_id="1", name="Movie", raw_payload={}
     )
     session = FakeSession([FakeResult(scalar=library_entry)])
 

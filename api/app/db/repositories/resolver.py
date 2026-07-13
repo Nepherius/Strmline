@@ -4,8 +4,9 @@ from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from app.db.models import LibraryEntry, PlaybackAttempt, ResolverToken
+from app.db.models import LibraryEntry, PlaybackAttempt, ResolverToken, TorBoxStoredFile
 from app.db.repositories.settings import sha256_hex
 from app.providers.torbox.files import (
     DOWNLOAD_KINDS,
@@ -13,7 +14,6 @@ from app.providers.torbox.files import (
     TorBoxFile,
     request_download_url,
 )
-from app.resolver.manifest import resolver_entry_id
 
 
 class ResolverLookupError(RuntimeError):
@@ -56,7 +56,8 @@ class PlaybackResolverRepository:
             msg = "Resolver entry was not found."
             raise ResolverLookupError(msg)
 
-        kind = _torbox_kind(library_entry)
+        torbox_file = library_entry.torbox_file
+        kind = _torbox_kind(torbox_file.torbox_item.kind)
         if kind is None:
             await self._record_attempt(
                 entry_id=entry_id,
@@ -72,13 +73,13 @@ class PlaybackResolverRepository:
             api_key,
             TorBoxFile(
                 kind=kind,
-                item_id=library_entry.provider_item_id,
-                file_id=library_entry.provider_file_id,
-                folder_name="",
-                file_name="",
-                path="",
-                mime_type="",
-                size=None,
+                item_id=torbox_file.torbox_item.external_id,
+                file_id=torbox_file.external_id,
+                folder_name=torbox_file.torbox_item.name,
+                file_name=torbox_file.file_name,
+                path=torbox_file.path,
+                mime_type=torbox_file.mime_type,
+                size=torbox_file.size,
             ),
         )
         await self._record_attempt(
@@ -91,7 +92,11 @@ class PlaybackResolverRepository:
 
     async def _library_entry(self, entry_id: str) -> LibraryEntry | None:
         result = await self._session.execute(
-            select(LibraryEntry).where(LibraryEntry.opaque_id == entry_id)
+            select(LibraryEntry)
+            .options(
+                selectinload(LibraryEntry.torbox_file).selectinload(TorBoxStoredFile.torbox_item)
+            )
+            .where(LibraryEntry.opaque_id == entry_id)
         )
         return result.scalar_one_or_none()
 
@@ -114,30 +119,5 @@ class PlaybackResolverRepository:
         await self._session.commit()
 
 
-def _torbox_kind(library_entry: LibraryEntry) -> DownloadKind | None:
-    if library_entry.provider in DOWNLOAD_KINDS:
-        return library_entry.provider
-    if library_entry.provider.startswith("torbox:"):
-        candidate = library_entry.provider.split(":", maxsplit=1)[1]
-        if candidate in DOWNLOAD_KINDS:
-            return candidate
-    if library_entry.provider != "torbox":
-        return None
-    return _legacy_torbox_kind(library_entry)
-
-
-def _legacy_torbox_kind(library_entry: LibraryEntry) -> DownloadKind | None:
-    for kind in DOWNLOAD_KINDS:
-        candidate = TorBoxFile(
-            kind=kind,
-            item_id=library_entry.provider_item_id,
-            file_id=library_entry.provider_file_id,
-            folder_name="",
-            file_name="",
-            path="",
-            mime_type="",
-            size=None,
-        )
-        if resolver_entry_id(candidate) == library_entry.opaque_id:
-            return kind
-    return None
+def _torbox_kind(kind: str) -> DownloadKind | None:
+    return kind if kind in DOWNLOAD_KINDS else None

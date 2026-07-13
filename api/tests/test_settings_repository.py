@@ -7,7 +7,7 @@ from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.db.models import AppSetting, ProviderCredential, ResolverToken
+from app.db.models import ApplicationSettings, ProviderCredential, ResolverToken
 from app.db.repositories.settings import (
     AppSettingsRepository,
     AppSettingsUpdate,
@@ -94,12 +94,13 @@ def test_sha256_hex_is_stable_and_not_plaintext() -> None:
 async def test_settings_repository_saves_public_values_and_secrets() -> None:
     session = FakeSession(
         [
+            FakeResult(),  # missing application settings
             FakeResult(),  # missing torbox credential
             FakeResult(),  # missing tmdb credential
             FakeResult(),  # missing resolver hash
             FakeResult(),  # missing resolver token credential
             FakeResult(),  # missing aiostreams base URL credential
-            FakeResult(scalars=[]),  # snapshot app settings
+            FakeResult(),  # snapshot application settings
             FakeResult(scalar=1),  # torbox configured
             FakeResult(scalar=2),  # tmdb configured
             FakeResult(scalar=3),  # resolver configured
@@ -134,28 +135,15 @@ async def test_settings_repository_saves_public_values_and_secrets() -> None:
     )
 
     assert session.committed is True
-    merged_settings = [item for item in session.merged if isinstance(item, AppSetting)]
-    assert [setting.key for setting in merged_settings] == [
-        "base_url",
-        "movies_enabled",
-        "shows_enabled",
-        "anime_enabled",
-        "playback_mode",
-        "sync_interval_minutes",
-        "debug_logging",
-        "season_auto_complete_enabled",
-        "season_auto_complete_interval_days",
-        "season_auto_complete_allow_uncached",
-        "season_auto_complete_shows_per_minute",
-    ]
-    assert merged_settings[1].value == {"value": False}
-    assert merged_settings[4].value == {"value": "direct"}
-    assert merged_settings[5].value == {"value": 120}
-    assert merged_settings[6].value == {"value": True}
-    assert merged_settings[7].value == {"value": True}
-    assert merged_settings[8].value == {"value": 3}
-    assert merged_settings[9].value == {"value": True}
-    assert merged_settings[10].value == {"value": 2}
+    saved_settings = next(item for item in session.added if isinstance(item, ApplicationSettings))
+    assert saved_settings.base_url == "http://strmline.test"
+    assert saved_settings.movies_enabled is False
+    assert saved_settings.playback_mode == "direct"
+    assert saved_settings.sync_interval_minutes == 120
+    assert saved_settings.debug_logging is True
+    assert saved_settings.season_auto_complete_interval_days == 3
+    assert saved_settings.season_auto_complete_allow_uncached is True
+    assert saved_settings.season_auto_complete_shows_per_minute == 2
     credentials = [item for item in session.added if isinstance(item, ProviderCredential)]
     resolver_tokens = [item for item in session.added if isinstance(item, ResolverToken)]
     assert len(credentials) == 4
@@ -186,7 +174,7 @@ async def test_settings_repository_generates_resolver_token_when_missing() -> No
             FakeResult(scalar=None),  # no saved resolver credential
             FakeResult(),  # missing resolver hash
             FakeResult(),  # missing resolver token credential
-            FakeResult(scalars=[]),  # snapshot app settings
+            FakeResult(),  # snapshot application settings
             FakeResult(scalar=1),  # torbox configured
             FakeResult(scalar=None),  # tmdb missing
             FakeResult(scalar=3),  # resolver configured
@@ -214,28 +202,19 @@ async def test_settings_repository_reads_database_values_when_env_is_missing() -
     session = FakeSession(
         [
             FakeResult(
-                scalars=[
-                    AppSetting(key="base_url", value={"value": "http://db.test"}),
-                    AppSetting(key="library_root", value={"value": "/library"}),
-                    AppSetting(key="movies_enabled", value={"value": False}),
-                    AppSetting(key="shows_enabled", value={"value": True}),
-                    AppSetting(key="playback_mode", value={"value": "direct"}),
-                    AppSetting(key="sync_interval_minutes", value={"value": 45}),
-                    AppSetting(key="debug_logging", value={"value": True}),
-                    AppSetting(key="season_auto_complete_enabled", value={"value": True}),
-                    AppSetting(
-                        key="season_auto_complete_interval_days",
-                        value={"value": 2},
-                    ),
-                    AppSetting(
-                        key="season_auto_complete_allow_uncached",
-                        value={"value": True},
-                    ),
-                    AppSetting(
-                        key="season_auto_complete_shows_per_minute",
-                        value={"value": 2},
-                    ),
-                ]
+                scalar=ApplicationSettings(
+                    base_url="http://db.test",
+                    movies_enabled=False,
+                    shows_enabled=True,
+                    anime_enabled=True,
+                    playback_mode="direct",
+                    sync_interval_minutes=45,
+                    debug_logging=True,
+                    season_auto_complete_enabled=True,
+                    season_auto_complete_interval_days=2,
+                    season_auto_complete_allow_uncached=True,
+                    season_auto_complete_shows_per_minute=2,
+                )
             ),
             FakeResult(scalar=1),
             FakeResult(scalar=None),
@@ -278,7 +257,7 @@ async def test_settings_repository_reads_database_values_when_env_is_missing() -
 async def test_settings_repository_reports_resolver_source_from_saved_secret() -> None:
     session = FakeSession(
         [
-            FakeResult(scalars=[]),
+            FakeResult(),
             FakeResult(scalar=None),
             FakeResult(scalar=None),
             FakeResult(scalar=None),
@@ -305,7 +284,7 @@ async def test_settings_repository_reports_resolver_source_from_saved_secret() -
 async def test_settings_repository_reports_environment_sources() -> None:
     session = FakeSession(
         [
-            FakeResult(scalars=[]),
+            FakeResult(),
         ]
     )
     repository = AppSettingsRepository(

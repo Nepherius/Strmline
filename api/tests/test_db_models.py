@@ -1,7 +1,7 @@
 from app.db.base import Base
 from app.db.models import (
     AniListCacheEntry,
-    AppSetting,
+    ApplicationSettings,
     ClassificationOverride,
     GeneratedFile,
     LibraryEntry,
@@ -15,12 +15,13 @@ from app.db.models import (
     SyncRun,
     TmdbCacheEntry,
     TorBoxItem,
+    TorBoxStoredFile,
 )
 
 
 def test_initial_schema_tables_are_registered() -> None:
     assert set(Base.metadata.tables) == {
-        "app_settings",
+        "application_settings",
         "anilist_cache_entries",
         "classification_overrides",
         "generated_files",
@@ -35,6 +36,7 @@ def test_initial_schema_tables_are_registered() -> None:
         "sync_runs",
         "tmdb_cache_entries",
         "torbox_items",
+        "torbox_files",
         "users",
     }
 
@@ -78,9 +80,17 @@ def test_sync_errors_can_be_dismissed() -> None:
 
 
 def test_core_models_have_expected_primary_keys() -> None:
-    assert {column.name for column in AppSetting.__table__.primary_key} == {"key"}
+    assert {column.name for column in ApplicationSettings.__table__.primary_key} == {"id"}
     assert {column.name for column in MediaItem.__table__.primary_key} == {"id"}
     assert {column.name for column in LibraryEntry.__table__.primary_key} == {"id"}
+
+
+def test_library_entries_reference_normalized_torbox_files() -> None:
+    columns = set(LibraryEntry.__table__.columns.keys())
+
+    assert "torbox_file_id" in columns
+    assert {"provider", "provider_item_id", "provider_file_id"}.isdisjoint(columns)
+    assert "external_id" in set(TorBoxStoredFile.__table__.columns.keys())
 
 
 def test_classification_overrides_are_keyed_by_source_prefix() -> None:

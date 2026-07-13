@@ -10,7 +10,7 @@ from app.library.classification_override import (
     apply_classification_override,
     source_prefix_for_entry,
 )
-from app.library.entries import LibraryEntry
+from app.library.entries import LibraryCategory, LibraryEntry
 from app.library.naming import library_entry_from_file_name
 from app.library.paths import library_entry_relative_path
 from app.library.stale_cleanup import remove_stale_strm_files
@@ -28,7 +28,7 @@ from app.resolver.manifest import (
     resolver_playback_url,
     write_manifest_entries,
 )
-from app.sync.media_identity import MediaIdentityResolver
+from app.sync.media_identity import MediaIdentity
 
 
 class TorBoxDownloadClient(Protocol):
@@ -42,6 +42,17 @@ class TorBoxDownloadClient(Protocol):
 class AnimeClassifier(Protocol):
     async def has_anime_match(self, title: str, *, year: int | None = None) -> bool:
         """Return true when provider metadata confirms an anime title."""
+        ...
+
+
+class MediaIdentityLookup(Protocol):
+    async def resolve(
+        self,
+        parsed_title: str,
+        year: int | None,
+        category: str,
+    ) -> MediaIdentity:
+        """Resolve parsed media to a stable provider identity."""
         ...
 
 
@@ -70,6 +81,11 @@ class SyncedStrmFile:
     provider_file_id: str
     content_hash: str
     tmdb_id: str | None = None
+    provider_item_name: str = ""
+    provider_file_name: str = ""
+    provider_file_path: str = ""
+    provider_file_mime_type: str = ""
+    provider_file_size: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,7 +106,7 @@ class TorBoxStrmSync:
         anime_classifier: AnimeClassifier | None = None,
         classification_overrides: tuple[LibraryClassificationOverride, ...] = (),
         excluded_prefixes: tuple[str, ...] = (),
-        media_identity_resolver: MediaIdentityResolver | None = None,
+        media_identity_resolver: MediaIdentityLookup | None = None,
     ) -> None:
         self._client = client
         self._api_key = api_key
@@ -156,7 +172,7 @@ class TorBoxStrmSync:
                     tmdb_id = identity.tmdb_id
                     if identity.tmdb_id is not None:
                         entry = LibraryEntry(
-                            category=entry.category,
+                            category=_category_from_identity(entry, identity.media_type),
                             title=identity.title,
                             year=identity.year,
                             season_number=entry.season_number,
@@ -267,6 +283,11 @@ def _synced_file(
         provider=torbox_file.kind,
         provider_item_id=torbox_file.item_id,
         provider_file_id=torbox_file.file_id,
+        provider_item_name=torbox_file.folder_name,
+        provider_file_name=torbox_file.file_name,
+        provider_file_path=torbox_file.path,
+        provider_file_mime_type=torbox_file.mime_type,
+        provider_file_size=torbox_file.size,
         content_hash=hashlib.sha256(entry.resolver_url.encode("utf-8")).hexdigest(),
         tmdb_id=tmdb_id,
     )
@@ -279,6 +300,14 @@ def _should_check_anilist(entry: LibraryEntry) -> bool:
     if entry.year is not None:
         return True
     return len(entry.title.strip()) > 1
+
+
+def _category_from_identity(entry: LibraryEntry, media_type: str) -> LibraryCategory:
+    if entry.category == "anime":
+        return "anime"
+    if media_type == "tv" and entry.season_number is not None:
+        return "shows"
+    return entry.category
 
 
 def _is_excluded(entry: LibraryEntry, excluded_prefixes: tuple[str, ...]) -> bool:

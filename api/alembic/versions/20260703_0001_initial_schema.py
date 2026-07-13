@@ -7,8 +7,8 @@ Create Date: 2026-07-03 00:00:00.000000+00:00
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0001"
@@ -19,12 +19,23 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     op.create_table(
-        "app_settings",
-        sa.Column("key", sa.String(length=100), nullable=False),
-        sa.Column("value", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("is_secret", sa.Boolean(), nullable=False),
+        "application_settings",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("base_url", sa.Text(), nullable=True),
+        sa.Column("movies_enabled", sa.Boolean(), nullable=False),
+        sa.Column("shows_enabled", sa.Boolean(), nullable=False),
+        sa.Column("anime_enabled", sa.Boolean(), nullable=False),
+        sa.Column("playback_mode", sa.String(length=20), nullable=False),
+        sa.Column("sync_interval_minutes", sa.Integer(), nullable=False),
+        sa.Column("debug_logging", sa.Boolean(), nullable=False),
+        sa.Column("season_auto_complete_enabled", sa.Boolean(), nullable=False),
+        sa.Column("season_auto_complete_interval_days", sa.Integer(), nullable=False),
+        sa.Column("season_auto_complete_allow_uncached", sa.Boolean(), nullable=False),
+        sa.Column("season_auto_complete_shows_per_minute", sa.Integer(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.PrimaryKeyConstraint("key", name=op.f("pk_app_settings")),
+        sa.CheckConstraint("id = 1", name="ck_application_settings_singleton"),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_application_settings")),
     )
     op.create_table(
         "media_items",
@@ -108,16 +119,35 @@ def upgrade() -> None:
     )
     op.create_index("ix_torbox_items_kind", "torbox_items", ["kind"], unique=False)
     op.create_table(
+        "torbox_files",
+        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
+        sa.Column("torbox_item_id", sa.Integer(), nullable=False),
+        sa.Column("external_id", sa.String(length=100), nullable=False),
+        sa.Column("file_name", sa.Text(), nullable=False),
+        sa.Column("path", sa.Text(), nullable=False),
+        sa.Column("mime_type", sa.String(length=255), nullable=False),
+        sa.Column("size", sa.BigInteger(), nullable=True),
+        sa.ForeignKeyConstraint(
+            ["torbox_item_id"],
+            ["torbox_items.id"],
+            name=op.f("fk_torbox_files_torbox_item_id_torbox_items"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_torbox_files")),
+        sa.UniqueConstraint(
+            "torbox_item_id", "external_id", name="uq_torbox_files_item_external_id"
+        ),
+    )
+    op.create_index("ix_torbox_files_torbox_item_id", "torbox_files", ["torbox_item_id"])
+    op.create_table(
         "library_entries",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("opaque_id", sa.String(length=64), nullable=False),
         sa.Column("media_item_id", sa.Integer(), nullable=False),
+        sa.Column("torbox_file_id", sa.Integer(), nullable=False),
         sa.Column("category", sa.String(length=20), nullable=False),
         sa.Column("season_number", sa.Integer(), nullable=True),
         sa.Column("episode_number", sa.Integer(), nullable=True),
-        sa.Column("provider", sa.String(length=40), nullable=False),
-        sa.Column("provider_item_id", sa.String(length=100), nullable=False),
-        sa.Column("provider_file_id", sa.String(length=100), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
@@ -125,8 +155,15 @@ def upgrade() -> None:
             ["media_items.id"],
             name=op.f("fk_library_entries_media_item_id_media_items"),
         ),
+        sa.ForeignKeyConstraint(
+            ["torbox_file_id"],
+            ["torbox_files.id"],
+            name=op.f("fk_library_entries_torbox_file_id_torbox_files"),
+            ondelete="CASCADE",
+        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_library_entries")),
         sa.UniqueConstraint("opaque_id", name="uq_library_entries_opaque_id"),
+        sa.UniqueConstraint("torbox_file_id", name="uq_library_entries_torbox_file_id"),
     )
     op.create_index(
         "ix_library_entries_category",
@@ -161,6 +198,7 @@ def upgrade() -> None:
             ["library_entry_id"],
             ["library_entries.id"],
             name=op.f("fk_generated_files_library_entry_id_library_entries"),
+            ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_generated_files")),
         sa.UniqueConstraint("relative_path", name="uq_generated_files_relative_path"),
@@ -183,6 +221,7 @@ def upgrade() -> None:
             ["library_entry_id"],
             ["library_entries.id"],
             name=op.f("fk_playback_attempts_library_entry_id_library_entries"),
+            ondelete="SET NULL",
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_playback_attempts")),
     )
@@ -203,6 +242,8 @@ def downgrade() -> None:
     op.drop_table("sync_errors")
     op.drop_index("ix_library_entries_category", table_name="library_entries")
     op.drop_table("library_entries")
+    op.drop_index("ix_torbox_files_torbox_item_id", table_name="torbox_files")
+    op.drop_table("torbox_files")
     op.drop_index("ix_torbox_items_kind", table_name="torbox_items")
     op.drop_table("torbox_items")
     op.drop_index("ix_sync_runs_status_started_at", table_name="sync_runs")
@@ -212,4 +253,4 @@ def downgrade() -> None:
     op.drop_table("provider_credentials")
     op.drop_index("ix_media_items_type_title", table_name="media_items")
     op.drop_table("media_items")
-    op.drop_table("app_settings")
+    op.drop_table("application_settings")
