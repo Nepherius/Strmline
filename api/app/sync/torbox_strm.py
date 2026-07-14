@@ -170,15 +170,14 @@ class TorBoxStrmSync:
                         category=entry.category,
                     )
                     tmdb_id = identity.tmdb_id
-                    if identity.tmdb_id is not None:
-                        entry = LibraryEntry(
-                            category=_category_from_identity(entry, identity.media_type),
-                            title=identity.title,
-                            year=identity.year,
-                            season_number=entry.season_number,
-                            episode_number=entry.episode_number,
-                            resolver_url=entry.resolver_url,
-                        )
+                    entry = LibraryEntry(
+                        category=_category_from_identity(entry, identity.media_type),
+                        title=identity.title,
+                        year=identity.year,
+                        season_number=entry.season_number,
+                        episode_number=entry.episode_number,
+                        resolver_url=entry.resolver_url,
+                    )
 
                 if _is_excluded(entry, self._excluded_prefixes):
                     skipped_files += 1

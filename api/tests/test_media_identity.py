@@ -72,6 +72,19 @@ async def test_media_identity_resolver_without_service() -> None:
 
 
 @pytest.mark.asyncio
+async def test_media_identity_resolver_cleans_fallback_title_without_tmdb() -> None:
+    resolver = MediaIdentityResolver(None)
+
+    junk_identity = await resolver.resolve("www 1TamilMV cards Teach You a Lesson", None, "shows")
+    mixed_identity = await resolver.resolve("멋진 신세계 My Royal Nemesis", None, "shows")
+    casing_identity = await resolver.resolve("FROM", None, "shows")
+
+    assert junk_identity.title == "Teach You a Lesson"
+    assert mixed_identity.title == "My Royal Nemesis"
+    assert casing_identity.title == "From"
+
+
+@pytest.mark.asyncio
 async def test_media_identity_resolver_cache_hit() -> None:
     now = utc_now()
     cache_entry = TmdbCacheEntry(
@@ -194,6 +207,32 @@ async def test_media_identity_resolver_with_junk_prefix() -> None:
     assert identity.title == "Teach You a Lesson"
     assert identity.year == 2024
     assert identity.media_type == "tv"
+
+
+@pytest.mark.asyncio
+async def test_media_identity_resolver_accepts_unique_same_year_localized_result() -> None:
+    session = FakeSession([FakeResult(None), FakeResult(None), FakeResult(None)])
+    cache_repo = TmdbCacheRepository(cast(AsyncSession, session))
+    client = FakeTmdbClient(
+        {
+            "results": [
+                {
+                    "id": 123,
+                    "media_type": "movie",
+                    "title": "왕과 사는 남자",
+                    "release_date": "2026-01-01",
+                }
+            ]
+        }
+    )
+    service = TmdbMetadataService(cache_repository=cache_repo, tmdb_client=client)
+    resolver = MediaIdentityResolver(service, delay_seconds=0.0)
+
+    identity = await resolver.resolve("The King's Warden", 2026, "movies")
+
+    assert identity.tmdb_id == "123"
+    assert identity.title == "왕과 사는 남자"
+    assert identity.year == 2026
 
 
 def test_title_similarity() -> None:

@@ -54,7 +54,7 @@ class MediaIdentityResolver:
         query_media_type = "movie" if category == "movies" else "tv"
         fallback = MediaIdentity(
             tmdb_id=None,
-            title=parsed_title,
+            title=_fallback_title(parsed_title),
             year=year,
             media_type=query_media_type,
         )
@@ -118,10 +118,17 @@ class MediaIdentityResolver:
             if scored_candidates:
                 scored_candidates.sort(key=lambda x: x[0], reverse=True)
                 return scored_candidates[0][1]
+            unique_same_year = _unique_same_year_identity(
+                valid_results,
+                query_media_type=query_media_type,
+                year=year,
+            )
+            if unique_same_year is not None:
+                return unique_same_year
 
         return MediaIdentity(
             tmdb_id=None,
-            title=parsed_title,
+            title=_fallback_title(parsed_title),
             year=year,
             media_type=query_media_type,
         )
@@ -190,10 +197,59 @@ class MediaIdentityResolver:
         return scored_candidates
 
 
+def _unique_same_year_identity(
+    results: list[dict[str, Any]],
+    *,
+    query_media_type: str,
+    year: int | None,
+) -> MediaIdentity | None:
+    if year is None:
+        return None
+    candidates: list[MediaIdentity] = []
+    for raw in results:
+        identity = _result_identity(raw)
+        if identity is None or identity.media_type != query_media_type:
+            continue
+        if identity.year == year:
+            candidates.append(identity)
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _result_identity(raw: dict[str, Any]) -> MediaIdentity | None:
+    tmdb_id = raw.get("id")
+    media_type = raw.get("media_type")
+    if tmdb_id is None or media_type not in ("movie", "tv"):
+        return None
+    if media_type == "movie":
+        title = raw.get("title") or raw.get("original_title")
+        year = parse_year(raw.get("release_date"))
+    else:
+        title = raw.get("name") or raw.get("original_name")
+        year = parse_year(raw.get("first_air_date"))
+    if not isinstance(title, str) or not title:
+        return None
+    return MediaIdentity(
+        tmdb_id=str(tmdb_id),
+        title=title,
+        year=year,
+        media_type=str(media_type),
+    )
+
+
 def clean_search_title(title: str) -> str:
     cleaned = JUNK_PREFIXES.sub("", title).strip()
     if not cleaned:
         return title
+    return cleaned
+
+
+def _fallback_title(title: str) -> str:
+    queries = extract_search_queries(title)
+    cleaned = queries[0]
+    if len(queries) > 1 and _contains_cjk(cleaned):
+        cleaned = queries[1]
+    if cleaned.isupper() and any(character.isalpha() for character in cleaned):
+        return cleaned.title()
     return cleaned
 
 
@@ -203,7 +259,7 @@ def extract_search_queries(title: str) -> list[str]:
 
     # Check for CJK + Latin mix
     cjk_pattern = re.compile(r"[\u3040-\u30ff\u4e00-\u9faf\uac00-\ud7af]+")
-    has_cjk = bool(cjk_pattern.search(cleaned))
+    has_cjk = _contains_cjk(cleaned)
 
     latin_pattern = re.compile(r"[a-zA-Z]{3,}")
     has_latin = bool(latin_pattern.search(cleaned))
@@ -220,6 +276,10 @@ def extract_search_queries(title: str) -> list[str]:
             queries.append(cjk_parts)
 
     return queries
+
+
+def _contains_cjk(value: str) -> bool:
+    return bool(re.search(r"[\u3040-\u30ff\u4e00-\u9faf\uac00-\ud7af]", value))
 
 
 def parse_year(date_str: object) -> int | None:
