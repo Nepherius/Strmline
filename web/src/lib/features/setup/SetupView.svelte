@@ -273,9 +273,9 @@
   .category-options,
   .missing,
   .setup-dialog {
-    border: 1px solid #d7ded9;
+    border: 1px solid var(--border);
     border-radius: 6px;
-    background: #ffffff;
+    background: var(--surface);
   }
 
   .setup-dialog {
@@ -284,8 +284,8 @@
     max-width: 760px;
     margin-top: 12px;
     padding: 14px;
-    border-color: #d9b66c;
-    background: #fff9ea;
+    border-color: var(--warning-border);
+    background: var(--warning-surface);
   }
 
   .setup-dialog h2,
@@ -294,12 +294,12 @@
   }
 
   .setup-dialog h2 {
-    color: #4b3510;
+    color: var(--warning-text);
     font-size: 16px;
   }
 
   .setup-dialog p {
-    color: #765d1d;
+    color: var(--warning-text);
     font-size: 14px;
   }
 
@@ -310,11 +310,11 @@
   }
 
   .dialog-missing span {
-    border: 1px solid #d9b66c;
+    border: 1px solid var(--warning-border);
     border-radius: 999px;
     padding: 5px 10px;
-    background: #ffffff;
-    color: #765d1d;
+    background: var(--surface-raised);
+    color: var(--warning-text);
     font-size: 12px;
     font-weight: 700;
   }
@@ -328,11 +328,11 @@
   }
 
   .missing span {
-    border: 1px solid #d9b66c;
+    border: 1px solid var(--warning-border);
     border-radius: 999px;
     padding: 5px 10px;
-    background: #fff9ea;
-    color: #765d1d;
+    background: var(--warning-surface);
+    color: var(--warning-text);
     font-size: 12px;
     font-weight: 700;
   }
@@ -358,7 +358,7 @@
 
   .category-options legend {
     padding: 0 4px;
-    color: #526057;
+    color: var(--text-muted);
     font-size: 12px;
     font-weight: 700;
     text-transform: uppercase;
@@ -382,17 +382,17 @@
   }
 
   .actions span {
-    color: #526057;
+    color: var(--text-muted);
     font-size: 13px;
     font-weight: 700;
   }
 
   .actions span.ok {
-    color: #1f5b42;
+    color: var(--success-text);
   }
 
   .actions span.error-text {
-    color: #8e251f;
+    color: var(--danger-text);
   }
 
   @media (max-width: 760px) {

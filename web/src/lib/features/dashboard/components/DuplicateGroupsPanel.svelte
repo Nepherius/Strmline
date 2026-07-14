@@ -55,10 +55,10 @@
   article {
     display: grid;
     gap: 8px;
-    border: 1px solid #d9b66c;
+    border: 1px solid var(--warning-border);
     border-radius: 6px;
     padding: 10px;
-    background: #fff9ea;
+    background: var(--warning-surface);
   }
 
   .group-header,
@@ -70,7 +70,7 @@
   }
 
   .group-header span {
-    color: #765d1d;
+    color: var(--warning-text);
     white-space: nowrap;
   }
 
@@ -81,7 +81,7 @@
 
   code {
     overflow-wrap: anywhere;
-    color: #4f5d55;
+    color: var(--text-muted);
     font-size: 11px;
   }
 
@@ -91,11 +91,11 @@
     place-items: center;
     width: 28px;
     height: 28px;
-    border: 1px solid #d7aca7;
+    border: 1px solid var(--danger-border);
     border-radius: 6px;
     padding: 0;
-    background: #fff5f4;
-    color: #8d2d23;
+    background: var(--danger-surface);
+    color: var(--danger-text);
     cursor: pointer;
     font-size: 18px;
     font-weight: 800;

@@ -80,8 +80,8 @@
 
 <style>
   .stream-item {
-    background: #ffffff;
-    border: 1px solid #d7ded9;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 12px;
     padding: 16px 20px;
     display: flex;
@@ -102,18 +102,18 @@
   .stream-actions button {
     min-width: 104px;
     height: 34px;
-    border: 1px solid #1c4333;
+    border: 1px solid var(--accent-strong);
     border-radius: 6px;
-    background: #1f5b42;
-    color: #ffffff;
+    background: var(--accent);
+    color: var(--text);
     cursor: pointer;
     font-weight: 700;
   }
 
   .stream-actions button.remove {
-    border-color: #a23a35;
-    background: #fff5f4;
-    color: #8e251f;
+    border-color: var(--danger-border);
+    background: var(--danger-surface);
+    color: var(--danger-text);
   }
 
   .stream-actions button:disabled {
@@ -136,58 +136,58 @@
   }
 
   .badge-provider {
-    background: #eef3f0;
-    color: #1f5b42;
-    border: 1px solid #bdc8c2;
+    background: var(--surface-raised);
+    color: var(--text-soft);
+    border: 1px solid var(--border);
   }
 
   .badge-selected {
-    background: #e8f7ef;
-    color: #1f5b42;
-    border: 1px solid #9bc9aa;
+    background: var(--success-surface);
+    color: var(--success-text);
+    border: 1px solid var(--success-border);
   }
 
   .badge-purple {
-    background: #f3f0ff;
-    color: #6b46c1;
-    border: 1px solid #d6bcfa;
+    background: #30384f;
+    color: #d5d9ff;
+    border: 1px solid #58658f;
   }
 
   .badge-blue {
-    background: #ebf8ff;
-    color: #2b6cb0;
-    border: 1px solid #bee3f8;
+    background: #1e3543;
+    color: #b6e3f5;
+    border: 1px solid #41748d;
   }
 
   .badge-green {
-    background: #f0fff4;
-    color: #2f855a;
-    border: 1px solid #c6f6d5;
+    background: var(--success-surface);
+    color: var(--success-text);
+    border: 1px solid var(--success-border);
   }
 
   .badge-yellow {
-    background: #fffaf0;
-    color: #b7791f;
-    border: 1px solid #feebc8;
+    background: var(--warning-surface);
+    color: var(--warning-text);
+    border: 1px solid var(--warning-border);
   }
 
   .badge-red {
-    background: #fff5f5;
-    color: #c53030;
-    border: 1px solid #fed7d7;
+    background: var(--danger-surface);
+    color: var(--danger-text);
+    border: 1px solid var(--danger-border);
   }
 
   .badge-gray {
-    background: #f7fafc;
-    color: #4a5568;
-    border: 1px solid #e2e8f0;
+    background: var(--surface-subtle);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
   }
 
   .stream-title {
     margin: 0 0 6px;
     font-size: 14px;
     font-weight: 700;
-    color: #15201b;
+    color: var(--text);
     word-break: break-all;
   }
 
@@ -195,7 +195,7 @@
     display: flex;
     gap: 8px;
     font-size: 12px;
-    color: #5b6a61;
+    color: var(--text-muted);
     flex-wrap: wrap;
   }
 

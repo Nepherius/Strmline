@@ -14,27 +14,28 @@
 <style>
   .notice {
     margin: 18px 0 0;
-    border: 1px solid #d7ded9;
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 12px;
-    background: #ffffff;
+    background: var(--surface);
+    color: var(--text-soft);
   }
 
   .error {
-    border-color: #e1a2a2;
-    background: #fff5f4;
-    color: #8e251f;
+    border-color: var(--danger-border);
+    background: var(--danger-surface);
+    color: var(--danger-text);
   }
 
   .success {
-    border-color: #9bc9aa;
-    background: #f0fff4;
-    color: #1f5b42;
+    border-color: var(--success-border);
+    background: var(--success-surface);
+    color: var(--success-text);
   }
 
   .warning {
-    border-color: #d9b66c;
-    background: #fff9ea;
-    color: #765d1d;
+    border-color: var(--warning-border);
+    background: var(--warning-surface);
+    color: var(--warning-text);
   }
 </style>

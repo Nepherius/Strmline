@@ -59,20 +59,20 @@
     align-items: center;
     justify-content: center;
     min-height: 34px;
-    border: 1px solid #bdc8c2;
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0 12px;
-    background: #ffffff;
-    color: #24352d;
+    background: var(--surface);
+    color: var(--text-soft);
     font-size: 14px;
     font-weight: 800;
     text-decoration: none;
   }
 
   .app-nav a.active {
-    border-color: #1f5b42;
-    background: #1f5b42;
-    color: #ffffff;
+    border-color: var(--accent-strong);
+    background: var(--accent);
+    color: var(--text);
   }
 
   .logout-btn {
@@ -80,11 +80,11 @@
     align-items: center;
     justify-content: center;
     min-height: 34px;
-    border: 1px solid #bdc8c2;
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0 12px;
-    background: #ffffff;
-    color: #8e251f;
+    background: var(--surface);
+    color: var(--danger-text);
     font-size: 14px;
     font-weight: 800;
     cursor: pointer;

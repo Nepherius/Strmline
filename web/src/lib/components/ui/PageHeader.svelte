@@ -20,12 +20,12 @@
     justify-content: space-between;
     gap: 20px;
     padding-bottom: 18px;
-    border-bottom: 1px solid #d7ded9;
+    border-bottom: 1px solid var(--border);
   }
 
   .eyebrow {
     margin: 0 0 2px;
-    color: #5b6a61;
+    color: var(--text-muted);
     font-size: 13px;
     font-weight: 700;
     text-transform: uppercase;

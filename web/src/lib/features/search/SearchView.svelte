@@ -93,14 +93,14 @@
     align-items: center;
     justify-content: center;
     padding: 64px 0;
-    color: #5b6a61;
+    color: var(--text-muted);
   }
 
   .spinner {
     width: 32px;
     height: 32px;
-    border: 3px solid #eef3f0;
-    border-top: 3px solid #1f5b42;
+    border: 3px solid var(--border);
+    border-top: 3px solid var(--accent-strong);
     border-radius: 50%;
     animation: spin 1s linear infinite;
     margin-bottom: 16px;

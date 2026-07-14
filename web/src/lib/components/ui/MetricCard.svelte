@@ -16,30 +16,30 @@
 
 <style>
   .metric {
-    border: 1px solid #d7ded9;
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 12px;
-    background: #ffffff;
+    background: var(--surface);
   }
 
   .metric.ready {
-    border-color: #9bc9aa;
-    background: #f0fff4;
+    border-color: var(--success-border);
+    background: var(--success-surface);
   }
 
   .metric.env {
-    border-color: #9ebbd0;
-    background: #f0f8ff;
+    border-color: #58658f;
+    background: #30384f;
   }
 
   .metric.warn {
-    border-color: #d9b66c;
-    background: #fff9ea;
+    border-color: var(--warning-border);
+    background: var(--warning-surface);
   }
 
   span {
     display: block;
-    color: #5b6a61;
+    color: var(--text-muted);
     font-size: 12px;
     font-weight: 700;
     text-transform: uppercase;

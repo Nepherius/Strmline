@@ -100,11 +100,11 @@
     place-items: center;
     width: 32px;
     height: 32px;
-    border: 1px solid #bdc8c2;
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0;
-    background: #ffffff;
-    color: #24352d;
+    background: var(--surface-raised);
+    color: var(--text-soft);
     cursor: pointer;
     font-size: 18px;
     font-weight: 800;
@@ -112,12 +112,12 @@
   }
 
   .icon-action.secondary {
-    color: #1f5b42;
+    color: var(--accent-strong);
   }
 
   .icon-action.danger {
-    border-color: #d7aca7;
-    color: #8d2d23;
+    border-color: var(--danger-border);
+    color: var(--danger-text);
   }
 
   .icon-action:disabled {

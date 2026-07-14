@@ -67,22 +67,22 @@
     gap: 16px;
     width: 100%;
     max-width: 400px;
-    border: 1px solid #d7ded9;
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 24px;
-    background: #ffffff;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    background: var(--surface);
+    box-shadow: 0 4px 12px rgb(0 0 0 / 18%);
   }
 
   .login-form h2 {
     margin: 0;
-    color: #15201b;
+    color: var(--text);
     font-size: 20px;
   }
 
   .subtitle {
     margin: -8px 0 8px 0;
-    color: #526057;
+    color: var(--text-muted);
     font-size: 14px;
   }
 

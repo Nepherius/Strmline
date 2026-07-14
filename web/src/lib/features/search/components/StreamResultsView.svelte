@@ -168,14 +168,14 @@
     align-items: center;
     justify-content: center;
     padding: 64px 0;
-    color: #5b6a61;
+    color: var(--text-muted);
   }
 
   .spinner {
     width: 32px;
     height: 32px;
-    border: 3px solid #eef3f0;
-    border-top: 3px solid #1f5b42;
+    border: 3px solid var(--border);
+    border-top: 3px solid var(--accent-strong);
     border-radius: 50%;
     animation: spin 1s linear infinite;
     margin-bottom: 16px;
@@ -197,7 +197,7 @@
   .back-btn {
     background: transparent;
     border: none;
-    color: #1f5b42;
+    color: var(--accent-strong);
     font-weight: 600;
     cursor: pointer;
     font-size: 14px;
@@ -211,8 +211,8 @@
   .selected-details {
     display: flex;
     gap: 20px;
-    background: #ffffff;
-    border: 1px solid #d7ded9;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 12px;
     padding: 20px;
     margin-bottom: 24px;
@@ -239,8 +239,8 @@
   }
 
   .year-badge {
-    background: #eef3f0;
-    color: #1f5b42;
+    background: var(--success-surface);
+    color: var(--success-text);
     font-size: 11px;
     font-weight: 700;
     padding: 2px 6px;
@@ -251,7 +251,7 @@
   .overview {
     margin: 0;
     font-size: 12px;
-    color: #5b6a61;
+    color: var(--text-muted);
     line-height: 1.4;
   }
 
@@ -259,8 +259,8 @@
     display: flex;
     align-items: flex-end;
     gap: 16px;
-    background: #ffffff;
-    border: 1px solid #d7ded9;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 12px;
     padding: 16px;
     margin-bottom: 16px;
@@ -274,7 +274,7 @@
     height: 38px;
     display: flex;
     align-items: center;
-    color: #526057;
+    color: var(--text-muted);
     font-size: 12px;
     font-weight: 700;
     white-space: nowrap;
@@ -290,10 +290,10 @@
 
   .mode-chips button {
     height: 28px;
-    border: 1px solid #bdc8c2;
+    border: 1px solid var(--border);
     border-radius: 6px;
-    background: #ffffff;
-    color: #24352d;
+    background: var(--surface-raised);
+    color: var(--text-soft);
     cursor: pointer;
     font-size: 12px;
     font-weight: 700;
@@ -301,13 +301,13 @@
   }
 
   .mode-chips button.active {
-    border-color: #1f5b42;
-    background: #1f5b42;
-    color: #ffffff;
+    border-color: var(--accent-strong);
+    background: var(--accent);
+    color: var(--text);
   }
 
   .mode-chips span {
-    color: #526057;
+    color: var(--text-muted);
     font-size: 12px;
     font-weight: 700;
   }
@@ -322,17 +322,17 @@
     width: 100%;
     height: 40px;
     margin-top: 14px;
-    border: 1px solid #bdc8c2;
+    border: 1px solid var(--border);
     border-radius: 6px;
-    background: #ffffff;
-    color: #24352d;
+    background: var(--surface-raised);
+    color: var(--text-soft);
     cursor: pointer;
     font-weight: 700;
   }
 
   .no-results {
     text-align: center;
-    color: #5b6a61;
+    color: var(--text-muted);
     padding: 48px 0;
   }
 

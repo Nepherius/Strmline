@@ -90,11 +90,11 @@
     display: grid;
     width: min(440px, 100%);
     gap: 16px;
-    border: 1px solid #cbd7d0;
+    border: 1px solid var(--border);
     border-radius: 8px;
     padding: 18px;
-    background: #ffffff;
-    box-shadow: 0 18px 50px rgb(19 32 26 / 20%);
+    background: var(--surface);
+    box-shadow: 0 18px 50px rgb(0 0 0 / 42%);
   }
 
   .dialog-header {
@@ -113,10 +113,10 @@
   .icon-button {
     width: 32px;
     height: 32px;
-    border: 1px solid #bdc8c2;
+    border: 1px solid var(--border);
     border-radius: 6px;
-    background: #ffffff;
-    color: #24352d;
+    background: var(--surface-raised);
+    color: var(--text-soft);
     cursor: pointer;
     font-size: 20px;
     line-height: 1;
@@ -129,14 +129,14 @@
 
   code {
     overflow-wrap: anywhere;
-    color: #596960;
+    color: var(--text-muted);
     font-size: 12px;
   }
 
   label {
     display: grid;
     gap: 6px;
-    color: #526057;
+    color: var(--text-muted);
     font-size: 12px;
     font-weight: 800;
     text-transform: uppercase;
@@ -144,11 +144,11 @@
 
   select {
     height: 38px;
-    border: 1px solid #bdc8c2;
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0 10px;
-    background: #ffffff;
-    color: #24352d;
+    background: var(--surface-raised);
+    color: var(--text-soft);
     font-size: 14px;
     text-transform: none;
   }
@@ -161,19 +161,19 @@
 
   .actions button {
     height: 36px;
-    border: 1px solid #1c4333;
+    border: 1px solid var(--accent-strong);
     border-radius: 6px;
     padding: 0 14px;
-    background: #1f5b42;
-    color: #ffffff;
+    background: var(--accent);
+    color: var(--text);
     cursor: pointer;
     font-weight: 800;
   }
 
   .actions button.secondary {
-    border-color: #bdc8c2;
-    background: #ffffff;
-    color: #24352d;
+    border-color: var(--border);
+    background: var(--surface-raised);
+    color: var(--text-soft);
   }
 
   button:disabled,

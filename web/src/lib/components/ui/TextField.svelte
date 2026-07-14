@@ -21,7 +21,7 @@
   label {
     display: grid;
     gap: 6px;
-    color: #526057;
+    color: var(--text-muted);
     font-size: 12px;
     font-weight: 700;
     text-transform: uppercase;
@@ -37,17 +37,17 @@
     box-sizing: border-box;
     min-width: 260px;
     height: 38px;
-    border: 1px solid #bcc8c1;
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0 10px;
-    background: #ffffff;
-    color: #15201b;
+    background: var(--surface);
+    color: var(--text);
   }
 
   input:disabled {
-    border-color: #d7ded9;
-    background: #f4f6f4;
-    color: #526057;
+    border-color: var(--border);
+    background: var(--surface-subtle);
+    color: var(--text-muted);
   }
 
   @media (max-width: 860px) {

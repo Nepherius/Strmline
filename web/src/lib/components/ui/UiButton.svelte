@@ -11,19 +11,19 @@
 <style>
   button {
     height: 38px;
-    border: 1px solid #1c4333;
+    border: 1px solid var(--accent-strong);
     border-radius: 6px;
     padding: 0 14px;
-    background: #1f5b42;
-    color: #ffffff;
+    background: var(--accent);
+    color: var(--text);
     cursor: pointer;
     font-weight: 700;
   }
 
   button.secondary {
-    border-color: #bdc8c2;
-    background: #ffffff;
-    color: #24352d;
+    border-color: var(--border);
+    background: var(--surface);
+    color: var(--text-soft);
   }
 
   button:disabled {

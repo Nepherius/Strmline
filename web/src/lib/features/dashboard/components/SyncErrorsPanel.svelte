@@ -69,10 +69,10 @@
   .error-list article {
     display: grid;
     gap: 8px;
-    border: 1px solid #d9b66c;
+    border: 1px solid var(--warning-border);
     border-radius: 6px;
     padding: 10px 12px;
-    background: #fff9ea;
+    background: var(--warning-surface);
   }
 
   .error-heading {
@@ -89,17 +89,17 @@
   }
 
   .error-list strong {
-    color: #3d3321;
+    color: var(--warning-text);
   }
 
   .error-list span,
   .error-list p {
     margin: 0;
-    color: #765d1d;
+    color: var(--warning-text);
   }
 
   .error-list .item-ref {
-    color: #3d3321;
+    color: var(--warning-text);
     font-weight: 700;
   }
 </style>

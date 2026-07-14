@@ -15,11 +15,11 @@
     display: inline-flex;
     align-items: center;
     height: 36px;
-    border: 1px solid #bdc8c2;
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0 12px;
-    background: #ffffff;
-    color: #24352d;
+    background: var(--surface);
+    color: var(--text-soft);
     font-weight: 700;
     text-decoration: none;
   }

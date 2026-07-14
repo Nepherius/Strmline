@@ -80,14 +80,14 @@
     align-items: center;
     justify-content: center;
     padding: 64px 0;
-    color: #5b6a61;
+    color: var(--text-muted);
   }
 
   .spinner {
     width: 32px;
     height: 32px;
-    border: 3px solid #eef3f0;
-    border-top: 3px solid #1f5b42;
+    border: 3px solid var(--border);
+    border-top: 3px solid var(--accent-strong);
     border-radius: 50%;
     animation: spin 1s linear infinite;
     margin-bottom: 16px;
@@ -105,11 +105,11 @@
   .search-form-wrap {
     margin-top: 24px;
     margin-bottom: 32px;
-    background: #ffffff;
-    border: 1px solid #d7ded9;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 12px;
     padding: 20px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 18%);
   }
 
   .search-bar {
@@ -135,8 +135,8 @@
   .title-card {
     display: flex;
     text-align: left;
-    background: #ffffff;
-    border: 1px solid #d7ded9;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 12px;
     overflow: hidden;
     cursor: pointer;
@@ -147,14 +147,14 @@
 
   .title-card:hover {
     transform: translateY(-2px);
-    border-color: #1f5b42;
-    box-shadow: 0 4px 12px rgba(31, 91, 66, 0.06);
+    border-color: var(--accent-strong);
+    box-shadow: 0 4px 12px rgb(0 0 0 / 26%);
   }
 
   .poster-wrap {
     width: 90px;
     flex-shrink: 0;
-    background: #f5f7f6;
+    background: var(--surface-subtle);
   }
 
   .poster-wrap img {
@@ -170,7 +170,7 @@
     align-items: center;
     justify-content: center;
     font-size: 24px;
-    color: #bdc8c2;
+    color: var(--text-muted);
   }
 
   .card-info {
@@ -186,7 +186,7 @@
     margin: 0 0 6px;
     font-size: 15px;
     font-weight: 700;
-    color: #15201b;
+    color: var(--text);
     line-height: 1.2;
     white-space: nowrap;
     overflow: hidden;
@@ -203,8 +203,8 @@
 
   .type-badge,
   .year-badge {
-    background: #eef3f0;
-    color: #1f5b42;
+    background: var(--success-surface);
+    color: var(--success-text);
     font-size: 11px;
     font-weight: 700;
     padding: 2px 6px;
@@ -212,14 +212,14 @@
   }
 
   .type-badge {
-    background: #f5f7f6;
-    color: #526057;
+    background: var(--surface-raised);
+    color: var(--text-muted);
   }
 
   .overview {
     margin: 0;
     font-size: 12px;
-    color: #5b6a61;
+    color: var(--text-muted);
     line-height: 1.4;
     display: -webkit-box;
     line-clamp: 3;
@@ -230,7 +230,7 @@
 
   .no-results {
     text-align: center;
-    color: #5b6a61;
+    color: var(--text-muted);
     padding: 48px 0;
   }
 

@@ -44,7 +44,7 @@
     align-items: center;
     gap: 6px;
     padding: 0;
-    color: #526057;
+    color: var(--text-muted);
     font-size: 12px;
     font-weight: 700;
     text-transform: uppercase;
@@ -55,28 +55,28 @@
     grid-auto-columns: minmax(0, 1fr);
     grid-auto-flow: column;
     height: 38px;
-    border: 1px solid #bcc8c1;
+    border: 1px solid var(--border);
     border-radius: 6px;
     overflow: hidden;
-    background: #ffffff;
+    background: var(--surface);
   }
 
   label {
     display: grid;
     place-items: center;
     cursor: pointer;
-    color: #526057;
+    color: var(--text-muted);
     font-size: 13px;
     font-weight: 700;
   }
 
   label + label {
-    border-left: 1px solid #bcc8c1;
+    border-left: 1px solid var(--border);
   }
 
   label.active {
-    background: #1f5b42;
-    color: #ffffff;
+    background: var(--accent);
+    color: var(--text);
   }
 
   input {

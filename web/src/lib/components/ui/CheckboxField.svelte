@@ -25,7 +25,7 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    color: #24352d;
+    color: var(--text-soft);
     font-size: 13px;
     font-weight: 700;
   }
@@ -33,6 +33,6 @@
   input {
     width: 16px;
     height: 16px;
-    accent-color: #1f5b42;
+    accent-color: var(--accent-strong);
   }
 </style>
