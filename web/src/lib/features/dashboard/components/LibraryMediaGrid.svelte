@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount } from "svelte";
+
   import type { ClassificationOverride } from "$lib/api/library";
   import {
     categoryLabels,
@@ -21,7 +23,41 @@
 
   let loadedPosters: Record<string, boolean> = {};
   let failedPosters: Record<string, boolean> = {};
+  let posterSources: Record<string, string> = {};
   let selectedEntry: LibraryEntry | null = null;
+  // Svelte 4 does not provide the reactive collection wrappers suggested by the lint rule.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const posterTargets = new Map<HTMLElement, LibraryEntry>();
+  const posterQueue: LibraryEntry[] = [];
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const queuedPosterKeys = new Set<string>();
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const activePosterKeys = new Set<string>();
+  const maxConcurrentPosterLoads = 4;
+  let activePosterLoads = 0;
+  let posterObserver: IntersectionObserver | undefined;
+
+  onMount(() => {
+    posterObserver = new IntersectionObserver(
+      (observedEntries) => {
+        for (const observedEntry of observedEntries) {
+          if (!observedEntry.isIntersecting) {
+            continue;
+          }
+          const entry = posterTargets.get(observedEntry.target as HTMLElement);
+          if (entry) {
+            queuePoster(entry);
+          }
+          posterObserver?.unobserve(observedEntry.target);
+        }
+      },
+      { rootMargin: "320px 0px" },
+    );
+    for (const target of posterTargets.keys()) {
+      posterObserver.observe(target);
+    }
+    return () => posterObserver?.disconnect();
+  });
 
   function classificationOverride(entry: LibraryEntry): ClassificationOverride | null {
     return (
@@ -35,12 +71,61 @@
     return title.split(/\s+/).filter(Boolean).slice(0, 4);
   }
 
+  function observePoster(node: HTMLElement, entry: LibraryEntry): { destroy: () => void } {
+    posterTargets.set(node, entry);
+    posterObserver?.observe(node);
+    return {
+      destroy: () => {
+        posterTargets.delete(node);
+        posterObserver?.unobserve(node);
+        posterLoadFinished(entry.key);
+      },
+    };
+  }
+
+  function queuePoster(entry: LibraryEntry): void {
+    if (
+      !entry.poster_url ||
+      posterSources[entry.key] ||
+      failedPosters[entry.key] ||
+      queuedPosterKeys.has(entry.key)
+    ) {
+      return;
+    }
+    queuedPosterKeys.add(entry.key);
+    posterQueue.push(entry);
+    startQueuedPosterLoads();
+  }
+
+  function startQueuedPosterLoads(): void {
+    while (activePosterLoads < maxConcurrentPosterLoads && posterQueue.length > 0) {
+      const entry = posterQueue.shift();
+      if (!entry?.poster_url) {
+        continue;
+      }
+      queuedPosterKeys.delete(entry.key);
+      activePosterLoads += 1;
+      activePosterKeys.add(entry.key);
+      posterSources = { ...posterSources, [entry.key]: entry.poster_url };
+    }
+  }
+
   function markPosterLoaded(key: string): void {
     loadedPosters = { ...loadedPosters, [key]: true };
+    posterLoadFinished(key);
   }
 
   function markPosterFailed(key: string): void {
     failedPosters = { ...failedPosters, [key]: true };
+    posterLoadFinished(key);
+  }
+
+  function posterLoadFinished(key: string): void {
+    if (!activePosterKeys.delete(key)) {
+      return;
+    }
+    activePosterLoads = activePosterKeys.size;
+    startQueuedPosterLoads();
   }
 
   function selectEntry(entry: LibraryEntry): void {
@@ -58,11 +143,16 @@
           selectEntry(entry);
         }}
       >
-        <div class:poster-loaded={loadedPosters[entry.key]} class="cover">
-          {#if entry.poster_url && !failedPosters[entry.key]}
+        <div
+          use:observePoster={entry}
+          class:poster-loaded={loadedPosters[entry.key]}
+          class="cover"
+        >
+          {#if posterSources[entry.key] && !failedPosters[entry.key]}
             <img
-              src={entry.poster_url}
+              src={posterSources[entry.key]}
               alt=""
+              decoding="async"
               on:load={() => {
                 markPosterLoaded(entry.key);
               }}

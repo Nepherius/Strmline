@@ -75,6 +75,8 @@ Both examples require the following changes before first use:
 - Change `user: "1000:1000"` when the service should write files as a different host user and group.
 - Change `45733` when the host port is already in use.
 
+Strmline listens on container port `45733` by default. The compose examples publish it as `45733:45733`, which also avoids a collision with applications sharing a Gluetun network namespace that commonly use port `8080`.
+
 Generate the two secret values with `openssl rand -hex 32` and keep them stable. Changing either value after PostgreSQL has initialized or after provider keys have been saved can make existing data inaccessible.
 
 ### Docker Hub and Portainer

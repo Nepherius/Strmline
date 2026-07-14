@@ -34,9 +34,9 @@ COPY api/alembic.ini ./alembic.ini
 COPY api/alembic ./alembic
 COPY --from=web-build /src/web/build ./static
 
-EXPOSE 8080
+EXPOSE 45733
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3).read()"
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:45733/api/health', timeout=3).read()"
 
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8080"]
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 45733"]

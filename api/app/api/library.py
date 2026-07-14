@@ -188,6 +188,7 @@ async def library_poster(
     library_root: Annotated[Path, Depends(get_library_root)],
 ) -> FileResponse:
     record = await MediaMetadataRepository(session).find_for_library_prefix(relative_path)
+    await session.close()
     if record is None or record.media_item.tmdb_id is None:
         raise HTTPException(status_code=404, detail="Poster not found.")
     try:

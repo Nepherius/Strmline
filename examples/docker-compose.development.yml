@@ -23,13 +23,13 @@ services:
       STRMLINE_POSTGRES_PASSWORD: "8a60a71e801d6cb9e0681684a9ba04ab3ffbfb81c07835aa48b15645c1696b97"
       STRMLINE_DEBUG_LOGGING: "true"
     ports:
-      - "45733:8080"
+      - "45733:45733"
     volumes:
       - strmline-config:/config
       - /mnt/strmline-library:/library
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3).read()"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:45733/api/health', timeout=3).read()"]
       interval: 30s
       timeout: 5s
       retries: 3

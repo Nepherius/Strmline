@@ -17,13 +17,13 @@ services:
       STRMLINE_POSTGRES_USER: strmline
       STRMLINE_POSTGRES_PASSWORD: "CHANGE_ME_unique_database_password"
     ports:
-      - "45733:8080"
+      - "45733:45733"
     volumes:
       - strmline-config:/config
       - /mnt/strmline-library:/library # Mount your library here. Change this path to your library location.
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3).read()"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:45733/api/health', timeout=3).read()"]
       interval: 30s
       timeout: 5s
       retries: 3
