@@ -1,26 +1,32 @@
-# Deployment stack that pulls a published Strmline image from Docker Hub.
+# Development stack that builds Strmline from this source checkout.
 #
+# From the repository root:
+#   docker compose -f examples/docker-compose.development.yml up -d --build
 
+name: strmline
 
 services:
   strmline:
-    image: nepherius/strmline:latest
+    build:
+      context: ..
+    image: strmline:local
     user: "1000:1000"
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      STRMLINE_APP_SECRET_KEY: "CHANGE_ME_generate_a_long_random_secret"
+      STRMLINE_APP_SECRET_KEY: "8a60a71e801d6cb9e0681684a9ba04ab3ffbfb81c07835aa48b15645c1696b97"
       STRMLINE_POSTGRES_HOST: postgres
       STRMLINE_POSTGRES_PORT: 5432
       STRMLINE_POSTGRES_DATABASE: strmline
       STRMLINE_POSTGRES_USER: strmline
-      STRMLINE_POSTGRES_PASSWORD: "CHANGE_ME_unique_database_password"
+      STRMLINE_POSTGRES_PASSWORD: "8a60a71e801d6cb9e0681684a9ba04ab3ffbfb81c07835aa48b15645c1696b97"
+      STRMLINE_DEBUG_LOGGING: "true"
     ports:
       - "45733:8080"
     volumes:
       - strmline-config:/config
-      - /mnt/strmline-library:/library # Mount your library here. Change this path to your library location.
+      - /mnt/strmline-library:/library
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3).read()"]
@@ -34,7 +40,7 @@ services:
     environment:
       POSTGRES_DB: strmline
       POSTGRES_USER: strmline
-      POSTGRES_PASSWORD: "CHANGE_ME_unique_database_password"
+      POSTGRES_PASSWORD: "8a60a71e801d6cb9e0681684a9ba04ab3ffbfb81c07835aa48b15645c1696b97"
     volumes:
       - strmline-postgres:/var/lib/postgresql/data
     healthcheck:

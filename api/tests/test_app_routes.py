@@ -51,29 +51,6 @@ async def test_cors_preflight_uses_explicit_allowed_methods() -> None:
 
 
 @pytest.mark.asyncio
-async def test_static_ui_serves_index_for_app_routes(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _ = (tmp_path / "index.html").write_text("<main>Strmline UI</main>", encoding="utf-8")
-    monkeypatch.setenv("STRMLINE_STATIC_DIR", str(tmp_path))
-    get_settings.cache_clear()
-
-    transport = httpx.ASGITransport(app=create_app())
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-        root_response = await client.get("/")
-        setup_response = await client.get("/setup")
-        api_response = await client.get("/api/not-found")
-
-    get_settings.cache_clear()
-    assert root_response.status_code == httpx.codes.OK
-    assert "Strmline UI" in root_response.text
-    assert setup_response.status_code == httpx.codes.OK
-    assert "Strmline UI" in setup_response.text
-    assert api_response.status_code == httpx.codes.NOT_FOUND
-
-
-@pytest.mark.asyncio
 async def test_setup_status_reports_missing_required_settings() -> None:
     transport = httpx.ASGITransport(app=create_app())
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:

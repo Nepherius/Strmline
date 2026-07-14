@@ -48,15 +48,59 @@ Strmline builds and maintains a structured `.strm` media library from a TorBox a
    openssl rand -hex 32
    ```
 
-4. Build and start Strmline.
+4. Pull and start Strmline.
 
    ```sh
-   docker compose up -d --build
+   docker compose pull
+   docker compose up -d
    ```
 
 5. Open `http://localhost:45733/setup` and complete the initial setup.
 
 The setup page creates the first user and records the TorBox credentials. Configure a TMDB API key there to enable metadata and posters. The application applies database migrations automatically during startup.
+
+## Docker Compose Configurations
+
+The repository provides a deployment compose file and a source-build development example:
+
+| File | Use case | Application image |
+| --- | --- | --- |
+| `docker-compose.yml` | Portainer or server deployment | `nepherius/strmline:latest` from Docker Hub |
+| `examples/docker-compose.development.yml` | Local source development and testing | Built from the local checkout |
+
+Both examples require the following changes before first use:
+
+- Replace the application secret and PostgreSQL password placeholders.
+- Change `/mnt/strmline-library` to the desired host library directory.
+- Change `user: "1000:1000"` when the service should write files as a different host user and group.
+- Change `45733` when the host port is already in use.
+
+Generate the two secret values with `openssl rand -hex 32` and keep them stable. Changing either value after PostgreSQL has initialized or after provider keys have been saved can make existing data inaccessible.
+
+### Docker Hub and Portainer
+
+The root `docker-compose.yml` is the Docker Hub deployment configuration. For Portainer, create a stack from that file, replace both secret placeholders, adjust the library mount, and deploy it.
+
+It does not contain `build:`, so Portainer pulls `nepherius/strmline:latest` rather than building from a source checkout. To update an existing deployment manually:
+
+```sh
+docker compose pull
+docker compose up -d
+```
+
+### Development
+
+Run the source-build configuration from the repository root:
+
+```sh
+docker compose -f examples/docker-compose.development.yml up -d --build
+```
+
+The development file has `build.context: ..` because it is stored under `examples/`; this resolves to the repository root and uses the local `Dockerfile`. It uses the same Compose project name as deployment, so stop the deployment stack before starting the development stack.
+
+The development configuration enables debug logging and exposes `/docs`, `/redoc`, and `/openapi.json`. These endpoints are disabled in the Docker Hub deployment configuration. Do not enable debug logging for routine production operation.
+
+For repeatable server releases, replace the `latest` image tag in `docker-compose.yml` with a published version tag before deployment.
 
 ## Library Layout
 
@@ -95,16 +139,17 @@ The setup interface also manages TorBox, TMDB, resolver, synchronization, catego
 
 ## Routine Operations
 
-Start or rebuild the stack:
+Pull and start the Docker Hub deployment:
 
 ```sh
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 Follow application logs:
 
 ```sh
-docker compose logs -f app
+docker compose logs -f strmline
 ```
 
 Stop the stack:
@@ -117,7 +162,7 @@ Update a source checkout while retaining the existing database and library:
 
 ```sh
 git pull
-docker compose up -d --build
+docker compose -f examples/docker-compose.development.yml up -d --build
 ```
 
 Keep the application secret and PostgreSQL password unchanged when updating an existing installation.
@@ -127,7 +172,7 @@ Keep the application secret and PostgreSQL password unchanged when updating an e
 Run the administrative utility from the application container:
 
 ```sh
-docker compose exec app python -m app.admin_cli reset-password
+docker compose exec strmline python -m app.admin_cli reset-password
 ```
 
 It prompts for a new password and prints the username that was reset. The command does not expose existing passwords or secrets.
