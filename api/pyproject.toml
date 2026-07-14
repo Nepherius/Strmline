@@ -17,6 +17,7 @@ dependencies = [
   "sqlalchemy[asyncio]",
   "uvicorn[standard]",
   "argon2-cffi",
+  "cryptography",
   "PyJWT",
 ]
 

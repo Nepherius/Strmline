@@ -78,6 +78,16 @@ class Settings(BaseSettings):
         )
         return self
 
+    @model_validator(mode="after")
+    def reject_placeholder_app_secret_key(self) -> Self:
+        if (
+            self.app_secret_key is not None
+            and "CHANGE_ME" in self.app_secret_key.get_secret_value()
+        ):
+            msg = "STRMLINE_APP_SECRET_KEY must not use the Docker Compose placeholder value."
+            raise ValueError(msg)
+        return self
+
 
 @lru_cache
 def get_settings() -> Settings:

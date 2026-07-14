@@ -1,9 +1,12 @@
+import base64
+import hashlib
+import hmac
 from collections.abc import Iterator
 from pathlib import Path
 from typing import cast
 
 import pytest
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -66,6 +69,7 @@ def test_secret_box_round_trips_without_storing_plaintext() -> None:
     sealed = box.seal("torbox-api-key")
 
     assert sealed != "torbox-api-key"
+    assert sealed.startswith("v2:")
     assert box.open(sealed) == "torbox-api-key"
 
 
@@ -75,6 +79,18 @@ def test_secret_box_rejects_modified_payload() -> None:
 
     with pytest.raises(ValueError, match="authentication"):
         _ = box.open(f"{sealed[:-1]}A")
+
+
+def test_secret_box_reads_legacy_payloads() -> None:
+    key = "local-test-secret"
+    box = SecretBox(key)
+
+    assert box.open(_legacy_seal(key, "torbox-api-key")) == "torbox-api-key"
+
+
+def test_settings_reject_placeholder_app_secret_key() -> None:
+    with pytest.raises(ValidationError, match="placeholder"):
+        _ = Settings(app_secret_key=SecretStr("CHANGE_ME_generate_a_long_random_secret"))
 
 
 def test_secret_hint_does_not_expose_full_secret() -> None:
@@ -88,6 +104,28 @@ def test_sha256_hex_is_stable_and_not_plaintext() -> None:
     assert digest == sha256_hex("resolver-token")
     assert digest != "resolver-token"
     assert len(digest) == 64
+
+
+def _legacy_seal(key: str, value: str) -> str:
+    key_bytes = hashlib.sha256(key.encode("utf-8")).digest()
+    nonce = b"legacy-secret-v1"
+    payload = value.encode("utf-8")
+    encrypted = _xor_bytes(payload, _legacy_keystream(key_bytes, nonce, len(payload)))
+    mac = hmac.new(key_bytes, nonce + encrypted, hashlib.sha256).digest()
+    return f"v1:{base64.urlsafe_b64encode(nonce + mac + encrypted).decode('ascii')}"
+
+
+def _legacy_keystream(key: bytes, nonce: bytes, length: int) -> bytes:
+    output = bytearray()
+    counter = 0
+    while len(output) < length:
+        output.extend(hmac.new(key, nonce + counter.to_bytes(8, "big"), hashlib.sha256).digest())
+        counter += 1
+    return bytes(output[:length])
+
+
+def _xor_bytes(left: bytes, right: bytes) -> bytes:
+    return bytes(left_byte ^ right_byte for left_byte, right_byte in zip(left, right, strict=True))
 
 
 @pytest.mark.asyncio

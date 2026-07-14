@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Annotated, cast
 from urllib.parse import quote
@@ -41,6 +42,7 @@ from app.providers.tmdb.posters import TmdbPosterClient, TmdbPosterError
 from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
 
 router = APIRouter(prefix="/api/library", tags=["library"])
+logger = logging.getLogger(__name__)
 
 
 class LibraryFileResponse(BaseModel):
@@ -260,7 +262,8 @@ async def remove_library_entry(
                     removed_torbox_items += 1
         except TorBoxAPIError as error:
             await session.rollback()
-            raise HTTPException(status_code=503, detail=str(error)) from error
+            logger.warning("TorBox library removal failed.")
+            raise HTTPException(status_code=503, detail="TorBox operation failed.") from error
 
     await repository.add(
         category=request.category,

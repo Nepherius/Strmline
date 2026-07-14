@@ -161,6 +161,36 @@ async def test_setup_first_user_already_exists() -> None:
 
 
 @pytest.mark.asyncio
+async def test_setup_is_rate_limited() -> None:
+    session = FakeSession(None)
+    app = create_app()
+    override_session(app, session)
+    auth_module._login_attempts["127.0.0.1"] = [datetime.now(UTC)] * 5
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post(
+            "/api/auth/setup",
+            json={"username": "newadmin", "password": "supersecurepassword"},
+        )
+
+    assert response.status_code == httpx.codes.TOO_MANY_REQUESTS
+    auth_module.clear_login_attempts()
+
+
+@pytest.mark.asyncio
+async def test_security_headers_are_set() -> None:
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.get("/api/health")
+
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+
+
+@pytest.mark.asyncio
 async def test_login_success() -> None:
     password = "correctpassword"  # noqa: S105
     hashed = ph.hash(password)

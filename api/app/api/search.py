@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -52,6 +53,7 @@ from app.search.service import (
 from app.search.stream_parser import is_imdb_id
 
 router = APIRouter(prefix="/api/search", tags=["search"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/titles", response_model=TitleSearchResponse)
@@ -448,7 +450,8 @@ def _safe_action_message(error: Exception) -> str:
     if isinstance(error, AioStreamsClientError):
         return "AIOStreams stream lookup failed."
     if isinstance(error, TorBoxAPIError):
-        return str(error) or "TorBox request failed."
+        logger.error("TorBox stream action failed.")
+        return "TorBox operation failed."
     return "Stream action failed."
 
 

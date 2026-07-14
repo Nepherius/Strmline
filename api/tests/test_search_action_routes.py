@@ -14,7 +14,7 @@ from app.db.dependencies import get_optional_db_session
 from app.db.repositories.stream_selection import StreamSelectionRecord, StreamSelectionWrite
 from app.main import create_app
 from app.providers.aiostreams.client import AioStreamsClient
-from app.providers.torbox.client import TorBoxClient
+from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
 from app.search.auto_sync import AutoSyncOutcome
 from tests.conftest import override_auth
 
@@ -25,6 +25,12 @@ class FakeSession:
 
     async def rollback(self) -> None:
         return None
+
+
+def test_torbox_action_errors_are_redacted() -> None:
+    message = search_api._safe_action_message(TorBoxAPIError("provider detail: account=123"))
+
+    assert message == "TorBox operation failed."
 
 
 class FakeStreamSelectionRepository:

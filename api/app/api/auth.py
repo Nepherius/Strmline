@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
@@ -21,6 +22,7 @@ from app.db.models import User
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 ph = PasswordHasher()
+logger = logging.getLogger(__name__)
 
 # In-memory rate limiter for login attempts.
 # NOTE: This is process-local and does not survive restarts or share across
@@ -88,6 +90,8 @@ async def setup_first_user(
     setup_data: UserSetupRequest,
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> UserResponse:
+    client_ip = _client_ip(request)
+    _check_rate_limit(client_ip)
     async with _setup_lock:
         await _acquire_setup_lock(session)
         user_count_result = await session.execute(select(User).limit(1))
@@ -101,10 +105,14 @@ async def setup_first_user(
             await session.commit()
         except IntegrityError as error:
             await session.rollback()
+            _record_failed_attempt(client_ip)
+            _audit("setup_failed", client_ip, setup_data.username)
             raise setup_complete_error() from error
         await session.refresh(user)
 
     _issue_session_cookie(request, response, user.id)
+    _ = _login_attempts.pop(client_ip, None)
+    _audit("setup_succeeded", client_ip, user.username)
 
     return UserResponse(id=user.id, username=user.username)
 
@@ -116,7 +124,7 @@ async def login(
     login_data: LoginRequest,
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> UserResponse:
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _client_ip(request)
     _check_rate_limit(client_ip)
 
     result = await session.execute(select(User).where(User.username == login_data.username))
@@ -124,6 +132,7 @@ async def login(
 
     if not user:
         _record_failed_attempt(client_ip)
+        _audit("login_failed", client_ip, login_data.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -133,6 +142,7 @@ async def login(
         _ = ph.verify(user.hashed_password, login_data.password)
     except VerifyMismatchError as error:
         _record_failed_attempt(client_ip)
+        _audit("login_failed", client_ip, login_data.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -141,11 +151,13 @@ async def login(
     _ = _login_attempts.pop(client_ip, None)
 
     _issue_session_cookie(request, response, user.id)
+    _audit("login_succeeded", client_ip, user.username)
     return UserResponse(id=user.id, username=user.username)
 
 
 @router.post("/logout")
 async def logout(request: Request, response: Response) -> dict[str, str]:
+    _audit("logout", _client_ip(request), None)
     secure_cookie = _secure_cookie(request)
     response.delete_cookie(
         key=SESSION_COOKIE_NAME,
@@ -174,6 +186,15 @@ async def get_me(
 def clear_login_attempts() -> None:
     """Clear all login attempts (used in tests)."""
     _login_attempts.clear()
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _audit(event: str, ip: str, username: str | None) -> None:
+    safe_username = username.replace("\r", "").replace("\n", "") if username else "-"
+    logger.info("Authentication event=%s ip=%s username=%s", event, ip, safe_username)
 
 
 def _get_secret_key() -> str:

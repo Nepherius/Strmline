@@ -3,9 +3,11 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
-import secrets
 
-VERSION = "v1"
+from cryptography.fernet import Fernet, InvalidToken
+
+VERSION = "v2"
+LEGACY_VERSION = "v1"
 NONCE_BYTES = 16
 MAC_BYTES = 32
 
@@ -16,22 +18,33 @@ class SecretBox:
             msg = "SecretBox key is required."
             raise ValueError(msg)
         self._key = hashlib.sha256(key.encode("utf-8")).digest()
+        self._fernet = Fernet(base64.urlsafe_b64encode(self._key))
 
     def seal(self, value: str) -> str:
-        nonce = secrets.token_bytes(NONCE_BYTES)
-        payload = value.encode("utf-8")
-        encrypted = _xor_bytes(payload, _keystream(self._key, nonce, len(payload)))
-        mac = hmac.new(self._key, nonce + encrypted, hashlib.sha256).digest()
-        packed = nonce + mac + encrypted
-        encoded = base64.urlsafe_b64encode(packed).decode("ascii")
-        return f"{VERSION}:{encoded}"
+        encrypted = self._fernet.encrypt(value.encode("utf-8")).decode("ascii")
+        return f"{VERSION}:{encrypted}"
 
     def open(self, sealed_value: str) -> str:
-        prefix = f"{VERSION}:"
-        if not sealed_value.startswith(prefix):
-            msg = "Unsupported sealed secret version."
-            raise ValueError(msg)
-        packed = base64.urlsafe_b64decode(sealed_value.removeprefix(prefix).encode("ascii"))
+        if sealed_value.startswith(f"{VERSION}:"):
+            return self._open_current(sealed_value)
+        if sealed_value.startswith(f"{LEGACY_VERSION}:"):
+            return self._open_legacy(sealed_value)
+        msg = "Unsupported sealed secret version."
+        raise ValueError(msg)
+
+    def _open_current(self, sealed_value: str) -> str:
+        try:
+            return self._fernet.decrypt(
+                sealed_value.removeprefix(f"{VERSION}:").encode("ascii")
+            ).decode("utf-8")
+        except (InvalidToken, UnicodeDecodeError) as error:
+            msg = "Sealed secret authentication failed."
+            raise ValueError(msg) from error
+
+    def _open_legacy(self, sealed_value: str) -> str:
+        packed = base64.urlsafe_b64decode(
+            sealed_value.removeprefix(f"{LEGACY_VERSION}:").encode("ascii")
+        )
         if len(packed) < NONCE_BYTES + MAC_BYTES:
             msg = "Sealed secret payload is invalid."
             raise ValueError(msg)
