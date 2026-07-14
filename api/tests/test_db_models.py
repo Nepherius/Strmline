@@ -91,6 +91,7 @@ def test_library_entries_reference_normalized_torbox_files() -> None:
     assert "torbox_file_id" in columns
     assert {"provider", "provider_item_id", "provider_file_id"}.isdisjoint(columns)
     assert "external_id" in set(TorBoxStoredFile.__table__.columns.keys())
+    assert TorBoxStoredFile.library_entries.property.passive_deletes == "all"
 
 
 def test_classification_overrides_are_keyed_by_source_prefix() -> None:

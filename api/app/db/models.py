@@ -125,7 +125,10 @@ class TorBoxStoredFile(Base):
     size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     torbox_item: Mapped[TorBoxItem] = relationship(back_populates="files")
-    library_entries: Mapped[list[LibraryEntry]] = relationship(back_populates="torbox_file")
+    library_entries: Mapped[list[LibraryEntry]] = relationship(
+        back_populates="torbox_file",
+        passive_deletes="all",
+    )
 
 
 class TmdbCacheEntry(Base):

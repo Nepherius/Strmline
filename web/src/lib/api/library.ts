@@ -39,6 +39,17 @@ export interface RemoveLibraryEntryResult {
   removed_torbox_items: number;
 }
 
+export interface RefreshLibraryEntryMetadataPayload {
+  category: LibraryCategory;
+  relative_path: string;
+}
+
+export interface RefreshLibraryEntryMetadataResult {
+  ok: boolean;
+  message: string;
+  refreshed_posters: number;
+}
+
 export function loadLibrarySummary(): Promise<LibrarySummary> {
   return fetchJson<LibrarySummary>("/api/library/summary");
 }
@@ -76,6 +87,16 @@ export function removeLibraryEntry(
 ): Promise<RemoveLibraryEntryResult> {
   return fetchJson<RemoveLibraryEntryResult>("/api/library/entries", {
     method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function refreshLibraryEntryMetadata(
+  payload: RefreshLibraryEntryMetadataPayload,
+): Promise<RefreshLibraryEntryMetadataResult> {
+  return fetchJson<RefreshLibraryEntryMetadataResult>("/api/library/entries/refresh-metadata", {
+    method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
   });

@@ -59,6 +59,7 @@ class FakeMediaIdentityResolver:
             title="Ascendance of a Bookworm",
             year=2019,
             media_type="tv",
+            poster_path="/bookworm.jpg",
         )
 
 
@@ -82,6 +83,7 @@ async def test_torbox_sync_uses_tmdb_tv_identity_for_episode_category(tmp_path: 
 
     assert result.synced_files[0].category == "shows"
     assert result.synced_files[0].tmdb_id == "91768"
+    assert result.synced_files[0].tmdb_poster_path == "/bookworm.jpg"
 
 
 @pytest.mark.asyncio

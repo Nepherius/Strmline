@@ -7,9 +7,11 @@
   export let currentOverride: ClassificationOverride | null;
   export let disabled = false;
   export let pending = false;
+  export let refreshing = false;
   export let onMove: (entry: LibraryEntry, targetCategory: LibraryCategory) => Promise<void>;
   export let onReset: (entry: LibraryEntry) => Promise<void>;
   export let onRemove: (entry: LibraryEntry) => Promise<void>;
+  export let onRefresh: (entry: LibraryEntry) => Promise<void>;
 
   let moveDialogOpen = false;
   $: restoreLabel = currentOverride ? `Restore category` : "";
@@ -50,8 +52,20 @@
   {/if}
   <button
     type="button"
+    class="icon-action secondary"
+    disabled={disabled || pending || refreshing}
+    title="Refresh metadata and poster"
+    aria-label="Refresh metadata and poster"
+    on:click={() => {
+      void onRefresh(entry);
+    }}
+  >
+    <span aria-hidden="true">{refreshing ? "..." : "↻"}</span>
+  </button>
+  <button
+    type="button"
     class="icon-action danger"
-    disabled={disabled || pending}
+    disabled={disabled || pending || refreshing}
     title="Remove from Strmline and TorBox"
     aria-label="Remove from Strmline and TorBox"
     on:click={() => {

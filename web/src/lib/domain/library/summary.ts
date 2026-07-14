@@ -17,6 +17,7 @@ export interface LibraryEntry {
   title: string;
   relative_path: string;
   file_count: number;
+  poster_url?: string | null;
 }
 
 export interface LibrarySummary {

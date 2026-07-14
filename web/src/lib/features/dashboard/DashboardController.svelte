@@ -9,6 +9,7 @@
     loadLibrarySummary,
     loadLibraryValidation,
     removeLibraryEntry,
+    refreshLibraryEntryMetadata,
     saveClassificationOverride,
     type ClassificationOverride,
   } from "$lib/api/library";
@@ -52,6 +53,7 @@
   let classificationOverrides: ClassificationOverride[] = [];
   let pendingClassificationKey = "";
   let removingEntryKey = "";
+  let refreshingMetadataKey = "";
   let dismissingErrorId: number | null = null;
 
   $: visibleEntries = summary
@@ -153,6 +155,29 @@
       error = `Remove failed. ${message}`;
     } finally {
       removingEntryKey = "";
+    }
+  }
+
+  async function refreshEntryMetadata(entry: LibraryEntry) {
+    if (refreshingMetadataKey) return;
+    refreshingMetadataKey = entry.key;
+    error = "";
+    syncResult = null;
+    try {
+      const result = await refreshLibraryEntryMetadata({
+        category: entry.category,
+        relative_path: entry.relative_path,
+      });
+      if (!result.ok) {
+        error = result.message;
+        return;
+      }
+      await loadDashboard();
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
+      error = `Metadata refresh failed. ${message}`;
+    } finally {
+      refreshingMetadataKey = "";
     }
   }
 
@@ -305,9 +330,11 @@
   {dismissingErrorId}
   {pendingClassificationKey}
   {removingEntryKey}
+  {refreshingMetadataKey}
   onRunSync={runManualSync}
   onSort={sortBy}
   onRemoveEntry={removeEntry}
+  onRefreshMetadata={refreshEntryMetadata}
   onHideDuplicateFile={hideDuplicateFile}
   onMoveEntry={moveEntry}
   onResetEntryClassification={resetEntryClassification}

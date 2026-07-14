@@ -15,6 +15,7 @@ MIN_MATCH_SCORE = 0.4
 MIN_DATE_LENGTH = 4
 MIN_LATIN_LENGTH = 3
 MIN_CJK_LENGTH = 2
+MAX_POSTER_PATH_LENGTH = 300
 
 JUNK_PREFIXES = re.compile(
     r"(?i)^(?:\bwww\b.*\bcom\b|\bwww\b.*\borg\b|\bwww\b\s*|\b\d*tamilmv\b|\bcards\b|\bcenter\b|\b TamilMV\b|\b\d*tamilultra\b|\bmasstamilan\b|\bisaimini\b|\btamilyogi\b|\btamilrockers\b|\bcenter\s*|\[[^\]]+\]|\b(?:YIFY|YTS|RARBG|EZTV|ETTV|KAT|LimeTorrents|Demonoid|Scene|Tamilrockers|Tamilmv|Isaimini|Tamilyogi|Movierulz|Tamilgun|1337x|Worldfree4u|Madrasrockers|Thiruttumovies|Hiidude|Mymoviesda|Filmlinks4u|Tamildbox|Tamilrage|Mtamilrockers)\b|\b(?:www|https?://)\S+|\b(?:com|org|net|in|co\.uk|io)\b|\b(?:movies|films|download|free|watch|online)\b|[\s._-])+"
@@ -27,6 +28,7 @@ class MediaIdentity:
     title: str
     year: int | None
     media_type: str
+    poster_path: str | None = None
 
 
 class MediaIdentityResolver:
@@ -191,6 +193,7 @@ class MediaIdentityResolver:
                             title=res_title,
                             year=res_year,
                             media_type=str(raw_media_type),
+                            poster_path=_poster_path(raw),
                         ),
                     )
                 )
@@ -233,7 +236,15 @@ def _result_identity(raw: dict[str, Any]) -> MediaIdentity | None:
         title=title,
         year=year,
         media_type=str(media_type),
+        poster_path=_poster_path(raw),
     )
+
+
+def _poster_path(raw: dict[str, Any]) -> str | None:
+    poster_path = raw.get("poster_path")
+    if not isinstance(poster_path, str) or not poster_path.startswith("/"):
+        return None
+    return poster_path if len(poster_path) <= MAX_POSTER_PATH_LENGTH else None
 
 
 def clean_search_title(title: str) -> str:

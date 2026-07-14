@@ -81,6 +81,7 @@ class SyncedStrmFile:
     provider_file_id: str
     content_hash: str
     tmdb_id: str | None = None
+    tmdb_poster_path: str | None = None
     provider_item_name: str = ""
     provider_file_name: str = ""
     provider_file_path: str = ""
@@ -163,6 +164,7 @@ class TorBoxStrmSync:
                 entry = self._with_classification_override(entry)
 
                 tmdb_id: str | None = None
+                tmdb_poster_path: str | None = None
                 if self._media_identity_resolver is not None:
                     identity = await self._media_identity_resolver.resolve(
                         parsed_title=entry.title,
@@ -170,6 +172,7 @@ class TorBoxStrmSync:
                         category=entry.category,
                     )
                     tmdb_id = identity.tmdb_id
+                    tmdb_poster_path = identity.poster_path
                     entry = LibraryEntry(
                         category=_category_from_identity(entry, identity.media_type),
                         title=identity.title,
@@ -185,7 +188,14 @@ class TorBoxStrmSync:
                 written_path = write_strm_file(self._library_root, entry)
                 written_paths.append(written_path)
                 synced_files.append(
-                    _synced_file(written_path, entry_id, entry, torbox_file, tmdb_id=tmdb_id)
+                    _synced_file(
+                        written_path,
+                        entry_id,
+                        entry,
+                        torbox_file,
+                        tmdb_id=tmdb_id,
+                        tmdb_poster_path=tmdb_poster_path,
+                    )
                 )
 
         remove_stale_strm_files(self._library_root, set(written_paths))
@@ -270,6 +280,7 @@ def _synced_file(
     entry: LibraryEntry,
     torbox_file: TorBoxFile,
     tmdb_id: str | None = None,
+    tmdb_poster_path: str | None = None,
 ) -> SyncedStrmFile:
     return SyncedStrmFile(
         path=path,
@@ -289,6 +300,7 @@ def _synced_file(
         provider_file_size=torbox_file.size,
         content_hash=hashlib.sha256(entry.resolver_url.encode("utf-8")).hexdigest(),
         tmdb_id=tmdb_id,
+        tmdb_poster_path=tmdb_poster_path,
     )
 
 

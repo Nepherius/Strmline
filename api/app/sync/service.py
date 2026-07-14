@@ -15,9 +15,11 @@ from app.db.repositories.settings import AppSettingsRepository, SettingsSnapshot
 from app.db.repositories.stream_selection import StreamSelectionRepository
 from app.db.repositories.sync_state import SyncRunSource, SyncStateRepository
 from app.db.repositories.tmdb_cache import TmdbCacheRepository
+from app.library.posters import cache_missing_posters
 from app.providers.aiostreams.client import AioStreamsClient
 from app.providers.tmdb.client import TmdbClient
 from app.providers.tmdb.metadata import TmdbMetadataService
+from app.providers.tmdb.posters import TmdbPosterClient
 from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
 from app.search.actions import ensure_selected_streams_in_torbox
 from app.sync.anime_classification import build_anilist_anime_classifier
@@ -154,6 +156,18 @@ async def _run_torbox_account_sync(
         raise SyncExecutionError("TorBox sync failed.") from error
 
     sync_run_id = await sync_state.record_success(result, library_root, source=source)
+    if tmdb_api_key is not None:
+        poster_result = await cache_missing_posters(
+            library_root,
+            result.synced_files,
+            TmdbPosterClient(timeout_seconds=settings.outbound_timeout_seconds),
+        )
+        logger.debug(
+            "TMDB poster cache: %d downloaded, %d already cached, %d failed.",
+            poster_result.downloaded,
+            poster_result.cached,
+            poster_result.failed,
+        )
     logger.debug(
         "Completed TorBox account sync from %s: %d scanned, %d written, %d skipped.",
         source,

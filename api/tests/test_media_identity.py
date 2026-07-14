@@ -98,6 +98,7 @@ async def test_media_identity_resolver_cache_hit() -> None:
                     "media_type": "movie",
                     "title": "Alien",
                     "release_date": "1979-05-25",
+                    "poster_path": "/alien.jpg",
                 }
             ]
         },
@@ -123,6 +124,7 @@ async def test_media_identity_resolver_cache_hit() -> None:
     assert identity.title == "Alien"
     assert identity.year == 1979
     assert identity.media_type == "movie"
+    assert identity.poster_path == "/alien.jpg"
     assert len(client.calls) == 0
 
 

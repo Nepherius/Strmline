@@ -2,7 +2,7 @@
   import AppShell from "$lib/components/ui/AppShell.svelte";
   import AppNavigation from "$lib/components/ui/AppNavigation.svelte";
   import DuplicateGroupsPanel from "$lib/features/dashboard/components/DuplicateGroupsPanel.svelte";
-  import LibraryEntryActions from "$lib/features/dashboard/components/LibraryEntryActions.svelte";
+  import LibraryMediaGrid from "$lib/features/dashboard/components/LibraryMediaGrid.svelte";
   import SyncErrorsPanel from "$lib/features/dashboard/components/SyncErrorsPanel.svelte";
   import MetricCard from "$lib/components/ui/MetricCard.svelte";
   import MetricGrid from "$lib/components/ui/MetricGrid.svelte";
@@ -39,8 +39,10 @@
   export let dismissingErrorId: number | null;
   export let pendingClassificationKey: string;
   export let removingEntryKey: string;
+  export let refreshingMetadataKey: string;
   export let onRunSync: () => Promise<void>;
   export let onRemoveEntry: (entry: LibraryEntry) => Promise<void>;
+  export let onRefreshMetadata: (entry: LibraryEntry) => Promise<void>;
   export let onHideDuplicateFile: (file: LibraryFile) => Promise<void>;
   export let onMoveEntry: (entry: LibraryEntry, targetCategory: LibraryCategory) => Promise<void>;
   export let onResetEntryClassification: (entry: LibraryEntry) => Promise<void>;
@@ -66,14 +68,6 @@
   function issueKey(issue: { code: string; relative_path: string | null }, index: number): string {
     return `${issue.code}-${issue.relative_path ?? String(index)}`;
   }
-
-  function classificationOverride(entry: LibraryEntry): ClassificationOverride | null {
-    return (
-      classificationOverrides.find((override) => override.target_prefix === entry.relative_path) ??
-      classificationOverrides.find((override) => override.source_prefix === entry.relative_path) ??
-      null
-    );
-  }
 </script>
 
 <svelte:head>
@@ -83,13 +77,12 @@
 <AppShell>
   <PageHeader ariaLabel="Strmline controls" title="Library dashboard">
     <svelte:fragment slot="actions">
-          <form on:submit|preventDefault={onRunSync}>
+      <form on:submit|preventDefault={onRunSync}>
         <UiButton type="submit" disabled={loading || syncing}>
           {syncing ? "Syncing" : "Run sync"}
         </UiButton>
       </form>
       <AppNavigation />
-
     </svelte:fragment>
   </PageHeader>
 
@@ -127,31 +120,6 @@
     </MetricGrid>
 
     <section class="workbench" aria-label="Generated library browser">
-      {#if validation}
-        <section class="curation" aria-label="Library checks">
-          <div class="section-heading">
-            <h2>Library checks</h2>
-            <span class:ready={validation.ok}>
-              {validation.ok ? "Ready" : "Needs attention"}
-            </span>
-          </div>
-          {#if validation.errors.length > 0 || validation.warnings.length > 0}
-            <div class="issue-list">
-              {#each [...validation.errors, ...validation.warnings].slice(0, 8) as issue, index (issueKey(issue, index))}
-                <article class:error-issue={validation.errors.includes(issue)}>
-                  <strong>{issue.message}</strong>
-                  {#if issue.relative_path}
-                    <code>{issue.relative_path}</code>
-                  {/if}
-                </article>
-              {/each}
-            </div>
-          {:else}
-            <p class="quiet">Generated paths and STRM URLs match the Jellyfin validation rules.</p>
-          {/if}
-        </section>
-      {/if}
-
       <div class="filters">
         <TextField bind:value={query} label="Search" placeholder="Title or path" />
         <div class="segments" aria-label="Category filter">
@@ -169,6 +137,53 @@
         </div>
       </div>
 
+      <div class="collection-heading">
+        <div>
+          <span>Collection</span>
+          <strong>{visibleEntries.length} titles</strong>
+        </div>
+        <button
+          type="button"
+          title="Sort by title"
+          aria-label="Sort by title"
+          on:click={() => {
+            onSort("title");
+          }}>↕</button
+        >
+      </div>
+
+      <LibraryMediaGrid
+        entries={visibleEntries}
+        overrides={classificationOverrides}
+        disabled={loading || syncing}
+        {pendingClassificationKey}
+        {removingEntryKey}
+        {refreshingMetadataKey}
+        onMove={onMoveEntry}
+        onReset={onResetEntryClassification}
+        onRemove={onRemoveEntry}
+        onRefresh={onRefreshMetadata}
+      />
+
+      {#if validation && !validation.ok}
+        <section class="curation" aria-label="Library checks">
+          <div class="section-heading">
+            <h2>Library checks</h2>
+            <span>Needs attention</span>
+          </div>
+          <div class="issue-list">
+            {#each [...validation.errors, ...validation.warnings].slice(0, 8) as issue, index (issueKey(issue, index))}
+              <article class:error-issue={validation.errors.includes(issue)}>
+                <strong>{issue.message}</strong>
+                {#if issue.relative_path}
+                  <code>{issue.relative_path}</code>
+                {/if}
+              </article>
+            {/each}
+          </div>
+        </section>
+      {/if}
+
       {#if summary.duplicate_groups.length > 0}
         <DuplicateGroupsPanel
           groups={summary.duplicate_groups.slice(0, 6)}
@@ -177,67 +192,6 @@
           onHideFile={onHideDuplicateFile}
         />
       {/if}
-
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>
-                <button
-                  type="button"
-                  on:click={() => {
-                    onSort("title");
-                  }}>Title</button
-                >
-              </th>
-              <th>
-                <button
-                  type="button"
-                  on:click={() => {
-                    onSort("category");
-                  }}>Type</button
-                >
-              </th>
-              <th>
-                <button
-                  type="button"
-                  on:click={() => {
-                    onSort("relative_path");
-                  }}>Folder</button
-                >
-              </th>
-              <th>Files</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each visibleEntries as entry (entry.key)}
-              <tr>
-                <td>{entry.title}</td>
-                <td>{categoryLabels[entry.category]}</td>
-                <td><code>{entry.relative_path}</code></td>
-                <td>{entry.file_count}</td>
-                <td>
-                  <LibraryEntryActions
-                    {entry}
-                    currentOverride={classificationOverride(entry)}
-                    disabled={loading || syncing}
-                    pending={removingEntryKey === entry.key ||
-                      pendingClassificationKey === entry.key}
-                    onMove={onMoveEntry}
-                    onReset={onResetEntryClassification}
-                    onRemove={onRemoveEntry}
-                  />
-                </td>
-              </tr>
-            {:else}
-              <tr>
-                <td colspan="5" class="empty">No generated entries match the current view.</td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
     </section>
   {:else if !loading}
     <Notice>No library summary loaded.</Notice>
@@ -245,9 +199,44 @@
 </AppShell>
 
 <style>
+  :global(body) {
+    background: #151815;
+    color: #f8f5ed;
+  }
+
+  :global(main.shell .topbar) {
+    border-color: #354039;
+  }
+
+  :global(main.shell .topbar .eyebrow),
+  :global(main.shell .topbar h1) {
+    color: #f8f5ed;
+  }
+
+  :global(main.shell .app-nav a),
+  :global(main.shell .logout-btn),
+  :global(main.shell .metric) {
+    border-color: #3b4840;
+    background: #202620;
+    color: #f8f5ed;
+  }
+
+  :global(main.shell .app-nav a.active) {
+    border-color: #3e9c7a;
+    background: #26795e;
+  }
+
+  :global(main.shell .metric span) {
+    color: #aab9af;
+  }
+
+  :global(main.shell .metric.warn) {
+    border-color: #a8773f;
+    background: #352b1d;
+  }
+
   h2 {
     margin: 0;
-    letter-spacing: 0;
     font-size: 15px;
   }
 
@@ -261,15 +250,16 @@
     align-items: center;
     gap: 10px;
     margin-top: 14px;
-    color: #526057;
+    color: #aab9af;
     font-size: 13px;
   }
 
   .sync-summary span {
     font-weight: 800;
     text-transform: uppercase;
-    color: #15201b;
+    color: #f8f5ed;
   }
+
   .workbench {
     margin-top: 18px;
   }
@@ -277,11 +267,11 @@
   .curation {
     display: grid;
     gap: 10px;
-    margin-bottom: 14px;
-    border: 1px solid #d7ded9;
+    margin-top: 22px;
+    border-top: 1px solid #354039;
+    border-bottom: 1px solid #354039;
     border-radius: 6px;
-    padding: 12px;
-    background: #ffffff;
+    padding: 16px 0;
   }
 
   .section-heading {
@@ -292,19 +282,13 @@
   }
 
   .section-heading span {
-    border: 1px solid #d9b66c;
+    border: 1px solid #a8773f;
     border-radius: 999px;
     padding: 3px 9px;
-    background: #fff9ea;
-    color: #765d1d;
+    background: #352b1d;
+    color: #ffdca1;
     font-size: 12px;
     font-weight: 800;
-  }
-
-  .section-heading span.ready {
-    border-color: #9bc9aa;
-    background: #f0fff4;
-    color: #1f5b42;
   }
 
   .issue-list {
@@ -315,20 +299,15 @@
   .issue-list article {
     display: grid;
     gap: 6px;
-    border: 1px solid #d9b66c;
+    border: 1px solid #a8773f;
     border-radius: 6px;
     padding: 10px;
-    background: #fff9ea;
+    background: #2a251d;
   }
 
   .issue-list article.error-issue {
-    border-color: #e1a2a2;
-    background: #fff5f4;
-  }
-
-  .quiet {
-    margin: 0;
-    color: #5b6a61;
+    border-color: #a35a51;
+    background: #32201f;
   }
 
   .filters {
@@ -336,74 +315,77 @@
     align-items: end;
     justify-content: space-between;
     gap: 14px;
-    margin-bottom: 12px;
+    margin-bottom: 18px;
+  }
+
+  .filters :global(label) {
+    color: #aab9af;
+  }
+
+  .filters :global(input) {
+    border-color: #3b4840;
+    background: #202620;
+    color: #f8f5ed;
   }
 
   .segments {
     display: flex;
-    gap: 6px;
+    gap: 8px;
   }
 
   .segments button {
     height: 38px;
-    border-color: #bdc8c2;
+    border: 1px solid #3b4840;
     border-radius: 6px;
     padding: 0 14px;
-    background: #ffffff;
-    color: #24352d;
+    background: #202620;
+    color: #dbe6dd;
     cursor: pointer;
     font-weight: 700;
   }
 
   .segments button.active {
-    border-color: #1f5b42;
-    background: #1f5b42;
+    border-color: #3e9c7a;
+    background: #26795e;
     color: #ffffff;
   }
 
-  .table-wrap {
-    overflow: auto;
-    border: 1px solid #d7ded9;
-    border-radius: 6px;
-    background: #ffffff;
+  .collection-heading {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    margin-bottom: 12px;
   }
 
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    min-width: 760px;
+  .collection-heading div {
+    display: grid;
+    gap: 2px;
   }
 
-  th,
-  td {
-    border-bottom: 1px solid #e4e9e6;
-    padding: 10px 12px;
-    text-align: left;
-    vertical-align: top;
-  }
-
-  th {
-    background: #eef3f0;
-    color: #4b5b52;
-    font-size: 12px;
+  .collection-heading span {
+    color: #aab9af;
+    font-size: 11px;
+    font-weight: 800;
     text-transform: uppercase;
   }
 
-  th button {
-    height: auto;
-    border: 0;
+  .collection-heading strong {
+    color: #f8f5ed;
+    font-size: 18px;
+  }
+
+  .collection-heading button {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border: 1px solid #3b4840;
+    border-radius: 6px;
     padding: 0;
-    background: transparent;
-    color: inherit;
-  }
-
-  td:first-child {
-    font-weight: 700;
-  }
-
-  .empty {
-    color: #5b6a61;
-    text-align: center;
+    background: #202620;
+    color: #dbe6dd;
+    cursor: pointer;
+    font-size: 18px;
   }
 
   @media (max-width: 860px) {
