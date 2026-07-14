@@ -1,16 +1,24 @@
 <script lang="ts">
+  import HelpTooltip from "./HelpTooltip.svelte";
+
   interface SegmentOption {
     label: string;
     value: string;
   }
 
   export let label: string;
+  export let helpText: string | undefined = undefined;
   export let value: string;
   export let options: SegmentOption[];
 </script>
 
 <fieldset>
-  <legend>{label}</legend>
+  <legend
+    ><span>{label}</span>{#if helpText}<HelpTooltip
+        text={helpText}
+        label={`About ${label}`}
+      />{/if}</legend
+  >
   <div class="segments">
     {#each options as option (option.value)}
       <label class:active={value === option.value}>
@@ -32,6 +40,9 @@
   }
 
   legend {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     padding: 0;
     color: #526057;
     font-size: 12px;

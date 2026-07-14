@@ -1,5 +1,8 @@
 <script lang="ts">
+  import HelpTooltip from "./HelpTooltip.svelte";
+
   export let label: string;
+  export let helpText: string | undefined = undefined;
   export let value = "";
   export let placeholder = "";
   export let min: string | undefined = "0";
@@ -12,7 +15,9 @@
 </script>
 
 <label>
-  <span>{label}</span>
+  <span class="label-row"
+    >{label}{#if helpText}<HelpTooltip text={helpText} label={`About ${label}`} />{/if}</span
+  >
   <input
     inputmode="numeric"
     {min}
@@ -33,6 +38,12 @@
     font-size: 12px;
     font-weight: 700;
     text-transform: uppercase;
+  }
+
+  .label-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
 
   input {

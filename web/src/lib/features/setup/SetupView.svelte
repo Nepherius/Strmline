@@ -2,6 +2,7 @@
   import AppShell from "$lib/components/ui/AppShell.svelte";
   import AppNavigation from "$lib/components/ui/AppNavigation.svelte";
   import CheckboxField from "$lib/components/ui/CheckboxField.svelte";
+  import HelpTooltip from "$lib/components/ui/HelpTooltip.svelte";
   import NumberField from "$lib/components/ui/NumberField.svelte";
   import Notice from "$lib/components/ui/Notice.svelte";
   import PageHeader from "$lib/components/ui/PageHeader.svelte";
@@ -92,12 +93,14 @@
       <TextField
         bind:value={values.adminUsername}
         autocomplete="off"
+        helpText="The name used to sign in to the Strmline web interface."
         label="Admin Username"
         placeholder="e.g. admin"
       />
       <TextField
         bind:value={values.adminPassword}
         autocomplete="off"
+        helpText="The password for the administrator account. It must be at least eight characters."
         label="Admin Password"
         placeholder="At least 8 characters"
         type="password"
@@ -105,6 +108,7 @@
     {/if}
     <SegmentedControl
       bind:value={values.playbackMode}
+      helpText="Resolver keeps TorBox media URLs out of STRM files. Direct URLs writes tokenized TorBox URLs into them."
       label="Playback mode"
       options={playbackOptions}
     />
@@ -115,25 +119,33 @@
     {/if}
     <NumberField
       bind:value={values.syncIntervalMinutes}
+      helpText="How often Strmline automatically refreshes the TorBox library. Manual sync is always available."
       label="Sync interval minutes"
       min="1"
       placeholder="360"
     />
     <fieldset class="category-options">
-      <legend>Season auto-complete</legend>
+      <legend
+        >Season auto-complete <HelpTooltip
+          text="Searches for missing released episodes in shows already present in your TorBox library."
+        /></legend
+      >
       <CheckboxField
         bind:checked={values.seasonAutoCompleteEnabled}
+        helpText="Enable automatic searches for missing regular episodes. The first check runs when this is saved."
         label="Complete missing regular episodes"
       />
       {#if values.seasonAutoCompleteEnabled}
         <NumberField
           bind:value={values.seasonAutoCompleteIntervalDays}
+          helpText="The number of days between season completion checks."
           label="Check interval days"
           min="1"
           placeholder="1"
         />
         <NumberField
           bind:value={values.seasonAutoCompleteShowsPerMinute}
+          helpText="Limits provider requests by spacing show checks across each minute."
           label="Shows checked per minute"
           min="1"
           max="60"
@@ -141,17 +153,26 @@
         />
         <CheckboxField
           bind:checked={values.seasonAutoCompleteAllowUncached}
+          helpText="Also consider torrents that are not already cached by your debrid provider."
           label="Allow uncached torrents"
         />
       {/if}
     </fieldset>
     <fieldset class="category-options">
-      <legend>Diagnostics</legend>
-      <CheckboxField bind:checked={values.debugLogging} label="Enable debug logging" />
+      <legend
+        >Diagnostics <HelpTooltip
+          text="Operational logging controls for troubleshooting."
+        /></legend
+      >
+      <CheckboxField
+        bind:checked={values.debugLogging}
+        label="Enable debug logging"
+      />
     </fieldset>
     <TextField
       bind:value={values.torboxApiKey}
       autocomplete="off"
+      helpText="Required for listing your TorBox downloads and generating playable library entries."
       label="TorBox API key"
       placeholder={settings?.torbox_configured ? "******" : ""}
       type="password"
@@ -159,6 +180,7 @@
     <TextField
       bind:value={values.tmdbApiKey}
       autocomplete="off"
+      helpText="Optional. Enables metadata-based titles, categories, and duplicate prevention."
       label="TMDB API key (optional)"
       placeholder={settings?.tmdb_configured ? "******" : ""}
       type="password"
@@ -166,6 +188,7 @@
     <TextField
       bind:value={values.resolverToken}
       autocomplete="off"
+      helpText="Optional custom token for resolver playback URLs. Leave blank to generate one automatically."
       label="Resolver token (optional)"
       placeholder={settings?.resolver_configured ? "******" : "Generated automatically"}
       type="password"
@@ -173,15 +196,29 @@
     <TextField
       bind:value={values.aiostreamsBaseUrl}
       autocomplete="off"
+      helpText="Optional Stremio-compatible AIOStreams manifest URL used for search and season auto-complete."
       label="AIOStreams URL (optional)"
       placeholder={settings?.aiostreams_configured ? "******" : "https://.../manifest.json"}
       type="password"
     />
     <fieldset class="category-options">
-      <legend>Categories</legend>
-      <CheckboxField bind:checked={values.moviesEnabled} label="Movies" />
-      <CheckboxField bind:checked={values.showsEnabled} label="Shows" />
-      <CheckboxField bind:checked={values.animeEnabled} label="Anime" />
+      <legend
+        >Categories <HelpTooltip
+          text="Choose which generated media-library folders Strmline maintains."
+        /></legend
+      >
+      <CheckboxField
+        bind:checked={values.moviesEnabled}
+        label="Movies"
+      />
+      <CheckboxField
+        bind:checked={values.showsEnabled}
+        label="Shows"
+      />
+      <CheckboxField
+        bind:checked={values.animeEnabled}
+        label="Anime"
+      />
     </fieldset>
     <div class="actions">
       <UiButton type="submit" disabled={saving}>{saving ? "Saving" : "Save settings"}</UiButton>
