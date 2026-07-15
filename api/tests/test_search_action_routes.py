@@ -351,6 +351,61 @@ async def test_remove_stream_deletes_torbox_item_and_local_selection(
     assert stream_key not in FakeStreamSelectionRepository.records
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error_code", "expected_message"),
+    [
+        (
+            "ITEM_NOT_FOUND",
+            "Removed from Strmline; torrent was already absent from TorBox.",
+        ),
+        (
+            "AUTH_ERROR",
+            "Removed from Strmline, but TorBox removal could not be confirmed.",
+        ),
+    ],
+)
+async def test_remove_stream_is_not_blocked_by_torbox_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    error_code: str,
+    expected_message: str,
+) -> None:
+    stream_key = "stale-selected-stream-key"
+    FakeStreamSelectionRepository.records = {
+        stream_key: StreamSelectionRecord(
+            stream_key=stream_key,
+            media_type="movie",
+            media_id="tt1234567",
+            title="Stale Selected Movie",
+            source_name="[TB⚡] Test",
+            info_hash="4fb46a63360b938999b72a73e2c19f2231f8a5c3",
+            torbox_torrent_id="777",
+            status="selected",
+        )
+    }
+    monkeypatch.setattr(search_api, "StreamSelectionRepository", FakeStreamSelectionRepository)
+    monkeypatch.setenv("STRMLINE_TORBOX_API_KEY", "test_torbox_key")
+    get_settings.cache_clear()
+
+    async def mock_delete_torrent(self: object, torrent_id: str) -> None:
+        _ = (self, torrent_id)
+        raise TorBoxAPIError("provider detail", error_code=error_code)
+
+    monkeypatch.setattr(TorBoxClient, "delete_torrent", mock_delete_torrent)
+
+    async with _client_with_fake_session() as client:
+        response = await client.post(
+            "/api/search/streams/remove",
+            json={"stream_key": stream_key},
+        )
+
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["selected"] is False
+    assert payload["message"] == expected_message
+    assert stream_key not in FakeStreamSelectionRepository.records
+
+
 async def mock_sync_success(*args: object, **kwargs: object) -> AutoSyncOutcome:
     _ = (args, kwargs)
     return AutoSyncOutcome(

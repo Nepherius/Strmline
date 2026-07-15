@@ -109,19 +109,25 @@ async def remove_stream_from_torbox(
             message="Removed from Strmline.",
         )
 
+    message = "Removed from TorBox and Strmline."
     if record.torbox_torrent_id is not None:
         try:
             await torbox_client.delete_torrent(record.torbox_torrent_id)
         except TorBoxAPIError as error:
-            if error.error_code != "ITEM_NOT_FOUND":
-                raise
+            if error.error_code == "ITEM_NOT_FOUND":
+                message = "Removed from Strmline; torrent was already absent from TorBox."
+            else:
+                # Local removal is the user's requested operation. A stale TorBox ID,
+                # provider outage, or expired credential must not leave the selection
+                # (and its permanent-library retention marker) stuck in Strmline.
+                message = "Removed from Strmline, but TorBox removal could not be confirmed."
 
     _ = await repository.delete(stream_key)
     return StreamActionOutcome(
         stream_key=stream_key,
         selected=False,
         torbox_torrent_id=None,
-        message="Removed from TorBox and Strmline.",
+        message=message,
     )
 
 
