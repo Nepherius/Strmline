@@ -27,7 +27,7 @@ class SeasonInventoryRepository:
         result = await self._session.execute(
             select(MediaItem, LibraryEntry, TorBoxStoredFile)
             .join(LibraryEntry, LibraryEntry.media_item_id == MediaItem.id)
-            .join(TorBoxStoredFile, LibraryEntry.torbox_file_id == TorBoxStoredFile.id)
+            .outerjoin(TorBoxStoredFile, LibraryEntry.torbox_file_id == TorBoxStoredFile.id)
             .where(
                 LibraryEntry.category.in_(("shows", "anime")),
                 LibraryEntry.season_number.is_not(None),
@@ -35,9 +35,10 @@ class SeasonInventoryRepository:
             )
             .order_by(MediaItem.id, LibraryEntry.season_number, LibraryEntry.episode_number)
         )
-        grouped: dict[int, list[tuple[MediaItem, LibraryEntry, TorBoxStoredFile]]] = defaultdict(
-            list
-        )
+        grouped: dict[
+            int,
+            list[tuple[MediaItem, LibraryEntry, TorBoxStoredFile | None]],
+        ] = defaultdict(list)
         for media_item, entry, torbox_file in result.all():
             grouped[media_item.id].append((media_item, entry, torbox_file))
 
@@ -46,7 +47,7 @@ class SeasonInventoryRepository:
 
 
 def library_show(
-    rows: list[tuple[MediaItem, LibraryEntry, TorBoxStoredFile]],
+    rows: list[tuple[MediaItem, LibraryEntry, TorBoxStoredFile | None]],
 ) -> LibraryShow:
     media_item = rows[0][0]
     episodes: set[EpisodeRef] = set()
@@ -55,7 +56,9 @@ def library_show(
         if entry.season_number is None or entry.episode_number is None:
             continue
         episodes.add(EpisodeRef(entry.season_number, entry.episode_number))
-        by_season[entry.season_number].append(torbox_file.file_name)
+        file_name = torbox_file.file_name if torbox_file is not None else entry.source_file_name
+        if file_name is not None:
+            by_season[entry.season_number].append(file_name)
     return LibraryShow(
         media_item_id=media_item.id,
         tmdb_id=media_item.tmdb_id,

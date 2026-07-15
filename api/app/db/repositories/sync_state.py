@@ -63,6 +63,7 @@ class SyncStateRepository:
         library_root: Path,
         *,
         source: SyncRunSource = "manual",
+        permanent_info_hashes: frozenset[str] | None = None,
     ) -> int:
         started_at = utc_now()
         sync_run = SyncRun(
@@ -84,11 +85,43 @@ class SyncStateRepository:
             await self._generated_file(library_entry, synced_file, library_root)
 
         if not result.partial:
-            await self._remove_stale_generated_files(result, library_root)
+            permanent_info_hashes = permanent_info_hashes or frozenset()
+            await self._remove_stale_generated_files(
+                result,
+                library_root,
+                permanent_info_hashes,
+            )
             await self._remove_stale_torbox_sources(result)
 
         await self._session.commit()
         return sync_run.id
+
+    async def permanent_library_paths(
+        self,
+        library_root: Path,
+        info_hashes: frozenset[str],
+    ) -> set[Path]:
+        if not info_hashes:
+            return set()
+        result = await self._session.execute(
+            select(GeneratedFile.relative_path)
+            .join(LibraryEntry)
+            .where(LibraryEntry.info_hash.in_(info_hashes))
+        )
+        return {
+            ensure_within_root(library_root, library_root / relative_path)
+            for relative_path in result.scalars()
+        }
+
+    async def permanent_info_hashes(self) -> frozenset[str]:
+        result = await self._session.execute(
+            select(LibraryEntry.info_hash).where(LibraryEntry.info_hash.is_not(None))
+        )
+        return frozenset(
+            info_hash.casefold()
+            for info_hash in result.scalars()
+            if isinstance(info_hash, str) and info_hash
+        )
 
     async def record_failure(  # noqa: PLR0913
         self,
@@ -246,6 +279,23 @@ class SyncStateRepository:
             select(LibraryEntry).where(LibraryEntry.opaque_id == synced_file.entry_id)
         )
         library_entry = result.scalar_one_or_none()
+        if library_entry is None and synced_file.info_hash is not None:
+            result = await self._session.execute(
+                select(LibraryEntry).where(
+                    LibraryEntry.info_hash == synced_file.info_hash,
+                    LibraryEntry.source_file_path == synced_file.provider_file_path,
+                )
+            )
+            library_entry = result.scalar_one_or_none()
+        if library_entry is None and synced_file.info_hash is not None:
+            result = await self._session.execute(
+                select(LibraryEntry).where(
+                    LibraryEntry.info_hash == synced_file.info_hash,
+                    LibraryEntry.source_file_name == synced_file.provider_file_name,
+                    LibraryEntry.source_file_size == synced_file.provider_file_size,
+                )
+            )
+            library_entry = result.scalar_one_or_none()
         if library_entry is None:
             library_entry = LibraryEntry(
                 opaque_id=synced_file.entry_id,
@@ -257,10 +307,18 @@ class SyncStateRepository:
             )
             self._session.add(library_entry)
             await self._session.flush()
-            return library_entry
-
+        library_entry.opaque_id = synced_file.entry_id
         library_entry.media_item_id = media_item.id
         library_entry.torbox_file_id = torbox_file.id
+        library_entry.info_hash = synced_file.info_hash
+        library_entry.source_kind = synced_file.provider
+        library_entry.source_item_id = synced_file.provider_item_id
+        library_entry.source_item_name = synced_file.provider_item_name
+        library_entry.source_file_id = synced_file.provider_file_id
+        library_entry.source_file_name = synced_file.provider_file_name
+        library_entry.source_file_path = synced_file.provider_file_path
+        library_entry.source_file_mime_type = synced_file.provider_file_mime_type
+        library_entry.source_file_size = synced_file.provider_file_size
         library_entry.category = synced_file.category
         library_entry.season_number = synced_file.season_number
         library_entry.episode_number = synced_file.episode_number
@@ -340,14 +398,32 @@ class SyncStateRepository:
         self,
         result: TorBoxStrmSyncResult,
         library_root: Path,
+        permanent_info_hashes: frozenset[str],
     ) -> None:
         current_paths = {
             _relative_generated_path(library_root, synced_file.path)
             for synced_file in result.synced_files
         }
+        permanent_paths: set[str] = set()
+        current_info_hashes = {
+            synced_file.info_hash
+            for synced_file in result.synced_files
+            if synced_file.info_hash is not None
+        }
+        absent_info_hashes = permanent_info_hashes - current_info_hashes
+        if absent_info_hashes:
+            permanent_result = await self._session.execute(
+                select(GeneratedFile.relative_path)
+                .join(LibraryEntry)
+                .where(LibraryEntry.info_hash.in_(absent_info_hashes))
+            )
+            permanent_paths = set(permanent_result.scalars())
         stale_result = await self._session.execute(select(GeneratedFile))
         for generated_file in stale_result.scalars():
-            if generated_file.relative_path in current_paths:
+            if (
+                generated_file.relative_path in current_paths
+                or generated_file.relative_path in permanent_paths
+            ):
                 continue
             stale_path = ensure_within_root(
                 library_root, library_root / generated_file.relative_path

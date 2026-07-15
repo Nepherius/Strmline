@@ -5,7 +5,7 @@ from typing import Any, Self, cast
 
 import httpx
 
-from app.providers.torbox.files import DownloadKind
+from app.providers.torbox.files import ID_PARAM_BY_KIND, DownloadKind, TorBoxFile
 
 DEFAULT_TORBOX_BASE_URL = "https://api.torbox.app/v1/api"
 USER_AGENT = "Strmline/0.1.0"
@@ -127,6 +127,33 @@ class TorBoxClient:
 
             offset += limit
 
+    async def get_download(
+        self,
+        kind: DownloadKind,
+        item_id: str,
+    ) -> dict[str, Any] | None:
+        payload = await self.get_json(
+            f"/{kind}/mylist",
+            params={
+                "id": _numeric_id_payload(item_id),
+                "bypass_cache": True,
+            },
+        )
+        data = payload.get("data")
+        if isinstance(data, dict):
+            return cast(dict[str, Any], data)
+        if not isinstance(data, list):
+            return None
+        typed_items = [
+            cast(dict[str, Any], item)
+            for item in cast(list[object], data)
+            if isinstance(item, dict)
+        ]
+        return next(
+            (item for item in typed_items if str(item.get("id", "")).strip() == item_id),
+            typed_items[0] if len(typed_items) == 1 else None,
+        )
+
     async def check_cached(self, hashes: list[str]) -> dict[str, bool]:
         """Check which torrent hashes are cached on TorBox.
 
@@ -180,6 +207,21 @@ class TorBoxClient:
         payload = await self.post_form("/torrents/createtorrent", data=form_data)
         data = payload.get("data")
         return cast(dict[str, Any], data) if isinstance(data, dict) else {}
+
+    async def request_download_link(self, torbox_file: TorBoxFile) -> str:
+        payload = await self.get_json(
+            f"/{torbox_file.kind}/requestdl",
+            params={
+                "token": self._api_key,
+                ID_PARAM_BY_KIND[torbox_file.kind]: _numeric_id_payload(torbox_file.item_id),
+                "file_id": _numeric_id_payload(torbox_file.file_id),
+            },
+        )
+        data = payload.get("data")
+        if not isinstance(data, str) or not data.strip():
+            msg = "TorBox download response did not include a media URL."
+            raise TorBoxAPIError(msg)
+        return data.strip()
 
     async def delete_torrent(self, torrent_id: str) -> None:
         await self.delete_download("torrents", torrent_id)

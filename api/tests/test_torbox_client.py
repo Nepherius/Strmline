@@ -4,6 +4,7 @@ import httpx
 import pytest
 
 from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
+from app.providers.torbox.files import TorBoxFile
 
 
 @pytest.mark.asyncio
@@ -268,3 +269,53 @@ async def test_torbox_client_finds_torrent_by_hash() -> None:
         item = await client.find_torrent_by_hash("ccc")
 
     assert item == {"id": 2, "hash": "bbb", "alternative_hashes": ["CCC"]}
+
+
+@pytest.mark.asyncio
+async def test_torbox_client_fetches_one_download_by_id() -> None:
+    seen_params: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_params.update(request.url.params)
+        return httpx.Response(200, json={"success": True, "data": {"id": 42}})
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        client = TorBoxClient(api_key="secret-token", http_client=http_client)
+
+        item = await client.get_download("torrents", "42")
+
+    assert item == {"id": 42}
+    assert seen_params == {"id": "42", "bypass_cache": "true"}
+
+
+@pytest.mark.asyncio
+async def test_torbox_client_requests_fresh_download_link() -> None:
+    seen_params: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_params.update(request.url.params)
+        return httpx.Response(
+            200,
+            json={"success": True, "data": "https://cdn.example.test/movie.mkv"},
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        client = TorBoxClient(api_key="secret-token", http_client=http_client)
+
+        link = await client.request_download_link(
+            TorBoxFile(
+                kind="torrents",
+                item_id="42",
+                file_id="7",
+                folder_name="Movie",
+                file_name="Movie.mkv",
+                path="Movie/Movie.mkv",
+                mime_type="video/x-matroska",
+                size=1_000,
+            )
+        )
+
+    assert link == "https://cdn.example.test/movie.mkv"
+    assert seen_params == {"token": "secret-token", "torrent_id": "42", "file_id": "7"}

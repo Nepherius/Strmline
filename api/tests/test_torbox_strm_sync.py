@@ -479,3 +479,60 @@ async def test_torbox_strm_sync_removes_stale_strm_files_after_full_sync(
     expected_path = tmp_path / "shows" / "Vagabond" / "Season 01" / "Vagabond - S01E01.strm"
     assert stale_path.exists() is False
     assert result.written_paths == (expected_path.resolve(strict=False),)
+
+
+@pytest.mark.asyncio
+async def test_torbox_strm_sync_keeps_permanent_virtual_library_paths(
+    tmp_path: Path,
+) -> None:
+    virtual_path = tmp_path / "movies" / "Saved Movie (2024)" / "Saved Movie (2024).strm"
+    virtual_path.parent.mkdir(parents=True)
+    _ = virtual_path.write_text("http://strmline/play/saved\n", encoding="utf-8")
+    sync = DirectTorBoxStrmSync(
+        client=AmbiguousShowTorBoxClient(),
+        api_key="test-token",
+        torbox_base_url="https://api.torbox.app/v1/api",
+        library_root=tmp_path,
+        preserved_paths={virtual_path},
+    )
+
+    _ = await sync.run(kinds=("torrents",))
+
+    assert virtual_path.exists() is True
+
+
+@pytest.mark.asyncio
+async def test_torbox_strm_sync_captures_hash_for_imported_torrent(tmp_path: Path) -> None:
+    sync = DirectTorBoxStrmSync(
+        client=HashedTorrentClient(),
+        api_key="test-token",
+        torbox_base_url="https://api.torbox.app/v1/api",
+        library_root=tmp_path,
+    )
+
+    result = await sync.run(kinds=("torrents",))
+
+    assert result.synced_files[0].info_hash == "abc123"
+
+
+class HashedTorrentClient:
+    async def list_downloads(self, kind: str, *, limit: int = 1000) -> list[dict[str, object]]:
+        _ = kind
+        _ = limit
+        return [
+            {
+                "id": 91,
+                "hash": "ABC123",
+                "cached": True,
+                "name": "Imported Movie",
+                "files": [
+                    {
+                        "id": 7,
+                        "short_name": "Imported.Movie.2024.mkv",
+                        "name": "Imported.Movie.2024.mkv",
+                        "mimetype": "video/x-matroska",
+                        "size": 1_000,
+                    }
+                ],
+            }
+        ]

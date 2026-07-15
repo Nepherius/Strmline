@@ -257,6 +257,61 @@ async def test_sync_state_repository_keeps_stale_files_for_partial_runs(tmp_path
     )
 
     assert stale_file.exists() is True
+
+
+@pytest.mark.asyncio
+async def test_sync_state_repository_keeps_selected_hash_when_torbox_source_is_absent(
+    tmp_path: Path,
+) -> None:
+    virtual_file = tmp_path / "movies" / "Saved Movie (2024)" / "Saved Movie (2024).strm"
+    virtual_file.parent.mkdir(parents=True)
+    _ = virtual_file.write_text("http://strmline/play/saved\n", encoding="utf-8")
+    virtual_record = GeneratedFile(
+        id=8,
+        library_entry_id=7,
+        relative_path="movies/Saved Movie (2024)/Saved Movie (2024).strm",
+        content_hash="saved-hash",
+    )
+    result = TorBoxStrmSyncResult(0, 0, 0, (), ())
+    session = FakeSession(
+        [
+            FakeResult(scalars=[virtual_record.relative_path]),
+            FakeResult(scalars=[virtual_record]),
+            FakeResult(scalars=[]),
+            FakeResult(scalars=[]),
+        ]
+    )
+
+    _ = await SyncStateRepository(cast(AsyncSession, session)).record_success(
+        result,
+        _resolved(tmp_path),
+        permanent_info_hashes=frozenset({"abc123"}),
+    )
+
+    assert virtual_file.exists() is True
+    assert virtual_record not in session.deleted
+
+
+@pytest.mark.asyncio
+async def test_sync_state_repository_returns_permanent_library_paths(tmp_path: Path) -> None:
+    relative_path = "movies/Saved Movie (2024)/Saved Movie (2024).strm"
+    session = FakeSession([FakeResult(scalars=[relative_path])])
+
+    paths = await SyncStateRepository(cast(AsyncSession, session)).permanent_library_paths(
+        _resolved(tmp_path),
+        frozenset({"abc123"}),
+    )
+
+    assert paths == {(tmp_path / relative_path).resolve(strict=False)}
+
+
+@pytest.mark.asyncio
+async def test_sync_state_repository_returns_all_permanent_hashes() -> None:
+    session = FakeSession([FakeResult(scalars=["ABC123", None, "def456"])])
+
+    hashes = await SyncStateRepository(cast(AsyncSession, session)).permanent_info_hashes()
+
+    assert hashes == frozenset({"abc123", "def456"})
     assert session.deleted == []
 
 

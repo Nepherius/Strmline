@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import StreamSelection
+from app.db.models import LibraryEntry, StreamSelection
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +91,12 @@ class StreamSelectionRepository:
         selection = await self._selection(stream_key)
         if selection is None:
             return False
+        if selection.info_hash is not None:
+            _ = await self._session.execute(
+                update(LibraryEntry)
+                .where(LibraryEntry.info_hash == selection.info_hash.casefold())
+                .values(info_hash=None)
+            )
         await self._session.delete(selection)
         await self._session.flush()
         return True

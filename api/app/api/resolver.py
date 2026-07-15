@@ -3,6 +3,7 @@ from __future__ import annotations
 import secrets
 from typing import Annotated
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy.exc import SQLAlchemyError
@@ -12,6 +13,7 @@ from app.core.config import Settings, get_settings
 from app.db.dependencies import get_optional_db_session
 from app.db.repositories.resolver import PlaybackResolverRepository, ResolverLookupError
 from app.db.repositories.settings import AppSettingsRepository
+from app.providers.torbox.client import TorBoxClient
 from app.resolver.manifest import ResolverManifestError, resolve_manifest_target
 
 router = APIRouter(tags=["resolver"])
@@ -81,16 +83,22 @@ async def _database_resolver_target(
         api_key = await _torbox_api_key(settings, session)
         if api_key is None:
             raise HTTPException(status_code=503, detail="TorBox API key is not configured.")
-        target = await PlaybackResolverRepository(session).resolve_torbox_target(
-            entry_id=entry_id,
+        async with TorBoxClient(
             api_key=api_key,
-            torbox_base_url=settings.torbox_base_url,
-        )
+            base_url=settings.torbox_base_url,
+            timeout=settings.outbound_timeout_seconds,
+        ) as torbox_client:
+            target = await PlaybackResolverRepository(session).resolve_torbox_target(
+                entry_id=entry_id,
+                api_key=api_key,
+                torbox_base_url=settings.torbox_base_url,
+                torbox_client=torbox_client,
+            )
     except ResolverLookupError as error:
         raise HTTPException(status_code=404, detail="Resolver entry was not found.") from error
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
-    except (OSError, SQLAlchemyError) as error:
+    except (OSError, httpx.HTTPError, SQLAlchemyError) as error:
         raise HTTPException(status_code=503, detail="Resolver is not available.") from error
     else:
         return target.target_url

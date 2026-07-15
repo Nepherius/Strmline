@@ -277,14 +277,24 @@ class LibraryEntry(Base):
         UniqueConstraint("opaque_id", name="uq_library_entries_opaque_id"),
         UniqueConstraint("torbox_file_id", name="uq_library_entries_torbox_file_id"),
         Index("ix_library_entries_category", "category"),
+        Index("ix_library_entries_info_hash", "info_hash"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     opaque_id: Mapped[str] = mapped_column(String(64), nullable=False)
     media_item_id: Mapped[int] = mapped_column(ForeignKey("media_items.id"), nullable=False)
-    torbox_file_id: Mapped[int] = mapped_column(
-        ForeignKey("torbox_files.id", ondelete="CASCADE"), nullable=False
+    torbox_file_id: Mapped[int | None] = mapped_column(
+        ForeignKey("torbox_files.id", ondelete="SET NULL"), nullable=True
     )
+    info_hash: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    source_kind: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    source_item_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    source_item_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_file_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    source_file_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_file_mime_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_file_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     category: Mapped[str] = mapped_column(String(20), nullable=False)
     season_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     episode_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -301,7 +311,7 @@ class LibraryEntry(Base):
     )
 
     media_item: Mapped[MediaItem] = relationship(back_populates="library_entries")
-    torbox_file: Mapped[TorBoxStoredFile] = relationship(back_populates="library_entries")
+    torbox_file: Mapped[TorBoxStoredFile | None] = relationship(back_populates="library_entries")
     generated_files: Mapped[list[GeneratedFile]] = relationship(
         back_populates="library_entry", cascade="all, delete-orphan"
     )

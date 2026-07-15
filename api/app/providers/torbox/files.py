@@ -80,6 +80,19 @@ def request_download_url(base_url: str, api_key: str, torbox_file: TorBoxFile) -
     return f"{normalized_base_url}/{torbox_file.kind}/requestdl?{params}"
 
 
+def torrent_info_hash(item: dict[str, Any]) -> str | None:
+    value = item.get("hash")
+    if isinstance(value, str) and value.strip():
+        return value.strip().casefold()
+    alternative_hashes = item.get("alternative_hashes")
+    if not isinstance(alternative_hashes, list):
+        return None
+    for candidate in cast(list[object], alternative_hashes):
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip().casefold()
+    return None
+
+
 def _build_torbox_file(
     item: dict[str, Any],
     raw_file: dict[str, Any],

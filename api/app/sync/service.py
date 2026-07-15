@@ -111,9 +111,10 @@ async def _run_torbox_account_sync(
             timeout=settings.outbound_timeout_seconds,
         ) as client:
             aiostreams_url = await settings_repository.aiostreams_base_url_value()
+            selection_repository = StreamSelectionRepository(session)
             await ensure_selected_streams_in_torbox(
                 torbox_client=client,
-                repository=StreamSelectionRepository(session),
+                repository=selection_repository,
                 aiostreams_client=(
                     AioStreamsClient(
                         base_url=aiostreams_url,
@@ -122,6 +123,22 @@ async def _run_torbox_account_sync(
                     if aiostreams_url is not None
                     else None
                 ),
+            )
+            selected_streams = await selection_repository.list_selected()
+            selected_hashes = frozenset(
+                selection.info_hash.casefold()
+                for selection in selected_streams
+                if selection.info_hash is not None
+            )
+            torrent_hashes = {
+                selection.torbox_torrent_id: selection.info_hash.casefold()
+                for selection in selected_streams
+                if selection.torbox_torrent_id is not None and selection.info_hash is not None
+            }
+            permanent_info_hashes = await sync_state.permanent_info_hashes()
+            preserved_paths = await sync_state.permanent_library_paths(
+                library_root,
+                permanent_info_hashes,
             )
             tmdb_api_key = await settings_repository.provider_api_key("tmdb")
             tmdb_service = None
@@ -146,6 +163,8 @@ async def _run_torbox_account_sync(
                 classification_overrides=await ClassificationOverrideRepository(session).list_all(),
                 excluded_prefixes=await LibraryExclusionRepository(session).prefixes(),
                 media_identity_resolver=identity_resolver,
+                torrent_hashes=torrent_hashes,
+                preserved_paths=preserved_paths,
             ).run()
     except (OSError, TorBoxAPIError, ValueError) as error:
         _ = await sync_state.record_failure(
@@ -155,7 +174,20 @@ async def _run_torbox_account_sync(
         )
         raise SyncExecutionError("TorBox sync failed.") from error
 
-    sync_run_id = await sync_state.record_success(result, library_root, source=source)
+    sync_run_id = await sync_state.record_success(
+        result,
+        library_root,
+        source=source,
+        permanent_info_hashes=(
+            permanent_info_hashes
+            | selected_hashes
+            | frozenset(
+                synced_file.info_hash
+                for synced_file in result.synced_files
+                if synced_file.info_hash is not None
+            )
+        ),
+    )
     if tmdb_api_key is not None:
         poster_result = await cache_missing_posters(
             library_root,

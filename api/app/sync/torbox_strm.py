@@ -21,6 +21,7 @@ from app.providers.torbox.files import (
     TorBoxFile,
     extract_torbox_files,
     request_download_url,
+    torrent_info_hash,
 )
 from app.resolver.manifest import (
     ResolverManifestEntry,
@@ -87,6 +88,7 @@ class SyncedStrmFile:
     provider_file_path: str = ""
     provider_file_mime_type: str = ""
     provider_file_size: int | None = None
+    info_hash: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +110,8 @@ class TorBoxStrmSync:
         classification_overrides: tuple[LibraryClassificationOverride, ...] = (),
         excluded_prefixes: tuple[str, ...] = (),
         media_identity_resolver: MediaIdentityLookup | None = None,
+        torrent_hashes: dict[str, str] | None = None,
+        preserved_paths: set[Path] | None = None,
     ) -> None:
         self._client = client
         self._api_key = api_key
@@ -120,6 +124,8 @@ class TorBoxStrmSync:
         }
         self._excluded_prefixes = excluded_prefixes
         self._media_identity_resolver = media_identity_resolver
+        self._torrent_hashes = torrent_hashes or {}
+        self._preserved_paths = preserved_paths or set()
 
     async def run(
         self,
@@ -139,6 +145,7 @@ class TorBoxStrmSync:
 
         for kind in kinds:
             downloads = await self._client.list_downloads(kind)
+            discovered_hashes = _torrent_hashes(downloads) if kind == "torrents" else {}
             extracted = extract_torbox_files(downloads, kind)
             skipped_files += extracted.skipped_count
 
@@ -193,12 +200,19 @@ class TorBoxStrmSync:
                         entry_id,
                         entry,
                         torbox_file,
+                        info_hash=(
+                            discovered_hashes.get(torbox_file.item_id)
+                            or self._torrent_hashes.get(torbox_file.item_id)
+                        ),
                         tmdb_id=tmdb_id,
                         tmdb_poster_path=tmdb_poster_path,
                     )
                 )
 
-        remove_stale_strm_files(self._library_root, set(written_paths))
+        remove_stale_strm_files(
+            self._library_root,
+            set(written_paths) | self._preserved_paths,
+        )
         return self._result(
             scanned_files,
             skipped_files,
@@ -274,11 +288,12 @@ class TorBoxStrmSync:
         )
 
 
-def _synced_file(
+def _synced_file(  # noqa: PLR0913
     path: Path,
     entry_id: str,
     entry: LibraryEntry,
     torbox_file: TorBoxFile,
+    info_hash: str | None = None,
     tmdb_id: str | None = None,
     tmdb_poster_path: str | None = None,
 ) -> SyncedStrmFile:
@@ -298,6 +313,7 @@ def _synced_file(
         provider_file_path=torbox_file.path,
         provider_file_mime_type=torbox_file.mime_type,
         provider_file_size=torbox_file.size,
+        info_hash=info_hash,
         content_hash=hashlib.sha256(entry.resolver_url.encode("utf-8")).hexdigest(),
         tmdb_id=tmdb_id,
         tmdb_poster_path=tmdb_poster_path,
@@ -329,3 +345,14 @@ def _is_excluded(entry: LibraryEntry, excluded_prefixes: tuple[str, ...]) -> boo
         relative_path == prefix or relative_path.startswith(f"{prefix}/")
         for prefix in excluded_prefixes
     )
+
+
+def _torrent_hashes(downloads: list[dict[str, Any]]) -> dict[str, str]:
+    hashes: dict[str, str] = {}
+    for item in downloads:
+        item_id = item.get("id")
+        normalized_id = str(item_id).strip() if isinstance(item_id, (int, str)) else ""
+        info_hash = torrent_info_hash(item)
+        if normalized_id and info_hash is not None:
+            hashes[normalized_id] = info_hash
+    return hashes

@@ -26,6 +26,26 @@ class FakeSyncStateRepository:
         _ = kwargs
         return 13
 
+    async def permanent_library_paths(
+        self,
+        library_root: Path,
+        info_hashes: frozenset[str],
+    ) -> set[Path]:
+        _ = library_root
+        _ = info_hashes
+        return set()
+
+    async def permanent_info_hashes(self) -> frozenset[str]:
+        return frozenset()
+
+
+class FakeStreamSelectionRepository:
+    def __init__(self, session: object) -> None:
+        _ = session
+
+    async def list_selected(self) -> tuple[object, ...]:
+        return ()
+
 
 class FakeClient:
     async def __aenter__(self) -> object:
@@ -70,6 +90,11 @@ async def test_sync_service_uses_saved_resolver_token(
     )
     monkeypatch.setattr(sync_service, "LibraryExclusionRepository", FakeLibraryExclusionRepository)
     monkeypatch.setattr(sync_service, "SyncStateRepository", FakeSyncStateRepository)
+    monkeypatch.setattr(
+        sync_service,
+        "StreamSelectionRepository",
+        FakeStreamSelectionRepository,
+    )
     monkeypatch.setattr(sync_service, "TorBoxStrmSync", fake_torbox_strm_sync(captured))
     monkeypatch.setattr(sync_service, "ensure_selected_streams_in_torbox", no_selected_streams)
 
@@ -120,6 +145,11 @@ async def test_sync_service_records_provider_failures(
     )
     monkeypatch.setattr(sync_service, "LibraryExclusionRepository", FakeLibraryExclusionRepository)
     monkeypatch.setattr(sync_service, "SyncStateRepository", CapturingSyncStateRepository)
+    monkeypatch.setattr(
+        sync_service,
+        "StreamSelectionRepository",
+        FakeStreamSelectionRepository,
+    )
     monkeypatch.setattr(sync_service, "TorBoxStrmSync", FailingTorBoxStrmSync)
     monkeypatch.setattr(sync_service, "ensure_selected_streams_in_torbox", no_selected_streams)
 

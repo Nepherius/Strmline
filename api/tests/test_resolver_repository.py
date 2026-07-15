@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import LibraryEntry, PlaybackAttempt, TorBoxItem, TorBoxStoredFile
 from app.db.repositories.resolver import PlaybackResolverRepository, ResolverLookupError
+from app.providers.torbox.client import TorBoxAPIError
 from app.providers.torbox.files import TorBoxFile
 from app.resolver.manifest import resolver_entry_id
 
@@ -51,7 +52,7 @@ async def test_resolver_repository_builds_torbox_target_and_records_attempt() ->
         torbox_file_id=2,
         category="movies",
     )
-    library_entry.torbox_file = TorBoxStoredFile(
+    stored_file = TorBoxStoredFile(
         id=2,
         torbox_item_id=1,
         external_id="2",
@@ -60,9 +61,10 @@ async def test_resolver_repository_builds_torbox_target_and_records_attempt() ->
         mime_type="video/x-matroska",
         size=1_000,
     )
-    library_entry.torbox_file.torbox_item = TorBoxItem(
+    stored_file.torbox_item = TorBoxItem(
         id=1, kind="torrents", external_id="1", name="Movie", raw_payload={}
     )
+    library_entry.torbox_file = stored_file
     session = FakeSession([FakeResult(scalar=library_entry)])
 
     target = await _repository(session).resolve_torbox_target(
@@ -101,6 +103,47 @@ async def test_resolver_repository_records_missing_entry_without_final_url() -> 
     assert "api-key" not in repr(attempt)
 
 
+@pytest.mark.asyncio
+async def test_resolver_repository_readds_missing_virtual_torrent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.db.repositories.resolver.PLAYBACK_RECOVERY_INTERVAL_SECONDS",
+        0,
+    )
+    library_entry = LibraryEntry(
+        id=42,
+        opaque_id="permanent-entry",
+        media_item_id=1,
+        torbox_file_id=None,
+        category="movies",
+        info_hash="abc123",
+        source_kind="torrents",
+        source_item_id="old-item",
+        source_item_name="Movie",
+        source_file_id="old-file",
+        source_file_name="Movie.2024.mkv",
+        source_file_path="Movie/Movie.2024.mkv",
+        source_file_mime_type="video/x-matroska",
+        source_file_size=1_000,
+    )
+    library_entry.torbox_file = None
+    client = FakePlaybackClient()
+    session = FakeSession([FakeResult(scalar=library_entry)])
+
+    target = await _repository(session).resolve_torbox_target(
+        entry_id="permanent-entry",
+        api_key="api-key",
+        torbox_base_url="https://api.torbox.app/v1/api",
+        torbox_client=client,
+    )
+
+    assert target.target_url == "https://cdn.example.test/Movie.2024.mkv"
+    assert client.created_magnets == ["magnet:?xt=urn:btih:abc123"]
+    assert client.requested_ids == [("old-item", "old-file"), ("99", "7")]
+    assert _playback_attempt(session).status == "redirect"
+
+
 def _repository(session: FakeSession) -> PlaybackResolverRepository:
     return PlaybackResolverRepository(cast(AsyncSession, session))
 
@@ -120,3 +163,50 @@ def _torbox_file() -> TorBoxFile:
         mime_type="video/x-matroska",
         size=1_000,
     )
+
+
+class FakePlaybackClient:
+    def __init__(self) -> None:
+        self.created_magnets: list[str] = []
+        self.requested_ids: list[tuple[str, str]] = []
+
+    async def request_download_link(self, torbox_file: TorBoxFile) -> str:
+        self.requested_ids.append((torbox_file.item_id, torbox_file.file_id))
+        if torbox_file.item_id == "old-item":
+            raise TorBoxAPIError("missing")
+        return "https://cdn.example.test/Movie.2024.mkv"
+
+    async def find_torrent_by_hash(self, info_hash: str) -> dict[str, object] | None:
+        _ = info_hash
+        return None
+
+    async def create_torrent(
+        self,
+        *,
+        magnet: str,
+        name: str | None = None,
+        add_only_if_cached: bool = True,
+    ) -> dict[str, object]:
+        _ = name
+        _ = add_only_if_cached
+        self.created_magnets.append(magnet)
+        return {"torrent_id": 99}
+
+    async def get_download(self, kind: str, item_id: str) -> dict[str, object] | None:
+        _ = kind
+        _ = item_id
+        return {
+            "id": 99,
+            "cached": True,
+            "download_finished": True,
+            "name": "Movie",
+            "files": [
+                {
+                    "id": 7,
+                    "short_name": "Movie.2024.mkv",
+                    "name": "Movie/Movie.2024.mkv",
+                    "mimetype": "video/x-matroska",
+                    "size": 1_000,
+                }
+            ],
+        }

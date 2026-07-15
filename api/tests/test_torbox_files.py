@@ -1,4 +1,8 @@
-from app.providers.torbox.files import extract_torbox_files, request_download_url
+from app.providers.torbox.files import (
+    extract_torbox_files,
+    request_download_url,
+    torrent_info_hash,
+)
 
 
 def test_extract_torbox_files_filters_uncached_non_video_and_samples() -> None:
@@ -114,3 +118,9 @@ def test_request_download_url_uses_torbox_id_parameter_for_kind() -> None:
         "https://api.torbox.app/v1/api/webdl/requestdl?"
         "token=api+token&web_id=abc&file_id=def&redirect=true"
     )
+
+
+def test_torrent_info_hash_normalizes_primary_and_alternative_hashes() -> None:
+    assert torrent_info_hash({"hash": " ABC123 "}) == "abc123"
+    assert torrent_info_hash({"alternative_hashes": ["DEF456"]}) == "def456"
+    assert torrent_info_hash({}) is None

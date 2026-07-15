@@ -22,6 +22,18 @@ def test_library_show_uses_normalized_current_torbox_files() -> None:
     assert show.filenames_by_season == {1: ("Example.Show.S01E01.mkv",)}
 
 
+def test_library_show_includes_permanent_virtual_episodes() -> None:
+    media_item = MediaItem(id=1, media_type="show", title="Example Show", tmdb_id="42")
+    virtual = _entry(file_id=1, episode=1)
+    virtual.torbox_file_id = None
+    virtual.source_file_name = "Example.Show.S01E01.mkv"
+
+    show = library_show([(media_item, virtual, None)])
+
+    assert show.episodes == frozenset({EpisodeRef(1, 1)})
+    assert show.filenames_by_season == {1: ("Example.Show.S01E01.mkv",)}
+
+
 def _entry(*, file_id: int, episode: int) -> LibraryEntry:
     return LibraryEntry(
         opaque_id=f"entry-{file_id}",
