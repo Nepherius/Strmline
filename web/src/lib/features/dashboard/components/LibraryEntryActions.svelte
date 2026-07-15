@@ -28,8 +28,8 @@
     type="button"
     class="icon-action"
     disabled={disabled || pending}
-    title="Move category"
-    aria-label="Move category"
+    title="Change category"
+    aria-label="Change category"
     on:click={() => {
       moveDialogOpen = true;
     }}
