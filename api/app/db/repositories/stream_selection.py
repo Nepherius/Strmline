@@ -17,6 +17,10 @@ class StreamSelectionWrite:
     source_name: str | None
     info_hash: str | None
     torbox_torrent_id: str | None
+    tmdb_id: str | None = None
+    media_title: str | None = None
+    media_year: int | None = None
+    media_poster_path: str | None = None
     status: str = "selected"
 
 
@@ -30,6 +34,10 @@ class StreamSelectionRecord:
     info_hash: str | None
     torbox_torrent_id: str | None
     status: str
+    tmdb_id: str | None = None
+    media_title: str | None = None
+    media_year: int | None = None
+    media_poster_path: str | None = None
 
 
 class StreamSelectionRepository:
@@ -61,6 +69,10 @@ class StreamSelectionRepository:
                 stream_key=write.stream_key,
                 media_type=write.media_type,
                 media_id=write.media_id,
+                tmdb_id=write.tmdb_id,
+                media_title=write.media_title,
+                media_year=write.media_year,
+                media_poster_path=write.media_poster_path,
                 title=write.title,
                 source_name=write.source_name,
                 info_hash=write.info_hash,
@@ -73,6 +85,10 @@ class StreamSelectionRepository:
 
         selection.media_type = write.media_type
         selection.media_id = write.media_id
+        selection.tmdb_id = write.tmdb_id
+        selection.media_title = write.media_title
+        selection.media_year = write.media_year
+        selection.media_poster_path = write.media_poster_path
         selection.title = write.title
         selection.source_name = write.source_name
         selection.info_hash = write.info_hash
@@ -86,6 +102,24 @@ class StreamSelectionRepository:
         if selection is not None:
             selection.torbox_torrent_id = torbox_torrent_id
             await self._session.flush()
+
+    async def update_media_identity(
+        self,
+        stream_key: str,
+        *,
+        tmdb_id: str,
+        media_title: str,
+        media_year: int | None,
+        media_poster_path: str | None,
+    ) -> None:
+        selection = await self._selection(stream_key)
+        if selection is None:
+            return
+        selection.tmdb_id = tmdb_id
+        selection.media_title = media_title
+        selection.media_year = media_year
+        selection.media_poster_path = media_poster_path
+        await self._session.flush()
 
     async def delete(self, stream_key: str) -> bool:
         selection = await self._selection(stream_key)
@@ -118,4 +152,8 @@ def _record(selection: StreamSelection) -> StreamSelectionRecord:
         info_hash=selection.info_hash,
         torbox_torrent_id=selection.torbox_torrent_id,
         status=selection.status,
+        tmdb_id=selection.tmdb_id,
+        media_title=selection.media_title,
+        media_year=selection.media_year,
+        media_poster_path=selection.media_poster_path,
     )

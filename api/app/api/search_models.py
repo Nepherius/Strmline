@@ -14,6 +14,7 @@ class TitleSearchResult(BaseModel):
     year: str | None
     overview: str
     poster_url: str | None
+    poster_path: str | None
     media_type: str
 
 
@@ -67,6 +68,13 @@ class StreamSearchResponse(BaseModel):
 class StreamActionRequest(StreamSearchRequest):
     stream_key: str = Field(min_length=1, max_length=64)
     add_only_if_cached: bool = True
+    media_title: str | None = Field(default=None, min_length=1, max_length=300)
+    media_year: int | None = Field(default=None, ge=1800, le=2200)
+    media_poster_path: str | None = Field(
+        default=None,
+        max_length=300,
+        pattern=r"^/[A-Za-z0-9._-]+$",
+    )
 
 
 class StreamRemoveRequest(BaseModel):

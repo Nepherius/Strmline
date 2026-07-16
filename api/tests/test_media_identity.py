@@ -282,3 +282,34 @@ async def test_media_identity_resolver_exception_fallback() -> None:
     assert identity.tmdb_id is None
     assert identity.title == "Alien"
     assert identity.year == 1979
+
+
+@pytest.mark.asyncio
+async def test_media_identity_resolver_resolves_saved_imdb_identity() -> None:
+    session = FakeSession([FakeResult(None), FakeResult(None), FakeResult(None)])
+    cache_repo = TmdbCacheRepository(cast(AsyncSession, session))
+    client = FakeTmdbClient(
+        {
+            "tv_results": [
+                {
+                    "id": 207468,
+                    "name": "Kaiju No. 8",
+                    "first_air_date": "2024-04-13",
+                    "poster_path": "/kaiju.jpg",
+                }
+            ]
+        }
+    )
+    service = TmdbMetadataService(cache_repository=cache_repo, tmdb_client=client)
+    resolver = MediaIdentityResolver(service, delay_seconds=0.0)
+
+    identity = await resolver.resolve_external_id("tt21975436", "series")
+
+    assert identity is not None
+    assert identity.tmdb_id == "207468"
+    assert identity.title == "Kaiju No. 8"
+    assert identity.year == 2024
+    assert identity.poster_path == "/kaiju.jpg"
+    assert client.calls == [
+        ("/find/tt21975436", {"external_source": "imdb_id"}),
+    ]

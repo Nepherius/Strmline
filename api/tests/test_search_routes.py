@@ -137,6 +137,7 @@ async def test_search_titles_success(
     assert payload["results"][0]["tmdb_id"] == 12345
     assert payload["results"][0]["media_type"] == "movie"
     assert payload["results"][0]["poster_url"] == "https://image.tmdb.org/t/p/w342/test.jpg"
+    assert payload["results"][0]["poster_path"] == "/test.jpg"
     assert payload["results"][1]["title"] == "Test Show"
     assert payload["results"][1]["media_type"] == "series"
 

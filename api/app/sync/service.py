@@ -12,7 +12,7 @@ from app.core.config import Settings
 from app.db.repositories.classification_override import ClassificationOverrideRepository
 from app.db.repositories.library_exclusion import LibraryExclusionRepository
 from app.db.repositories.settings import AppSettingsRepository, SettingsSnapshot
-from app.db.repositories.stream_selection import StreamSelectionRepository
+from app.db.repositories.stream_selection import StreamSelectionRecord, StreamSelectionRepository
 from app.db.repositories.sync_state import SyncRunSource, SyncStateRepository
 from app.db.repositories.tmdb_cache import TmdbCacheRepository
 from app.library.posters import cache_missing_posters
@@ -23,7 +23,7 @@ from app.providers.tmdb.posters import TmdbPosterClient
 from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
 from app.search.actions import ensure_selected_streams_in_torbox
 from app.sync.anime_classification import build_anilist_anime_classifier
-from app.sync.media_identity import MediaIdentityResolver
+from app.sync.media_identity import MediaIdentity, MediaIdentityResolver
 from app.sync.torbox_strm import ResolverUrlConfig, TorBoxStrmSync
 
 
@@ -152,6 +152,14 @@ async def _run_torbox_account_sync(
                     ),
                 )
             identity_resolver = MediaIdentityResolver(tmdb_service)
+            (
+                selected_media_by_torrent_id,
+                selected_media_by_info_hash,
+            ) = await _selected_media_identities(
+                selection_repository,
+                selected_streams,
+                identity_resolver,
+            )
 
             result = await TorBoxStrmSync(
                 client=client,
@@ -164,6 +172,8 @@ async def _run_torbox_account_sync(
                 excluded_prefixes=await LibraryExclusionRepository(session).prefixes(),
                 media_identity_resolver=identity_resolver,
                 torrent_hashes=torrent_hashes,
+                selected_media_by_torrent_id=selected_media_by_torrent_id,
+                selected_media_by_info_hash=selected_media_by_info_hash,
                 preserved_paths=preserved_paths,
             ).run()
     except (OSError, TorBoxAPIError, ValueError) as error:
@@ -227,6 +237,54 @@ def _require_torbox_api_key(api_key: str | None) -> str:
     if api_key is None:
         raise SyncConfigurationError("TorBox API key is not configured.")
     return api_key
+
+
+async def _selected_media_identities(
+    repository: StreamSelectionRepository,
+    selections: tuple[StreamSelectionRecord, ...],
+    resolver: MediaIdentityResolver,
+) -> tuple[dict[str, MediaIdentity], dict[str, MediaIdentity]]:
+    by_torrent_id: dict[str, MediaIdentity] = {}
+    by_info_hash: dict[str, MediaIdentity] = {}
+    resolved_external_ids: dict[tuple[str, str], MediaIdentity | None] = {}
+    for selection in selections:
+        identity = _stored_media_identity(selection)
+        if identity is None:
+            external_id = selection.media_id.split(":", maxsplit=1)[0]
+            external_key = (external_id, selection.media_type)
+            if external_key not in resolved_external_ids:
+                resolved_external_ids[external_key] = await resolver.resolve_external_id(
+                    external_id,
+                    selection.media_type,
+                )
+            identity = resolved_external_ids[external_key]
+            if identity is not None and identity.tmdb_id is not None:
+                await repository.update_media_identity(
+                    selection.stream_key,
+                    tmdb_id=identity.tmdb_id,
+                    media_title=identity.title,
+                    media_year=identity.year,
+                    media_poster_path=identity.poster_path,
+                )
+        if identity is None or identity.tmdb_id is None:
+            continue
+        if selection.torbox_torrent_id is not None:
+            by_torrent_id[selection.torbox_torrent_id] = identity
+        if selection.info_hash is not None:
+            by_info_hash[selection.info_hash.casefold()] = identity
+    return by_torrent_id, by_info_hash
+
+
+def _stored_media_identity(selection: StreamSelectionRecord) -> MediaIdentity | None:
+    if selection.tmdb_id is None or selection.media_title is None:
+        return None
+    return MediaIdentity(
+        tmdb_id=selection.tmdb_id,
+        title=selection.media_title,
+        year=selection.media_year,
+        media_type="movie" if selection.media_type == "movie" else "tv",
+        poster_path=selection.media_poster_path,
+    )
 
 
 def _resolver_config(

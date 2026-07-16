@@ -6,6 +6,7 @@ import pytest
 from app.library.classification_override import LibraryClassificationOverride
 from app.providers.torbox.files import DownloadKind
 from app.resolver.manifest import resolve_manifest_target
+from app.sync.media_identity import MediaIdentity
 from app.sync.torbox_strm import DirectTorBoxStrmSync, ResolverUrlConfig
 
 
@@ -198,6 +199,48 @@ class BookwormAnimeCandidateTorBoxClient:
                     {
                         "id": 2,
                         "short_name": "01 - A World With No Books.mkv",
+                        "mimetype": "video/x-matroska",
+                    },
+                ],
+            },
+        ]
+
+
+class SxxFolderAnimeCandidateTorBoxClient:
+    async def list_downloads(
+        self, kind: DownloadKind, *, limit: int = 1000
+    ) -> list[dict[str, Any]]:
+        _ = limit
+        if kind != "torrents":
+            return []
+        return [
+            {
+                "id": 8,
+                "name": (
+                    "[sam] Kaijuu 8-gou - S01 (WEB 1080p HEVC x265 10-bit EAC-3) [Dual-Audio]"
+                ),
+                "cached": True,
+                "files": [
+                    {
+                        "id": 1,
+                        "short_name": "Kaijuu 8-gou - 01 [WEB 1080p HEVC x265].mkv",
+                        "mimetype": "video/x-matroska",
+                    },
+                    {
+                        "id": 3,
+                        "short_name": "Kaijuu 8-gou - 03v2 [WEB 1080p HEVC x265].mkv",
+                        "mimetype": "video/x-matroska",
+                    },
+                ],
+            },
+            {
+                "id": 9,
+                "name": "Kaiju.No.8.S02.1080p.BluRay",
+                "cached": True,
+                "files": [
+                    {
+                        "id": 1,
+                        "short_name": "Kaiju.No.8.S02E01.1080p.BluRay.mkv",
                         "mimetype": "video/x-matroska",
                     },
                 ],
@@ -436,6 +479,47 @@ async def test_torbox_strm_sync_uses_pack_folder_title_for_bracketed_anime_relea
     assert result.synced_files[0].category == "anime"
     assert result.written_paths == (expected_path.resolve(strict=False),)
     assert classifier.calls == [("Ascendance of a Bookworm", 2022)]
+
+
+@pytest.mark.asyncio
+async def test_torbox_strm_sync_uses_sxx_pack_context_for_numbered_anime_files(
+    tmp_path: Path,
+) -> None:
+    classifier = FakeAnimeClassifier(is_anime=True)
+    sync = DirectTorBoxStrmSync(
+        client=SxxFolderAnimeCandidateTorBoxClient(),
+        api_key="test-token",
+        torbox_base_url="https://api.torbox.app/v1/api",
+        library_root=tmp_path,
+        anime_classifier=classifier,
+        selected_media_by_torrent_id={
+            torrent_id: MediaIdentity(
+                tmdb_id="207468",
+                title="Kaiju No. 8",
+                year=2024,
+                media_type="tv",
+                poster_path="/kaiju.jpg",
+            )
+            for torrent_id in ("8", "9")
+        },
+    )
+
+    result = await sync.run(kinds=("torrents",))
+
+    expected_paths = (
+        tmp_path / "anime" / "Kaiju No. 8" / "Season 01" / "Kaiju No. 8 - S01E01.strm",
+        tmp_path / "anime" / "Kaiju No. 8" / "Season 01" / "Kaiju No. 8 - S01E03.strm",
+        tmp_path / "anime" / "Kaiju No. 8" / "Season 02" / "Kaiju No. 8 - S02E01.strm",
+    )
+    assert [file.category for file in result.synced_files] == ["anime", "anime", "anime"]
+    assert {file.title for file in result.synced_files} == {"Kaiju No. 8"}
+    assert {file.tmdb_id for file in result.synced_files} == {"207468"}
+    assert result.written_paths == tuple(path.resolve(strict=False) for path in expected_paths)
+    assert classifier.calls == [
+        ("Kaiju No. 8", 2024),
+        ("Kaiju No. 8", 2024),
+        ("Kaiju No. 8", 2024),
+    ]
 
 
 @pytest.mark.asyncio

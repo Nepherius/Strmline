@@ -214,6 +214,9 @@
         episode: stream.episode,
         stream_key: stream.stream_key,
         add_only_if_cached: true,
+        media_title: selectedTitle.title,
+        media_year: selectedTitle.year ? Number.parseInt(selectedTitle.year, 10) : null,
+        media_poster_path: selectedTitle.poster_path,
       });
       if (res.ok) {
         setStreamSelected(res.stream_key, res.selected);

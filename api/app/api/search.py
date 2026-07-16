@@ -77,6 +77,7 @@ async def search_titles(
                     year=None,
                     overview="Direct IMDB ID lookup",
                     poster_url=None,
+                    poster_path=None,
                     media_type="movie",
                 ),
             ],
@@ -279,6 +280,10 @@ async def add_stream_endpoint(
                     media_type=request.media_type,
                     media_id=media_id,
                     stream_key=request.stream_key,
+                    tmdb_id=str(request.tmdb_id) if request.tmdb_id is not None else None,
+                    media_title=request.media_title,
+                    media_year=request.media_year,
+                    media_poster_path=request.media_poster_path,
                 ),
                 add_only_if_cached=request.add_only_if_cached,
             )
@@ -376,6 +381,7 @@ def _title_to_response(result: TitleResult) -> TitleSearchResult:
         year=result.year,
         overview=result.overview,
         poster_url=poster_url,
+        poster_path=result.poster_path,
         media_type=result.media_type,
     )
 

@@ -8,8 +8,11 @@ from app.library.entries import LibraryCategory, LibraryEntry
 SEASON_EPISODE = re.compile(
     r"(?i)(?:^|[\s._-])s(?P<season>\d{1,2})[\s._-]*e(?P<episode>\d{1,3})(?:\D|$)"
 )
-FOLDER_SEASON = re.compile(r"(?i)\bseason[\s._-]*(?P<season>\d{1,2})\b")
+FOLDER_SEASON = re.compile(r"(?i)(?:^|[\s._-])(?:season[\s._-]*|s)(?P<season>\d{1,2})(?=\D|$)")
 LEADING_EPISODE = re.compile(r"(?i)^(?:episode[\s._-]*)?(?P<episode>\d{1,3})(?:\D|$)")
+PACK_EPISODE = re.compile(
+    r"(?i)(?:^|[\s._-])(?P<episode>\d{1,3})(?:v\d+)?(?=[\s._-]+(?:web|webrip|bd|bluray|hi10|2160p|1080p|720p|480p)\b)"
+)
 BARE_ANIME_EPISODE = re.compile(
     r"(?i)(?:^|[\s._-])(?P<episode>\d{1,3})(?=[\s._-]+(?:jp|jpn|bd|bluray|hi10)\b)"
 )
@@ -141,10 +144,12 @@ def _folder_episode(
     if season_episode is not None:
         return None
     folder_season = FOLDER_SEASON.search(_clean_release_name(PurePath(folder_name).name))
-    leading_episode = LEADING_EPISODE.search(name)
-    if folder_season is None or leading_episode is None:
+    if folder_season is None:
         return None
-    return int(folder_season.group("season")), int(leading_episode.group("episode"))
+    file_episode = LEADING_EPISODE.search(name) or PACK_EPISODE.search(name)
+    if file_episode is None:
+        return None
+    return int(folder_season.group("season")), int(file_episode.group("episode"))
 
 
 def _bare_anime_episode(
@@ -189,12 +194,19 @@ def _title_from_folder(folder_name: str) -> str:
         return ""
     cleaned = _clean_release_name(PurePath(folder_name).name)
     season_episode = SEASON_EPISODE.search(cleaned)
-    if season_episode is not None:
-        cleaned = cleaned[: season_episode.start()]
-    else:
-        year_match = YEAR.search(cleaned)
-        if year_match is not None:
-            cleaned = cleaned[: year_match.start("year")]
+    folder_season = FOLDER_SEASON.search(cleaned)
+    year_match = YEAR.search(cleaned)
+    metadata_starts = [
+        match_start
+        for match_start in (
+            season_episode.start() if season_episode is not None else None,
+            folder_season.start() if folder_season is not None else None,
+            year_match.start("year") if year_match is not None else None,
+        )
+        if match_start is not None
+    ]
+    if metadata_starts:
+        cleaned = cleaned[: min(metadata_starts)]
     cleaned = TRAILING_QUALITY.sub("", cleaned)
     return _humanize_title(cleaned)
 

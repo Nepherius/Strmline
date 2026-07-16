@@ -58,6 +58,10 @@ class FakeStreamSelectionRepository:
             info_hash=write.info_hash,
             torbox_torrent_id=write.torbox_torrent_id,
             status=write.status,
+            tmdb_id=write.tmdb_id,
+            media_title=write.media_title,
+            media_year=write.media_year,
+            media_poster_path=write.media_poster_path,
         )
         self.records[record.stream_key] = record
         return record
@@ -75,6 +79,10 @@ class FakeStreamSelectionRepository:
             info_hash=record.info_hash,
             torbox_torrent_id=torbox_torrent_id,
             status=record.status,
+            tmdb_id=record.tmdb_id,
+            media_title=record.media_title,
+            media_year=record.media_year,
+            media_poster_path=record.media_poster_path,
         )
 
     async def delete(self, stream_key: str) -> bool:
@@ -166,6 +174,10 @@ async def test_add_stream_adds_torrent_and_marks_selection(
             json={
                 "media_type": "movie",
                 "imdb_id": "tt1234567",
+                "tmdb_id": 12345,
+                "media_title": "Test Movie",
+                "media_year": 2026,
+                "media_poster_path": "/test.jpg",
                 "stream_key": stream["stream_key"],
             },
         )
@@ -176,6 +188,11 @@ async def test_add_stream_adds_torrent_and_marks_selection(
     assert payload["auto_sync_run_id"] == 12
     assert seen_create["cached"] is True
     assert str(seen_create["magnet"]).startswith("magnet:?xt=urn:btih:")
+    selection = FakeStreamSelectionRepository.records[stream["stream_key"]]
+    assert selection.tmdb_id == "12345"
+    assert selection.media_title == "Test Movie"
+    assert selection.media_year == 2026
+    assert selection.media_poster_path == "/test.jpg"
 
 
 @pytest.mark.asyncio

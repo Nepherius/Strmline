@@ -22,6 +22,9 @@ export interface StreamActionPayload {
   episode?: number | null;
   stream_key: string;
   add_only_if_cached?: boolean;
+  media_title?: string | null;
+  media_year?: number | null;
+  media_poster_path?: string | null;
 }
 
 export interface StreamActionResponse {

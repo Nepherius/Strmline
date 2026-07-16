@@ -5,6 +5,7 @@ export interface TitleSearchResult {
   year: string | null;
   overview: string;
   poster_url: string | null;
+  poster_path: string | null;
   media_type: string;
 }
 

@@ -111,6 +111,8 @@ class TorBoxStrmSync:
         excluded_prefixes: tuple[str, ...] = (),
         media_identity_resolver: MediaIdentityLookup | None = None,
         torrent_hashes: dict[str, str] | None = None,
+        selected_media_by_torrent_id: dict[str, MediaIdentity] | None = None,
+        selected_media_by_info_hash: dict[str, MediaIdentity] | None = None,
         preserved_paths: set[Path] | None = None,
     ) -> None:
         self._client = client
@@ -125,6 +127,11 @@ class TorBoxStrmSync:
         self._excluded_prefixes = excluded_prefixes
         self._media_identity_resolver = media_identity_resolver
         self._torrent_hashes = torrent_hashes or {}
+        self._selected_media_by_torrent_id = selected_media_by_torrent_id or {}
+        self._selected_media_by_info_hash = {
+            info_hash.casefold(): identity
+            for info_hash, identity in (selected_media_by_info_hash or {}).items()
+        }
         self._preserved_paths = preserved_paths or set()
 
     async def run(
@@ -162,17 +169,25 @@ class TorBoxStrmSync:
                 scanned_files += 1
                 entry_id = resolver_entry_id(torbox_file)
                 playback_url = self._playback_url(torbox_file, entry_id, manifest_entries)
+                info_hash = discovered_hashes.get(torbox_file.item_id) or self._torrent_hashes.get(
+                    torbox_file.item_id
+                )
+                selected_identity = self._selected_media_identity(torbox_file.item_id, info_hash)
                 entry = library_entry_from_file_name(
                     torbox_file.file_name,
                     playback_url,
                     torbox_file.folder_name,
                 )
+                if selected_identity is not None:
+                    entry = _entry_with_identity(entry, selected_identity)
                 entry = await self._with_anime_classification(entry)
                 entry = self._with_classification_override(entry)
 
-                tmdb_id: str | None = None
-                tmdb_poster_path: str | None = None
-                if self._media_identity_resolver is not None:
+                tmdb_id = selected_identity.tmdb_id if selected_identity is not None else None
+                tmdb_poster_path = (
+                    selected_identity.poster_path if selected_identity is not None else None
+                )
+                if selected_identity is None and self._media_identity_resolver is not None:
                     identity = await self._media_identity_resolver.resolve(
                         parsed_title=entry.title,
                         year=entry.year,
@@ -200,10 +215,7 @@ class TorBoxStrmSync:
                         entry_id,
                         entry,
                         torbox_file,
-                        info_hash=(
-                            discovered_hashes.get(torbox_file.item_id)
-                            or self._torrent_hashes.get(torbox_file.item_id)
-                        ),
+                        info_hash=info_hash,
                         tmdb_id=tmdb_id,
                         tmdb_poster_path=tmdb_poster_path,
                     )
@@ -224,6 +236,18 @@ class TorBoxStrmSync:
     def _with_classification_override(self, entry: LibraryEntry) -> LibraryEntry:
         override = self._classification_overrides.get(source_prefix_for_entry(entry))
         return apply_classification_override(entry, override)
+
+    def _selected_media_identity(
+        self,
+        torrent_id: str,
+        info_hash: str | None,
+    ) -> MediaIdentity | None:
+        by_torrent_id = self._selected_media_by_torrent_id.get(torrent_id)
+        if by_torrent_id is not None:
+            return by_torrent_id
+        if info_hash is None:
+            return None
+        return self._selected_media_by_info_hash.get(info_hash.casefold())
 
     async def _with_anime_classification(self, entry: LibraryEntry) -> LibraryEntry:
         if self._anime_classifier is None or entry.category == "anime":
@@ -335,6 +359,17 @@ def _category_from_identity(entry: LibraryEntry, media_type: str) -> LibraryCate
     if media_type == "tv" and entry.season_number is not None:
         return "shows"
     return entry.category
+
+
+def _entry_with_identity(entry: LibraryEntry, identity: MediaIdentity) -> LibraryEntry:
+    return LibraryEntry(
+        category=_category_from_identity(entry, identity.media_type),
+        title=identity.title,
+        year=identity.year,
+        season_number=entry.season_number,
+        episode_number=entry.episode_number,
+        resolver_url=entry.resolver_url,
+    )
 
 
 def _is_excluded(entry: LibraryEntry, excluded_prefixes: tuple[str, ...]) -> bool:

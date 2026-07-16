@@ -30,6 +30,10 @@ class StreamActionTarget:
     media_type: str
     media_id: str
     stream_key: str
+    tmdb_id: str | None = None
+    media_title: str | None = None
+    media_year: int | None = None
+    media_poster_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +88,10 @@ async def add_stream_to_torbox(
             source_name=stream.name,
             info_hash=identity.info_hash,
             torbox_torrent_id=torrent_id,
+            tmdb_id=target.tmdb_id,
+            media_title=target.media_title,
+            media_year=target.media_year,
+            media_poster_path=target.media_poster_path,
         )
     )
     return StreamActionOutcome(

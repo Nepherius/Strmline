@@ -73,6 +73,36 @@ class MediaIdentityResolver:
             self._memory_cache[cache_key] = identity
             return identity
 
+    async def resolve_external_id(
+        self,
+        external_id: str,
+        media_type: str,
+    ) -> MediaIdentity | None:
+        service = self._metadata_service
+        if service is None or not external_id.startswith("tt"):
+            return None
+        result_media_type = "movie" if media_type == "movie" else "tv"
+        result_key = "movie_results" if result_media_type == "movie" else "tv_results"
+        try:
+            payload = await service.get_json(
+                f"/find/{external_id}",
+                params={"external_source": "imdb_id"},
+            )
+        except Exception as error:  # noqa: BLE001
+            logger.warning("Failed to resolve TMDB identity for '%s': %s", external_id, error)
+            return None
+        results = payload.get(result_key)
+        if not isinstance(results, list):
+            return None
+        for raw in cast(list[object], results):
+            if not isinstance(raw, dict):
+                continue
+            normalized = {**cast("dict[str, Any]", raw), "media_type": result_media_type}
+            identity = _result_identity(normalized)
+            if identity is not None:
+                return identity
+        return None
+
     async def _do_resolve(
         self,
         parsed_title: str,

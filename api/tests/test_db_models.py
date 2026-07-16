@@ -91,6 +91,12 @@ def test_core_models_have_expected_primary_keys() -> None:
     assert {column.name for column in WatchlistItem.__table__.primary_key} == {"id"}
 
 
+def test_stream_selections_preserve_selected_media_identity() -> None:
+    columns = set(StreamSelection.__table__.columns.keys())
+
+    assert {"tmdb_id", "media_title", "media_year", "media_poster_path"} <= columns
+
+
 def test_library_entries_reference_normalized_torbox_files() -> None:
     columns = set(LibraryEntry.__table__.columns.keys())
 

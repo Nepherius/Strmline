@@ -6,8 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.db.repositories.settings import SettingsSnapshot
+from app.db.repositories.stream_selection import StreamSelectionRecord
 from app.providers.torbox.client import TorBoxAPIError
 from app.sync import service as sync_service
+from app.sync.media_identity import MediaIdentity
 from app.sync.service import SyncExecutionError, run_torbox_account_sync
 from app.sync.torbox_strm import ResolverUrlConfig, TorBoxStrmSyncResult
 
@@ -205,6 +207,63 @@ def fake_settings_repository(library_root: Path) -> type:
 
 async def no_selected_streams(**kwargs: object) -> None:
     _ = kwargs
+
+
+@pytest.mark.asyncio
+async def test_selected_media_identities_backfill_legacy_stream_selections() -> None:
+    selections = tuple(
+        StreamSelectionRecord(
+            stream_key=f"stream-{index}",
+            media_type="series",
+            media_id=f"tt21975436:{season}:1",
+            title="Release title",
+            source_name=None,
+            info_hash=f"HASH-{index}",
+            torbox_torrent_id=str(index),
+            status="selected",
+        )
+        for index, season in ((8, 1), (9, 2))
+    )
+
+    class CapturingRepository:
+        def __init__(self) -> None:
+            self.updates: list[tuple[str, dict[str, object]]] = []
+
+        async def update_media_identity(self, stream_key: str, **kwargs: object) -> None:
+            self.updates.append((stream_key, kwargs))
+
+    class ExternalIdentityResolver:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.external_ids: list[str] = []
+
+        async def resolve_external_id(self, external_id: str, media_type: str) -> MediaIdentity:
+            _ = media_type
+            self.calls += 1
+            self.external_ids.append(external_id)
+            return MediaIdentity(
+                tmdb_id="207468",
+                title="Kaiju No. 8",
+                year=2024,
+                media_type="tv",
+                poster_path="/kaiju.jpg",
+            )
+
+    repository = CapturingRepository()
+    resolver = ExternalIdentityResolver()
+
+    by_torrent_id, by_info_hash = await sync_service._selected_media_identities(  # pyright: ignore[reportPrivateUsage]
+        cast(sync_service.StreamSelectionRepository, repository),
+        selections,
+        cast(sync_service.MediaIdentityResolver, resolver),
+    )
+
+    assert resolver.calls == 1
+    assert resolver.external_ids == ["tt21975436"]
+    assert set(by_torrent_id) == {"8", "9"}
+    assert set(by_info_hash) == {"hash-8", "hash-9"}
+    assert {identity.title for identity in by_torrent_id.values()} == {"Kaiju No. 8"}
+    assert [stream_key for stream_key, _ in repository.updates] == ["stream-8", "stream-9"]
 
 
 def fake_torbox_strm_sync(captured: dict[str, object]) -> type:

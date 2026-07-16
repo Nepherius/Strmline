@@ -80,6 +80,19 @@ def test_library_entry_uses_pack_folder_for_bare_episode_number() -> None:
     assert entry.episode_number == 1
 
 
+def test_library_entry_uses_sxx_pack_folder_for_title_prefixed_episode() -> None:
+    entry = library_entry_from_file_name(
+        "Kaijuu 8-gou - 03v2 [WEB 1080p HEVC x265 10-bit EAC-3].mkv",
+        "https://example.test/play",
+        folder_name=("[sam] Kaijuu 8-gou - S01 (WEB 1080p HEVC x265 10-bit EAC-3) [Dual-Audio]"),
+    )
+
+    assert entry.category == "shows"
+    assert entry.title == "Kaijuu 8 gou"
+    assert entry.season_number == 1
+    assert entry.episode_number == 3
+
+
 def test_library_entry_recognizes_bare_numbered_anime_episode_release() -> None:
     entry = library_entry_from_file_name(
         "Ascendance of a Bookworm 01 JP BD Hi10.mkv",
