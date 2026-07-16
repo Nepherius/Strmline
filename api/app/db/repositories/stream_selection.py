@@ -103,6 +103,21 @@ class StreamSelectionRepository:
             selection.torbox_torrent_id = torbox_torrent_id
             await self._session.flush()
 
+    async def update_torbox_identity(
+        self,
+        stream_key: str,
+        *,
+        torbox_torrent_id: str,
+        info_hash: str | None,
+    ) -> None:
+        selection = await self._selection(stream_key)
+        if selection is None:
+            return
+        selection.torbox_torrent_id = torbox_torrent_id
+        if info_hash is not None:
+            selection.info_hash = info_hash
+        await self._session.flush()
+
     async def update_media_identity(
         self,
         stream_key: str,

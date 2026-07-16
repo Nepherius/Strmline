@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import GeneratedFile, LibraryEntry, LibraryExclusion, TorBoxItem
@@ -37,6 +37,27 @@ class LibraryExclusionRepository:
             )
         )
         await self._session.flush()
+
+    async def clear_for_selected_media(
+        self,
+        *,
+        media_type: str,
+        title: str,
+        year: int | None,
+    ) -> int:
+        categories = ("movies",) if media_type == "movie" else ("shows", "anime")
+        titles = {title}
+        if year is not None:
+            titles.add(f"{title} ({year})")
+        result = await self._session.execute(
+            delete(LibraryExclusion)
+            .where(
+                LibraryExclusion.category.in_(categories),
+                LibraryExclusion.title.in_(titles),
+            )
+            .returning(LibraryExclusion.id)
+        )
+        return len(tuple(result.scalars()))
 
     async def backing_items(self, relative_prefix: str) -> tuple[BackingProviderItem, ...]:
         result = await self._session.execute(

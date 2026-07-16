@@ -27,6 +27,7 @@ from app.api.search_models import (
 )
 from app.core.config import Settings, get_settings
 from app.db.dependencies import get_optional_db_session
+from app.db.repositories.library_exclusion import LibraryExclusionRepository
 from app.db.repositories.stream_selection import StreamSelectionRepository
 from app.db.repositories.tmdb_cache import TmdbCacheRepository
 from app.providers.aiostreams.client import (
@@ -286,6 +287,12 @@ async def add_stream_endpoint(
                     media_poster_path=request.media_poster_path,
                 ),
                 add_only_if_cached=request.add_only_if_cached,
+            )
+        if request.media_title is not None:
+            _ = await LibraryExclusionRepository(session).clear_for_selected_media(
+                media_type=request.media_type,
+                title=request.media_title,
+                year=request.media_year,
             )
         await session.commit()
     except (AioStreamsClientError, StreamActionError, TorBoxAPIError) as error:

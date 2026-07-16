@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import packageMetadata from "../package.json";
 
 import { fetchJson } from "./lib/api/client";
+import { APP_VERSION } from "./lib/appVersion";
 import { parseEpisodeTarget } from "./lib/domain/search/episodeTarget";
 import {
   duplicateFileCount,
@@ -29,6 +31,10 @@ import { watchlistCleanupTarget } from "./lib/domain/watchlist";
 describe("frontend tooling", () => {
   it("runs the Vitest suite", () => {
     expect("Strmline").toBe("Strmline");
+  });
+
+  it("derives the displayed application version from package.json", () => {
+    expect(APP_VERSION).toBe(packageMetadata.version);
   });
 });
 

@@ -1,11 +1,13 @@
 <script lang="ts">
+  import { APP_VERSION } from "$lib/appVersion";
+
   export let title: string;
   export let ariaLabel: string;
 </script>
 
 <section class="topbar" aria-label={ariaLabel}>
   <div>
-    <p class="eyebrow">Strmline</p>
+    <p class="eyebrow">Strmline <span class="version">v{APP_VERSION}</span></p>
     <h1>{title}</h1>
   </div>
   <div class="actions">
@@ -29,6 +31,13 @@
     font-size: 13px;
     font-weight: 700;
     text-transform: uppercase;
+  }
+
+  .version {
+    color: var(--text-muted);
+    font-size: 11px;
+    letter-spacing: 0;
+    text-transform: none;
   }
 
   h1 {

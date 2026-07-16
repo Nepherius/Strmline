@@ -85,8 +85,44 @@ class FakeStreamSelectionRepository:
             media_poster_path=record.media_poster_path,
         )
 
+    async def update_torbox_identity(
+        self,
+        stream_key: str,
+        *,
+        torbox_torrent_id: str,
+        info_hash: str | None,
+    ) -> None:
+        record = self.records.get(stream_key)
+        if record is None:
+            return
+        self.records[stream_key] = StreamSelectionRecord(
+            stream_key=record.stream_key,
+            media_type=record.media_type,
+            media_id=record.media_id,
+            title=record.title,
+            source_name=record.source_name,
+            info_hash=info_hash or record.info_hash,
+            torbox_torrent_id=torbox_torrent_id,
+            status=record.status,
+            tmdb_id=record.tmdb_id,
+            media_title=record.media_title,
+            media_year=record.media_year,
+            media_poster_path=record.media_poster_path,
+        )
+
     async def delete(self, stream_key: str) -> bool:
         return self.records.pop(stream_key, None) is not None
+
+
+class FakeLibraryExclusionRepository:
+    cleared: ClassVar[list[dict[str, object]]] = []
+
+    def __init__(self, session: object) -> None:
+        _ = session
+
+    async def clear_for_selected_media(self, **kwargs: object) -> int:
+        self.cleared.append(kwargs)
+        return 1
 
 
 def _client_with_fake_session() -> httpx.AsyncClient:
@@ -136,7 +172,9 @@ async def test_add_stream_adds_torrent_and_marks_selection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     FakeStreamSelectionRepository.records = {}
+    FakeLibraryExclusionRepository.cleared = []
     monkeypatch.setattr(search_api, "StreamSelectionRepository", FakeStreamSelectionRepository)
+    monkeypatch.setattr(search_api, "LibraryExclusionRepository", FakeLibraryExclusionRepository)
     monkeypatch.setenv("STRMLINE_AIOSTREAMS_BASE_URL", "http://aiostreams.test/manifest.json")
     monkeypatch.setenv("STRMLINE_TORBOX_API_KEY", "test_torbox_key")
     get_settings.cache_clear()
@@ -193,6 +231,9 @@ async def test_add_stream_adds_torrent_and_marks_selection(
     assert selection.media_title == "Test Movie"
     assert selection.media_year == 2026
     assert selection.media_poster_path == "/test.jpg"
+    assert FakeLibraryExclusionRepository.cleared == [
+        {"media_type": "movie", "title": "Test Movie", "year": 2026}
+    ]
 
 
 @pytest.mark.asyncio
@@ -201,6 +242,7 @@ async def test_add_stream_triggers_aiostreams_torbox_url(
 ) -> None:
     FakeStreamSelectionRepository.records = {}
     monkeypatch.setattr(search_api, "StreamSelectionRepository", FakeStreamSelectionRepository)
+    monkeypatch.setattr(search_api, "LibraryExclusionRepository", FakeLibraryExclusionRepository)
     monkeypatch.setenv("STRMLINE_AIOSTREAMS_BASE_URL", "http://aiostreams.test/manifest.json")
     monkeypatch.setenv("STRMLINE_TORBOX_API_KEY", "test_torbox_key")
     get_settings.cache_clear()
@@ -232,6 +274,7 @@ async def test_add_stream_triggers_aiostreams_torbox_url(
         return [
             {
                 "id": 888,
+                "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "files": [
                     {
                         "name": "Movie.1080p.WEB-DL.x264.mkv",
@@ -266,6 +309,8 @@ async def test_add_stream_triggers_aiostreams_torbox_url(
     assert payload["torbox_torrent_id"] == "888"
     assert payload["auto_sync_status"] == "success"
     assert triggered_urls == ["https://example.invalid/play"]
+    selection = FakeStreamSelectionRepository.records[stream["stream_key"]]
+    assert selection.info_hash == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 
 @pytest.mark.asyncio
@@ -274,6 +319,7 @@ async def test_add_stream_keeps_selection_when_auto_sync_fails(
 ) -> None:
     FakeStreamSelectionRepository.records = {}
     monkeypatch.setattr(search_api, "StreamSelectionRepository", FakeStreamSelectionRepository)
+    monkeypatch.setattr(search_api, "LibraryExclusionRepository", FakeLibraryExclusionRepository)
     monkeypatch.setenv("STRMLINE_AIOSTREAMS_BASE_URL", "http://aiostreams.test/manifest.json")
     monkeypatch.setenv("STRMLINE_TORBOX_API_KEY", "test_torbox_key")
     get_settings.cache_clear()
