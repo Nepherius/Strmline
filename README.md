@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="web/static/strmline-logo.svg" width="180" alt="Strmline logo">
-</p>
-
 <h1 align="center">Strmline</h1>
 
 <p align="center"><strong>Your TorBox library, structured and ready to stream.</strong></p>

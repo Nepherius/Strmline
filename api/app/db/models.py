@@ -448,3 +448,31 @@ class User(Base):
         default=utc_now,
         nullable=False,
     )
+
+
+class WatchlistItem(Base):
+    __tablename__ = "watchlist_items"
+    __table_args__ = (
+        UniqueConstraint("tmdb_id", name="uq_watchlist_items_tmdb_id"),
+        Index("ix_watchlist_items_title", "title"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tmdb_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    imdb_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    year: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    overview: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    poster_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    media_type: Mapped[str] = mapped_column(String(20), default="series", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )

@@ -24,10 +24,20 @@ import {
 import { filterStreams } from "./lib/domain/search/streamFilters";
 import type { StreamSearchResult } from "./lib/domain/search/types";
 import { sortStreamResults } from "./lib/domain/search/streamSort";
+import { watchlistCleanupTarget } from "./lib/domain/watchlist";
 
 describe("frontend tooling", () => {
   it("runs the Vitest suite", () => {
     expect("Strmline").toBe("Strmline");
+  });
+});
+
+describe("watchlist lifecycle", () => {
+  it("removes a matching series only after a confirmed stream add", () => {
+    expect(watchlistCleanupTarget("series", 123, true, [123])).toBe(123);
+    expect(watchlistCleanupTarget("series", 123, false, [123])).toBeNull();
+    expect(watchlistCleanupTarget("series", 456, true, [123])).toBeNull();
+    expect(watchlistCleanupTarget("movie", 123, true, [123])).toBeNull();
   });
 });
 

@@ -20,6 +20,8 @@
   export let onReset: (entry: LibraryEntry) => Promise<void>;
   export let onRemove: (entry: LibraryEntry) => Promise<void>;
   export let onRefresh: (entry: LibraryEntry) => Promise<void>;
+  export let onRemoveWatchlist: (entry: LibraryEntry) => Promise<void>;
+  export let onSearchWatchlist: (entry: LibraryEntry) => void;
 
   let loadedPosters: Record<string, boolean> = {};
   let failedPosters: Record<string, boolean> = {};
@@ -60,6 +62,7 @@
   });
 
   function classificationOverride(entry: LibraryEntry): ClassificationOverride | null {
+    if (entry.category === "watchlist") return null;
     return (
       overrides.find((override) => override.target_prefix === entry.relative_path) ??
       overrides.find((override) => override.source_prefix === entry.relative_path) ??
@@ -135,7 +138,11 @@
 
 <section class="media-grid" aria-label="Library collection">
   {#each entries as entry (entry.key)}
-    <article class:anime={entry.category === "anime"} class:shows={entry.category === "shows"}>
+    <article
+      class:anime={entry.category === "anime"}
+      class:shows={entry.category === "shows"}
+      class:watchlist={entry.category === "watchlist"}
+    >
       <button
         type="button"
         class="entry-select"
@@ -143,11 +150,7 @@
           selectEntry(entry);
         }}
       >
-        <div
-          use:observePoster={entry}
-          class:poster-loaded={loadedPosters[entry.key]}
-          class="cover"
-        >
+        <div use:observePoster={entry} class:poster-loaded={loadedPosters[entry.key]} class="cover">
           {#if posterSources[entry.key] && !failedPosters[entry.key]}
             <img
               src={posterSources[entry.key]}
@@ -167,18 +170,24 @@
               <span>{word}</span>
             {/each}
           </span>
-          <span class="file-count"
-            >{entry.file_count} {entry.file_count === 1 ? "file" : "files"}</span
-          >
+          <span class="file-count">
+            {entry.category === "watchlist"
+              ? "Saved"
+              : `${String(entry.file_count)} ${entry.file_count === 1 ? "file" : "files"}`}
+          </span>
         </div>
         <span class="tile-details">
           <span class="tile-title" title={entry.title}>{entry.title}</span>
-          <code title={entry.relative_path}>{entry.relative_path}</code>
+          <!-- {#if entry.category === "watchlist"}
+            <code>{entry.year ?? "Series"} · Awaiting torrent</code>
+          {:else}
+            <code title={entry.relative_path}>{entry.relative_path}</code>
+          {/if} -->
         </span>
       </button>
     </article>
   {:else}
-    <p class="empty">No generated entries match the current view.</p>
+    <p class="empty">No entries match the current view.</p>
   {/each}
 </section>
 
@@ -187,9 +196,8 @@
     entry={selectedEntry}
     currentOverride={classificationOverride(selectedEntry)}
     {disabled}
-    pending={
-      removingEntryKey === selectedEntry.key || pendingClassificationKey === selectedEntry.key
-    }
+    pending={removingEntryKey === selectedEntry.key ||
+      pendingClassificationKey === selectedEntry.key}
     refreshing={refreshingMetadataKey === selectedEntry.key}
     onClose={() => {
       selectedEntry = null;
@@ -198,6 +206,8 @@
     {onReset}
     {onRemove}
     {onRefresh}
+    {onRemoveWatchlist}
+    {onSearchWatchlist}
   />
 {/if}
 
@@ -265,6 +275,12 @@
     color: #f1f4ff;
   }
 
+  article.watchlist .cover {
+    border-color: #8a7044;
+    background: #463a25;
+    color: #fff2ce;
+  }
+
   .category,
   .file-count {
     position: relative;
@@ -316,17 +332,6 @@
     line-height: 1.25;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
-  }
-
-  .tile-details code {
-    display: block;
-    overflow: hidden;
-    margin-top: 4px;
-    color: #aab9af;
-    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-    font-size: 10px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .empty {

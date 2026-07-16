@@ -17,6 +17,7 @@ from app.db.models import (
     TmdbCacheEntry,
     TorBoxItem,
     TorBoxStoredFile,
+    WatchlistItem,
 )
 
 
@@ -40,6 +41,7 @@ def test_initial_schema_tables_are_registered() -> None:
         "torbox_items",
         "torbox_files",
         "users",
+        "watchlist_items",
     }
 
 
@@ -86,6 +88,7 @@ def test_core_models_have_expected_primary_keys() -> None:
     assert {column.name for column in ApplicationSettings.__table__.primary_key} == {"id"}
     assert {column.name for column in MediaItem.__table__.primary_key} == {"id"}
     assert {column.name for column in LibraryEntry.__table__.primary_key} == {"id"}
+    assert {column.name for column in WatchlistItem.__table__.primary_key} == {"id"}
 
 
 def test_library_entries_reference_normalized_torbox_files() -> None:

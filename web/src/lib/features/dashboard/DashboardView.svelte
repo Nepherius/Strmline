@@ -14,6 +14,7 @@
   import {
     categoryLabels,
     type LibraryCategory,
+    type LibraryDisplayCategory,
     type LibraryEntry,
     type LibraryFile,
     type LibrarySummary,
@@ -22,14 +23,15 @@
   } from "$lib/domain/library/summary";
   import type { SyncRunResult, SyncStatus } from "$lib/api/sync";
 
-  export let category: LibraryCategory | "all";
+  export let category: LibraryDisplayCategory | "all";
   export let query: string;
-  export let categories: (LibraryCategory | "all")[];
+  export let categories: (LibraryDisplayCategory | "all")[];
   export let duplicateCount: number;
   export let error: string;
   export let loading: boolean;
   export let syncing: boolean;
   export let summary: LibrarySummary | null;
+  export let watchlistCount: number;
   export let classificationOverrides: ClassificationOverride[];
   export let syncResult: SyncRunResult | null;
   export let syncStatus: SyncStatus | null;
@@ -46,6 +48,8 @@
   export let onHideDuplicateFile: (file: LibraryFile) => Promise<void>;
   export let onMoveEntry: (entry: LibraryEntry, targetCategory: LibraryCategory) => Promise<void>;
   export let onResetEntryClassification: (entry: LibraryEntry) => Promise<void>;
+  export let onRemoveWatchlistEntry: (entry: LibraryEntry) => Promise<void>;
+  export let onSearchWatchlistEntry: (entry: LibraryEntry) => void;
   export let onDismissSyncError: (errorId: number) => Promise<void>;
   export let onSort: (sortKey: SortKey) => void;
 
@@ -102,11 +106,12 @@
   <SyncErrorsPanel errors={recentErrors} {dismissingErrorId} onDismiss={onDismissSyncError} />
 
   {#if summary}
-    <MetricGrid ariaLabel="Library status" columns={6}>
+    <MetricGrid ariaLabel="Library status" columns={7}>
       <MetricCard label="Total files" value={summary.total_files} />
       <MetricCard label="Movies" value={summary.category_counts.movies} />
       <MetricCard label="Shows" value={summary.category_counts.shows} />
       <MetricCard label="Anime" value={summary.category_counts.anime} />
+      <MetricCard label="Watchlist" value={watchlistCount} />
       <MetricCard
         label="Duplicate files"
         value={duplicateCount}
@@ -163,6 +168,8 @@
         onReset={onResetEntryClassification}
         onRemove={onRemoveEntry}
         onRefresh={onRefreshMetadata}
+        onRemoveWatchlist={onRemoveWatchlistEntry}
+        onSearchWatchlist={onSearchWatchlistEntry}
       />
 
       {#if validation && !validation.ok}

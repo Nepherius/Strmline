@@ -18,8 +18,13 @@
   export let onReset: (entry: LibraryEntry) => Promise<void>;
   export let onRemove: (entry: LibraryEntry) => Promise<void>;
   export let onRefresh: (entry: LibraryEntry) => Promise<void>;
+  export let onRemoveWatchlist: (entry: LibraryEntry) => Promise<void>;
+  export let onSearchWatchlist: (entry: LibraryEntry) => void;
 
-  async function moveEntry(nextEntry: LibraryEntry, targetCategory: LibraryCategory): Promise<void> {
+  async function moveEntry(
+    nextEntry: LibraryEntry,
+    targetCategory: LibraryCategory,
+  ): Promise<void> {
     await onMove(nextEntry, targetCategory);
     onClose();
   }
@@ -36,6 +41,16 @@
 
   async function removeEntry(nextEntry: LibraryEntry): Promise<void> {
     await onRemove(nextEntry);
+    onClose();
+  }
+
+  async function removeWatchlistEntry(nextEntry: LibraryEntry): Promise<void> {
+    await onRemoveWatchlist(nextEntry);
+    onClose();
+  }
+
+  function searchWatchlistEntry(nextEntry: LibraryEntry): void {
+    onSearchWatchlist(nextEntry);
     onClose();
   }
 </script>
@@ -77,29 +92,69 @@
         {/if}
       </div>
       <dl>
-        <div>
-          <dt>Files</dt>
-          <dd>{entry.file_count}</dd>
-        </div>
-        <div>
-          <dt>Location</dt>
-          <dd><code>{entry.relative_path}</code></dd>
-        </div>
+        {#if entry.category === "watchlist"}
+          {#if entry.year}
+            <div>
+              <dt>Year</dt>
+              <dd>{entry.year}</dd>
+            </div>
+          {/if}
+          <div>
+            <dt>Status</dt>
+            <dd>Saved for later</dd>
+          </div>
+          {#if entry.overview}
+            <div>
+              <dt>Overview</dt>
+              <dd class="overview">{entry.overview}</dd>
+            </div>
+          {/if}
+        {:else}
+          <div>
+            <dt>Files</dt>
+            <dd>{entry.file_count}</dd>
+          </div>
+          <div>
+            <dt>Location</dt>
+            <dd><code>{entry.relative_path}</code></dd>
+          </div>
+        {/if}
       </dl>
     </div>
 
     <footer>
-      <LibraryEntryActions
-        {entry}
-        {currentOverride}
-        {disabled}
-        {pending}
-        {refreshing}
-        onMove={moveEntry}
-        onReset={resetEntry}
-        onRemove={removeEntry}
-        onRefresh={refreshEntry}
-      />
+      {#if entry.category === "watchlist"}
+        <div class="watchlist-actions">
+          <button
+            type="button"
+            class="danger-action"
+            disabled={disabled || pending}
+            on:click={() => void removeWatchlistEntry(entry)}
+          >
+            {pending ? "Removing" : "Remove from watchlist"}
+          </button>
+          <button
+            type="button"
+            class="search-action"
+            disabled={disabled || pending}
+            on:click={() => {
+              searchWatchlistEntry(entry);
+            }}>Search</button
+          >
+        </div>
+      {:else}
+        <LibraryEntryActions
+          {entry}
+          {currentOverride}
+          {disabled}
+          {pending}
+          {refreshing}
+          onMove={moveEntry}
+          onReset={resetEntry}
+          onRemove={removeEntry}
+          onRefresh={refreshEntry}
+        />
+      {/if}
     </footer>
   </dialog>
 </div>
@@ -220,6 +275,12 @@
     color: #f8f5ed;
   }
 
+  .overview {
+    color: #dbe6dd;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
   code {
     overflow-wrap: anywhere;
     color: #dbe6dd;
@@ -231,6 +292,30 @@
     justify-content: end;
     border-top: 1px solid #3b4840;
     padding-top: 14px;
+  }
+
+  .watchlist-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: end;
+    gap: 8px;
+  }
+
+  .watchlist-actions button {
+    height: 36px;
+    border: 1px solid #3e9c7a;
+    border-radius: 6px;
+    padding: 0 14px;
+    background: #26795e;
+    color: #fff;
+    cursor: pointer;
+    font-weight: 800;
+  }
+
+  .watchlist-actions .danger-action {
+    border-color: #a35a51;
+    background: #32201f;
+    color: #ffd7d2;
   }
 
   button:disabled {

@@ -1,4 +1,5 @@
 export type LibraryCategory = "movies" | "shows" | "anime";
+export type LibraryDisplayCategory = LibraryCategory | "watchlist";
 
 export interface LibraryFile {
   category: LibraryCategory;
@@ -13,11 +14,16 @@ export interface LibraryDuplicateGroup {
 
 export interface LibraryEntry {
   key: string;
-  category: LibraryCategory;
+  category: LibraryDisplayCategory;
   title: string;
   relative_path: string;
   file_count: number;
   poster_url?: string | null;
+  watchlist_id?: number;
+  tmdb_id?: number;
+  imdb_id?: string | null;
+  year?: string | null;
+  overview?: string;
 }
 
 export interface LibrarySummary {
@@ -51,16 +57,17 @@ export interface LibraryValidation {
 export type SortKey = "title" | "category" | "relative_path";
 export type SortDirection = "asc" | "desc";
 
-export const categoryLabels: Record<LibraryCategory, string> = {
+export const categoryLabels: Record<LibraryDisplayCategory, string> = {
   movies: "Movies",
   shows: "Shows",
   anime: "Anime",
+  watchlist: "Watchlist",
 };
 
 export function filterFiles(
   files: LibraryEntry[],
   query: string,
-  category: LibraryCategory | "all",
+  category: LibraryDisplayCategory | "all",
 ): LibraryEntry[] {
   const normalizedQuery = query.trim().toLowerCase();
   return files.filter((file) => {

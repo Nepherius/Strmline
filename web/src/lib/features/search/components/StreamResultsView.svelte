@@ -12,11 +12,17 @@
   export let streamResults: StreamSearchResult[];
   export let pendingStreamKeys: string[];
   export let streamActionMessage: string;
+  export let watchlisted: boolean;
+  export let watchlistPending: boolean;
+  export let watchlistMessage: string;
+  export let watchlistMessageVariant: "success" | "warning";
   export let error: string;
 
   export let onStreamFilterChange: (filter: string) => Promise<void>;
   export let onAddStream: (stream: StreamSearchResult) => Promise<void>;
   export let onRemoveStream: (stream: StreamSearchResult) => Promise<void>;
+  export let onAddToWatchlist: () => Promise<void>;
+  export let onRemoveFromWatchlist: () => Promise<void>;
   export let onBack: () => void;
 
   let filterRegex = "";
@@ -55,7 +61,26 @@
     <img class="mini-poster" src={selectedTitle.poster_url} alt={selectedTitle.title} />
   {/if}
   <div class="details-text">
-    <h2>{selectedTitle.title}</h2>
+    <div class="title-row">
+      <h2>{selectedTitle.title}</h2>
+      {#if selectedTitle.media_type === "series" && selectedTitle.tmdb_id !== 0}
+        <button
+          type="button"
+          class:active={watchlisted}
+          class="watchlist-button"
+          aria-pressed={watchlisted}
+          aria-label={watchlisted ? "Remove from watchlist" : "Add to watchlist"}
+          title={watchlisted ? "Remove from watchlist" : "Add to watchlist"}
+          disabled={watchlistPending}
+          on:click={() => {
+            void (watchlisted ? onRemoveFromWatchlist() : onAddToWatchlist());
+          }}
+        >
+          <span aria-hidden="true">{watchlistPending ? "…" : watchlisted ? "★" : "☆"}</span>
+          {watchlisted ? "Remove from watchlist" : "Add to watchlist"}
+        </button>
+      {/if}
+    </div>
     {#if selectedTitle.year}
       <span class="year-badge">{selectedTitle.year}</span>
     {/if}
@@ -69,6 +94,10 @@
 
 {#if streamActionMessage}
   <Notice variant="success">{streamActionMessage}</Notice>
+{/if}
+
+{#if watchlistMessage}
+  <Notice variant={watchlistMessageVariant}>{watchlistMessage}</Notice>
 {/if}
 
 {#if searchingStreams}
@@ -233,9 +262,45 @@
   }
 
   .details-text h2 {
-    margin: 0 0 6px;
+    margin: 0;
     font-size: 22px;
     font-weight: 800;
+  }
+
+  .title-row {
+    display: flex;
+    width: 100%;
+    align-items: start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 6px;
+  }
+
+  .watchlist-button {
+    display: inline-flex;
+    min-height: 34px;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 7px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0 10px;
+    background: var(--surface-raised);
+    color: var(--text-soft);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .watchlist-button.active {
+    border-color: var(--accent-strong);
+    background: var(--accent);
+    color: var(--text);
+  }
+
+  .watchlist-button:disabled {
+    cursor: wait;
+    opacity: 0.65;
   }
 
   .year-badge {
@@ -337,6 +402,15 @@
   }
 
   @media (max-width: 860px) {
+    .title-row {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .watchlist-button {
+      align-self: flex-start;
+    }
+
     .filter-panel {
       max-width: 100%;
       flex-direction: column;

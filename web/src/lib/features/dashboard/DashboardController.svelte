@@ -14,6 +14,7 @@
     type ClassificationOverride,
   } from "$lib/api/library";
   import { loadSetupStatus } from "$lib/api/setup";
+  import { loadWatchlist, removeTitleFromWatchlist, type WatchlistItem } from "$lib/api/watchlist";
   import {
     dismissSyncError,
     loadSyncStatus,
@@ -26,6 +27,7 @@
     filterFiles,
     sortFiles,
     type LibraryCategory,
+    type LibraryDisplayCategory,
     type LibraryEntry,
     type LibraryFile,
     type LibrarySummary,
@@ -37,9 +39,15 @@
 
   import DashboardView from "./DashboardView.svelte";
 
-  const categories: (LibraryCategory | "all")[] = ["all", "movies", "shows", "anime"];
+  const categories: (LibraryDisplayCategory | "all")[] = [
+    "all",
+    "movies",
+    "shows",
+    "anime",
+    "watchlist",
+  ];
 
-  let category: LibraryCategory | "all" = "all";
+  let category: LibraryDisplayCategory | "all" = "all";
   let query = "";
   let sortKey: SortKey = "title";
   let sortDirection: SortDirection = "asc";
@@ -51,13 +59,17 @@
   let syncStatus: SyncStatus | null = null;
   let validation: LibraryValidation | null = null;
   let classificationOverrides: ClassificationOverride[] = [];
+  let watchlistItems: WatchlistItem[] = [];
   let pendingClassificationKey = "";
   let removingEntryKey = "";
   let refreshingMetadataKey = "";
   let dismissingErrorId: number | null = null;
 
+  $: allEntries = summary
+    ? [...summary.entries, ...watchlistItems.map(watchlistEntry)]
+    : watchlistItems.map(watchlistEntry);
   $: visibleEntries = summary
-    ? sortFiles(filterFiles(summary.entries, query, category), sortKey, sortDirection)
+    ? sortFiles(filterFiles(allEntries, query, category), sortKey, sortDirection)
     : [];
   $: duplicateCount = summary ? duplicateFileCount(summary) : 0;
   $: validationIssues = validation ? validationIssueCount(validation) : 0;
@@ -88,16 +100,19 @@
     loading = true;
     error = "";
     try {
-      const [nextSummary, nextValidation, nextSyncStatus, nextOverrides] = await Promise.all([
-        loadLibrarySummary(),
-        loadLibraryValidation(),
-        loadSyncStatus(),
-        loadClassificationOverrides(),
-      ]);
+      const [nextSummary, nextValidation, nextSyncStatus, nextOverrides, nextWatchlist] =
+        await Promise.all([
+          loadLibrarySummary(),
+          loadLibraryValidation(),
+          loadSyncStatus(),
+          loadClassificationOverrides(),
+          loadWatchlist(),
+        ]);
       summary = nextSummary;
       validation = nextValidation;
       syncStatus = nextSyncStatus;
       classificationOverrides = nextOverrides;
+      watchlistItems = nextWatchlist;
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
       error = `Dashboard unavailable. ${message}`;
@@ -131,6 +146,7 @@
   }
 
   async function removeEntry(entry: LibraryEntry) {
+    if (entry.category === "watchlist") return;
     if (removingEntryKey) return;
     const confirmed = window.confirm(
       `Remove "${entry.title}" from Strmline and TorBox? This cannot be undone from Strmline.`,
@@ -159,6 +175,7 @@
   }
 
   async function refreshEntryMetadata(entry: LibraryEntry) {
+    if (entry.category === "watchlist") return;
     if (refreshingMetadataKey) return;
     refreshingMetadataKey = entry.key;
     error = "";
@@ -211,6 +228,7 @@
   }
 
   async function moveEntry(entry: LibraryEntry, targetCategory: LibraryCategory) {
+    if (entry.category === "watchlist") return;
     if (pendingClassificationKey) return;
     pendingClassificationKey = entry.key;
     syncing = true;
@@ -253,6 +271,7 @@
   }
 
   async function resetEntryClassification(entry: LibraryEntry) {
+    if (entry.category === "watchlist") return;
     if (pendingClassificationKey) return;
     pendingClassificationKey = entry.key;
     syncing = true;
@@ -293,6 +312,7 @@
   }
 
   function overrideForEntry(entry: LibraryEntry): ClassificationOverride | null {
+    if (entry.category === "watchlist") return null;
     return (
       classificationOverrides.find((override) => override.target_prefix === entry.relative_path) ??
       classificationOverrides.find((override) => override.source_prefix === entry.relative_path) ??
@@ -304,11 +324,49 @@
     entry: LibraryEntry,
     override: ClassificationOverride,
   ): Promise<void> {
+    if (entry.category === "watchlist") return;
     if (entry.relative_path === override.source_prefix) return;
     await deleteClassificationOverride({
       source_category: entry.category,
       source_prefix: entry.relative_path,
     });
+  }
+
+  async function removeWatchlistEntry(entry: LibraryEntry) {
+    if (entry.category !== "watchlist" || entry.tmdb_id === undefined || removingEntryKey) return;
+    removingEntryKey = entry.key;
+    error = "";
+    try {
+      await removeTitleFromWatchlist(entry.tmdb_id);
+      watchlistItems = watchlistItems.filter((item) => item.tmdb_id !== entry.tmdb_id);
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
+      error = `Could not remove watchlist entry. ${message}`;
+    } finally {
+      removingEntryKey = "";
+    }
+  }
+
+  function searchWatchlistEntry(entry: LibraryEntry) {
+    const tmdbParam = entry.tmdb_id === undefined ? "" : `&tmdb_id=${String(entry.tmdb_id)}`;
+    const searchPath: `/search?${string}` = `/search?q=${encodeURIComponent(entry.title)}${tmdbParam}`;
+    void goto(resolve(searchPath));
+  }
+
+  function watchlistEntry(item: WatchlistItem): LibraryEntry {
+    return {
+      key: `watchlist/${String(item.id)}`,
+      category: "watchlist",
+      title: item.title,
+      relative_path: "",
+      file_count: 0,
+      poster_url: item.poster_url,
+      watchlist_id: item.id,
+      tmdb_id: item.tmdb_id,
+      imdb_id: item.imdb_id,
+      year: item.year,
+      overview: item.overview,
+    };
   }
 </script>
 
@@ -321,6 +379,7 @@
   {loading}
   {syncing}
   {summary}
+  watchlistCount={watchlistItems.length}
   {classificationOverrides}
   {syncResult}
   {syncStatus}
@@ -338,5 +397,7 @@
   onHideDuplicateFile={hideDuplicateFile}
   onMoveEntry={moveEntry}
   onResetEntryClassification={resetEntryClassification}
+  onRemoveWatchlistEntry={removeWatchlistEntry}
+  onSearchWatchlistEntry={searchWatchlistEntry}
   onDismissSyncError={dismissRecentError}
 />

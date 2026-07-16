@@ -21,6 +21,7 @@ from app.api.search import router as search_router
 from app.api.settings import router as settings_router
 from app.api.setup import router as setup_router
 from app.api.sync import router as sync_router
+from app.api.watchlist import router as watchlist_router
 from app.core.config import get_settings
 from app.core.error_logging import ErrorLogWriter
 from app.core.logging import configure_debug_logging
@@ -117,6 +118,10 @@ def create_app() -> FastAPI:
     )
     app.include_router(
         search_router,
+        dependencies=[Depends(get_current_user), Depends(csrf_protect)],
+    )
+    app.include_router(
+        watchlist_router,
         dependencies=[Depends(get_current_user), Depends(csrf_protect)],
     )
     app.include_router(

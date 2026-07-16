@@ -19,6 +19,10 @@
   export let lastSubmittedQuery: string;
 
   export let selectedTitle: TitleSearchResult | null;
+  export let watchlisted: boolean;
+  export let watchlistPending: boolean;
+  export let watchlistMessage: string;
+  export let watchlistMessageVariant: "success" | "warning";
 
   export let searchingStreams: boolean;
   export let searchingEpisodeStreams: boolean;
@@ -33,6 +37,8 @@
   export let onStreamFilterChange: (filter: string) => Promise<void>;
   export let onAddStream: (stream: StreamSearchResult) => Promise<void>;
   export let onRemoveStream: (stream: StreamSearchResult) => Promise<void>;
+  export let onAddToWatchlist: () => Promise<void>;
+  export let onRemoveFromWatchlist: () => Promise<void>;
   export let onBack: () => void;
 </script>
 
@@ -72,6 +78,10 @@
   {:else if mode === "streams" && selectedTitle}
     <StreamResultsView
       {selectedTitle}
+      {watchlisted}
+      {watchlistPending}
+      {watchlistMessage}
+      {watchlistMessageVariant}
       {searchingStreams}
       {searchingEpisodeStreams}
       {streamResults}
@@ -81,6 +91,8 @@
       {onStreamFilterChange}
       {onAddStream}
       {onRemoveStream}
+      {onAddToWatchlist}
+      {onRemoveFromWatchlist}
       {onBack}
     />
   {/if}

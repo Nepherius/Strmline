@@ -2,6 +2,12 @@
   import { onMount } from "svelte";
   import { loadSettings } from "$lib/api/settings";
   import {
+    addTitleToWatchlist,
+    loadWatchlist,
+    removeTitleFromWatchlist,
+    type WatchlistItem,
+  } from "$lib/api/watchlist";
+  import {
     addStreamToTorBox,
     removeStreamFromTorBox,
     searchTitles,
@@ -10,6 +16,7 @@
   import type { StreamSearchResult, TitleSearchResult } from "$lib/domain/search/types";
   import { parseEpisodeTarget } from "$lib/domain/search/episodeTarget";
   import { sortStreamResults } from "$lib/domain/search/streamSort";
+  import { watchlistCleanupTarget } from "$lib/domain/watchlist";
   import SearchView from "./SearchView.svelte";
 
   let mode: "title" | "streams" = "title";
@@ -22,6 +29,10 @@
   let titleResults: TitleSearchResult[] = [];
 
   let selectedTitle: TitleSearchResult | null = null;
+  let watchlistItems: WatchlistItem[] = [];
+  let watchlistPending = false;
+  let watchlistMessage = "";
+  let watchlistMessageVariant: "success" | "warning" = "success";
 
   let searchingStreams = false;
   let searchingEpisodeStreams = false;
@@ -33,15 +44,31 @@
   let error = "";
   let loadingSettings = true;
 
+  $: selectedWatchlistItem = selectedTitle
+    ? (watchlistItems.find((item) => item.tmdb_id === selectedTitle?.tmdb_id) ?? null)
+    : null;
+
   onMount(async () => {
     try {
-      const settings = await loadSettings();
+      const [settings, nextWatchlist] = await Promise.all([loadSettings(), loadWatchlist()]);
       aiostreamsConfigured = settings.aiostreams_configured;
       tmdbConfigured = settings.tmdb_configured;
+      watchlistItems = nextWatchlist;
     } catch (caughtError) {
       error = caughtError instanceof Error ? caughtError.message : "Failed to load settings.";
     } finally {
       loadingSettings = false;
+    }
+
+    const initialQuery = new URL(window.location.href).searchParams.get("q")?.trim();
+    if (initialQuery) {
+      query = initialQuery;
+      await handleTitleSearch();
+      const initialTmdbId = Number(
+        new URL(window.location.href).searchParams.get("tmdb_id") ?? "0",
+      );
+      const matchingTitle = titleResults.find((title) => title.tmdb_id === initialTmdbId);
+      if (matchingTitle) await handleSelectTitle(matchingTitle);
     }
   });
 
@@ -78,10 +105,51 @@
     await fetchStreams();
   }
 
+  async function handleAddToWatchlist() {
+    if (selectedTitle?.media_type !== "series" || selectedTitle.tmdb_id === 0 || watchlistPending) {
+      return;
+    }
+    watchlistPending = true;
+    watchlistMessage = "";
+    watchlistMessageVariant = "success";
+    error = "";
+    try {
+      const item = await addTitleToWatchlist(selectedTitle);
+      watchlistItems = [
+        ...watchlistItems.filter((current) => current.tmdb_id !== item.tmdb_id),
+        item,
+      ];
+      watchlistMessage = `Added “${selectedTitle.title}” to the watchlist.`;
+    } catch (caughtError) {
+      error = caughtError instanceof Error ? caughtError.message : "Could not update watchlist.";
+    } finally {
+      watchlistPending = false;
+    }
+  }
+
+  async function handleRemoveFromWatchlist() {
+    if (!selectedWatchlistItem || watchlistPending) return;
+    const removedTmdbId = selectedWatchlistItem.tmdb_id;
+    watchlistPending = true;
+    watchlistMessage = "";
+    watchlistMessageVariant = "success";
+    error = "";
+    try {
+      await removeTitleFromWatchlist(removedTmdbId);
+      watchlistItems = watchlistItems.filter((item) => item.tmdb_id !== removedTmdbId);
+      watchlistMessage = `Removed “${selectedTitle?.title ?? "Series"}” from the watchlist.`;
+    } catch (caughtError) {
+      error = caughtError instanceof Error ? caughtError.message : "Could not update watchlist.";
+    } finally {
+      watchlistPending = false;
+    }
+  }
+
   async function fetchStreams() {
     if (!selectedTitle) return;
     error = "";
     streamActionMessage = "";
+    watchlistMessage = "";
     searchingStreams = true;
     streamResults = [];
     try {
@@ -135,6 +203,7 @@
     if (!selectedTitle || pendingStreamKeys.includes(stream.stream_key)) return;
     error = "";
     streamActionMessage = "";
+    watchlistMessage = "";
     pendingStreamKeys = [...pendingStreamKeys, stream.stream_key];
     try {
       const res = await addStreamToTorBox({
@@ -149,6 +218,15 @@
       if (res.ok) {
         setStreamSelected(res.stream_key, res.selected);
         streamActionMessage = res.message;
+        const cleanupTmdbId = watchlistCleanupTarget(
+          selectedTitle.media_type,
+          selectedTitle.tmdb_id,
+          res.selected,
+          watchlistItems.map((item) => item.tmdb_id),
+        );
+        if (cleanupTmdbId !== null) {
+          await removeWatchlistAfterSuccessfulAdd(cleanupTmdbId, selectedTitle.title);
+        }
       } else {
         error = res.message;
       }
@@ -156,6 +234,24 @@
       error = caughtError instanceof Error ? caughtError.message : "Could not add stream.";
     } finally {
       pendingStreamKeys = pendingStreamKeys.filter((key) => key !== stream.stream_key);
+    }
+  }
+
+  async function removeWatchlistAfterSuccessfulAdd(tmdbId: number, title: string) {
+    if (watchlistPending) return;
+    watchlistPending = true;
+    watchlistMessage = "";
+    try {
+      await removeTitleFromWatchlist(tmdbId);
+      watchlistItems = watchlistItems.filter((item) => item.tmdb_id !== tmdbId);
+      watchlistMessageVariant = "success";
+      watchlistMessage = `Removed “${title}” from the watchlist.`;
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
+      watchlistMessageVariant = "warning";
+      watchlistMessage = `The stream was added, but “${title}” could not be removed from the watchlist. ${message}`;
+    } finally {
+      watchlistPending = false;
     }
   }
 
@@ -217,6 +313,10 @@
   {titleResults}
   {lastSubmittedQuery}
   {selectedTitle}
+  watchlisted={selectedWatchlistItem !== null}
+  {watchlistPending}
+  {watchlistMessage}
+  {watchlistMessageVariant}
   {searchingStreams}
   {searchingEpisodeStreams}
   {streamResults}
@@ -228,5 +328,7 @@
   onStreamFilterChange={handleStreamFilterChange}
   onAddStream={handleAddStream}
   onRemoveStream={handleRemoveStream}
+  onAddToWatchlist={handleAddToWatchlist}
+  onRemoveFromWatchlist={handleRemoveFromWatchlist}
   onBack={handleBackToSearch}
 />
