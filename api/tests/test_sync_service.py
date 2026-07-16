@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast, override
 
 import pytest
@@ -264,6 +265,21 @@ async def test_selected_media_identities_backfill_legacy_stream_selections() -> 
     assert set(by_info_hash) == {"hash-8", "hash-9"}
     assert {identity.title for identity in by_torrent_id.values()} == {"Kaiju No. 8"}
     assert [stream_key for stream_key, _ in repository.updates] == ["stream-8", "stream-9"]
+
+
+def test_watchlist_identities_include_movies_shows_and_anime() -> None:
+    result = SimpleNamespace(
+        synced_files=(
+            SimpleNamespace(category="movies", tmdb_id="10"),
+            SimpleNamespace(category="shows", tmdb_id="20"),
+            SimpleNamespace(category="anime", tmdb_id="30"),
+            SimpleNamespace(category="shows", tmdb_id=None),
+        )
+    )
+
+    assert sync_service._watchlist_identities(  # pyright: ignore[reportPrivateUsage]
+        cast(TorBoxStrmSyncResult, result)
+    ) == {("movie", 10), ("series", 20), ("series", 30)}
 
 
 def fake_torbox_strm_sync(captured: dict[str, object]) -> type:

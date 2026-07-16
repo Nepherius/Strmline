@@ -48,6 +48,11 @@ async def save_watchlist_item(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> WatchlistItemResponse:
     repository = WatchlistRepository(session)
+    if await repository.library_contains(request.media_type, request.tmdb_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This title is already in the library.",
+        )
     item = await repository.upsert(
         WatchlistItemWrite(
             tmdb_id=request.tmdb_id,

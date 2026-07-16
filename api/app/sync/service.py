@@ -15,6 +15,7 @@ from app.db.repositories.settings import AppSettingsRepository, SettingsSnapshot
 from app.db.repositories.stream_selection import StreamSelectionRecord, StreamSelectionRepository
 from app.db.repositories.sync_state import SyncRunSource, SyncStateRepository
 from app.db.repositories.tmdb_cache import TmdbCacheRepository
+from app.db.repositories.watchlist import WatchlistRepository
 from app.library.posters import cache_missing_posters
 from app.providers.aiostreams.client import AioStreamsClient
 from app.providers.tmdb.client import TmdbClient
@@ -24,7 +25,7 @@ from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
 from app.search.actions import ensure_selected_streams_in_torbox
 from app.sync.anime_classification import build_anilist_anime_classifier
 from app.sync.media_identity import MediaIdentity, MediaIdentityResolver
-from app.sync.torbox_strm import ResolverUrlConfig, TorBoxStrmSync
+from app.sync.torbox_strm import ResolverUrlConfig, TorBoxStrmSync, TorBoxStrmSyncResult
 
 
 class SyncAlreadyRunningError(RuntimeError):
@@ -184,6 +185,8 @@ async def _run_torbox_account_sync(
         )
         raise SyncExecutionError("TorBox sync failed.") from error
 
+    await _remove_synced_from_watchlist(session, result)
+
     sync_run_id = await sync_state.record_success(
         result,
         library_root,
@@ -231,6 +234,25 @@ def _library_root(snapshot: SettingsSnapshot) -> Path:
     if snapshot.library_root is None:
         raise SyncConfigurationError("Library root is not configured.")
     return Path(snapshot.library_root)
+
+
+def _watchlist_identities(result: TorBoxStrmSyncResult) -> set[tuple[str, int]]:
+    identities: set[tuple[str, int]] = set()
+    for synced_file in result.synced_files:
+        if synced_file.tmdb_id is None or not synced_file.tmdb_id.isdecimal():
+            continue
+        media_type = "movie" if synced_file.category == "movies" else "series"
+        identities.add((media_type, int(synced_file.tmdb_id)))
+    return identities
+
+
+async def _remove_synced_from_watchlist(
+    session: AsyncSession,
+    result: TorBoxStrmSyncResult,
+) -> None:
+    identities = _watchlist_identities(result)
+    if identities:
+        _ = await WatchlistRepository(session).delete_identities(identities)
 
 
 def _require_torbox_api_key(api_key: str | None) -> str:

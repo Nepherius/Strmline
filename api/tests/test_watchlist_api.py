@@ -33,6 +33,7 @@ async def test_watchlist_routes_list_save_and_delete(
     session = AsyncMock(spec=AsyncSession)
     repository = SimpleNamespace(
         list_all=AsyncMock(return_value=(item,)),
+        library_contains=AsyncMock(return_value=False),
         upsert=AsyncMock(return_value=item),
         delete=AsyncMock(return_value=True),
     )
@@ -65,6 +66,33 @@ async def test_watchlist_routes_list_save_and_delete(
     repository.delete.assert_awaited_once_with("series", 123)
     assert response.status_code == 204
     assert session.commit.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_save_rejects_media_already_in_library(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = AsyncMock(spec=AsyncSession)
+    repository = SimpleNamespace(
+        library_contains=AsyncMock(return_value=True),
+        upsert=AsyncMock(),
+    )
+
+    def repository_factory(_session: AsyncSession) -> SimpleNamespace:
+        return repository
+
+    monkeypatch.setattr(watchlist_api, "WatchlistRepository", repository_factory)
+
+    with pytest.raises(watchlist_api.HTTPException) as caught:
+        _ = await watchlist_api.save_watchlist_item(
+            WatchlistItemRequest(tmdb_id=123, title="Human Vapor", media_type="series"),
+            session,
+        )
+
+    assert caught.value.status_code == 409
+    assert caught.value.detail == "This title is already in the library."
+    repository.upsert.assert_not_awaited()
+    session.commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio
