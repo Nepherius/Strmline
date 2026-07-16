@@ -1,9 +1,12 @@
 export function watchlistCleanupTarget(
-  mediaType: string,
+  mediaType: "movie" | "series",
   tmdbId: number,
   streamSelected: boolean,
-  watchlistedTmdbIds: readonly number[],
-): number | null {
-  if (mediaType !== "series" || tmdbId <= 0 || !streamSelected) return null;
-  return watchlistedTmdbIds.includes(tmdbId) ? tmdbId : null;
+  watchlistedItems: readonly { media_type: "movie" | "series"; tmdb_id: number }[],
+): { media_type: "movie" | "series"; tmdb_id: number } | null {
+  if (tmdbId <= 0 || !streamSelected) return null;
+  return (
+    watchlistedItems.find((item) => item.media_type === mediaType && item.tmdb_id === tmdbId) ??
+    null
+  );
 }

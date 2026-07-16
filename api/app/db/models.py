@@ -457,7 +457,11 @@ class User(Base):
 class WatchlistItem(Base):
     __tablename__ = "watchlist_items"
     __table_args__ = (
-        UniqueConstraint("tmdb_id", name="uq_watchlist_items_tmdb_id"),
+        UniqueConstraint(
+            "media_type",
+            "tmdb_id",
+            name="uq_watchlist_items_media_type_tmdb_id",
+        ),
         Index("ix_watchlist_items_title", "title"),
     )
 

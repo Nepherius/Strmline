@@ -63,7 +63,7 @@
   <div class="details-text">
     <div class="title-row">
       <h2>{selectedTitle.title}</h2>
-      {#if selectedTitle.media_type === "series" && selectedTitle.tmdb_id !== 0}
+      {#if selectedTitle.tmdb_id !== 0}
         <button
           type="button"
           class:active={watchlisted}

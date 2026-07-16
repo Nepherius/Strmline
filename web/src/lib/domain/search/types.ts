@@ -6,7 +6,7 @@ export interface TitleSearchResult {
   overview: string;
   poster_url: string | null;
   poster_path: string | null;
-  media_type: string;
+  media_type: "movie" | "series";
 }
 
 export interface ParsedStreamResponse {

@@ -1,3 +1,5 @@
+from sqlalchemy import UniqueConstraint
+
 from app.db.base import Base
 from app.db.models import (
     AniListCacheEntry,
@@ -89,6 +91,14 @@ def test_core_models_have_expected_primary_keys() -> None:
     assert {column.name for column in MediaItem.__table__.primary_key} == {"id"}
     assert {column.name for column in LibraryEntry.__table__.primary_key} == {"id"}
     assert {column.name for column in WatchlistItem.__table__.primary_key} == {"id"}
+
+
+def test_watchlist_identity_includes_media_type() -> None:
+    constraint = WatchlistItem.__table_args__[0]
+
+    assert isinstance(constraint, UniqueConstraint)
+    assert constraint.name == "uq_watchlist_items_media_type_tmdb_id"
+    assert {column.name for column in constraint.columns} == {"media_type", "tmdb_id"}
 
 
 def test_stream_selections_preserve_selected_media_identity() -> None:

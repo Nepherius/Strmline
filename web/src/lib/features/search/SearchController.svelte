@@ -44,9 +44,16 @@
   let error = "";
   let loadingSettings = true;
 
-  $: selectedWatchlistItem = selectedTitle
-    ? (watchlistItems.find((item) => item.tmdb_id === selectedTitle?.tmdb_id) ?? null)
-    : null;
+  $: selectedWatchlistItem = findWatchlistItem(selectedTitle);
+
+  function findWatchlistItem(title: TitleSearchResult | null): WatchlistItem | null {
+    if (!title) return null;
+    return (
+      watchlistItems.find(
+        (item) => item.media_type === title.media_type && item.tmdb_id === title.tmdb_id,
+      ) ?? null
+    );
+  }
 
   onMount(async () => {
     try {
@@ -67,7 +74,12 @@
       const initialTmdbId = Number(
         new URL(window.location.href).searchParams.get("tmdb_id") ?? "0",
       );
-      const matchingTitle = titleResults.find((title) => title.tmdb_id === initialTmdbId);
+      const initialMediaType = new URL(window.location.href).searchParams.get("media_type");
+      const matchingTitle = titleResults.find(
+        (title) =>
+          title.tmdb_id === initialTmdbId &&
+          (initialMediaType === null || title.media_type === initialMediaType),
+      );
       if (matchingTitle) await handleSelectTitle(matchingTitle);
     }
   });
@@ -106,7 +118,7 @@
   }
 
   async function handleAddToWatchlist() {
-    if (selectedTitle?.media_type !== "series" || selectedTitle.tmdb_id === 0 || watchlistPending) {
+    if (!selectedTitle || selectedTitle.tmdb_id === 0 || watchlistPending) {
       return;
     }
     watchlistPending = true;
@@ -130,14 +142,17 @@
   async function handleRemoveFromWatchlist() {
     if (!selectedWatchlistItem || watchlistPending) return;
     const removedTmdbId = selectedWatchlistItem.tmdb_id;
+    const removedMediaType = selectedWatchlistItem.media_type;
     watchlistPending = true;
     watchlistMessage = "";
     watchlistMessageVariant = "success";
     error = "";
     try {
-      await removeTitleFromWatchlist(removedTmdbId);
-      watchlistItems = watchlistItems.filter((item) => item.tmdb_id !== removedTmdbId);
-      watchlistMessage = `Removed “${selectedTitle?.title ?? "Series"}” from the watchlist.`;
+      await removeTitleFromWatchlist(removedMediaType, removedTmdbId);
+      watchlistItems = watchlistItems.filter(
+        (item) => item.media_type !== removedMediaType || item.tmdb_id !== removedTmdbId,
+      );
+      watchlistMessage = `Removed “${selectedTitle?.title ?? "Media"}” from the watchlist.`;
     } catch (caughtError) {
       error = caughtError instanceof Error ? caughtError.message : "Could not update watchlist.";
     } finally {
@@ -225,10 +240,14 @@
           selectedTitle.media_type,
           selectedTitle.tmdb_id,
           res.selected,
-          watchlistItems.map((item) => item.tmdb_id),
+          watchlistItems,
         );
         if (cleanupTmdbId !== null) {
-          await removeWatchlistAfterSuccessfulAdd(cleanupTmdbId, selectedTitle.title);
+          await removeWatchlistAfterSuccessfulAdd(
+            cleanupTmdbId.media_type,
+            cleanupTmdbId.tmdb_id,
+            selectedTitle.title,
+          );
         }
       } else {
         error = res.message;
@@ -240,13 +259,19 @@
     }
   }
 
-  async function removeWatchlistAfterSuccessfulAdd(tmdbId: number, title: string) {
+  async function removeWatchlistAfterSuccessfulAdd(
+    mediaType: "movie" | "series",
+    tmdbId: number,
+    title: string,
+  ) {
     if (watchlistPending) return;
     watchlistPending = true;
     watchlistMessage = "";
     try {
-      await removeTitleFromWatchlist(tmdbId);
-      watchlistItems = watchlistItems.filter((item) => item.tmdb_id !== tmdbId);
+      await removeTitleFromWatchlist(mediaType, tmdbId);
+      watchlistItems = watchlistItems.filter(
+        (item) => item.media_type !== mediaType || item.tmdb_id !== tmdbId,
+      );
       watchlistMessageVariant = "success";
       watchlistMessage = `Removed “${title}” from the watchlist.`;
     } catch (caughtError) {

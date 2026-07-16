@@ -9,7 +9,7 @@ export interface WatchlistItem {
   year: string | null;
   overview: string;
   poster_url: string | null;
-  media_type: "series";
+  media_type: "movie" | "series";
 }
 
 export function loadWatchlist(): Promise<WatchlistItem[]> {
@@ -27,11 +27,14 @@ export function addTitleToWatchlist(title: TitleSearchResult): Promise<Watchlist
       year: title.year,
       overview: title.overview,
       poster_url: title.poster_url,
-      media_type: "series",
+      media_type: title.media_type,
     }),
   });
 }
 
-export function removeTitleFromWatchlist(tmdbId: number): Promise<void> {
-  return fetchNoContent(`/api/watchlist/${String(tmdbId)}`, { method: "DELETE" });
+export function removeTitleFromWatchlist(
+  mediaType: "movie" | "series",
+  tmdbId: number,
+): Promise<void> {
+  return fetchNoContent(`/api/watchlist/${mediaType}/${String(tmdbId)}`, { method: "DELETE" });
 }

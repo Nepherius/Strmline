@@ -21,6 +21,7 @@ export interface LibraryEntry {
   poster_url?: string | null;
   watchlist_id?: number;
   tmdb_id?: number;
+  media_type?: "movie" | "series";
   imdb_id?: string | null;
   year?: string | null;
   overview?: string;

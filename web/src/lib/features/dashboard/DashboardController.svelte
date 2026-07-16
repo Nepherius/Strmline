@@ -333,12 +333,20 @@
   }
 
   async function removeWatchlistEntry(entry: LibraryEntry) {
-    if (entry.category !== "watchlist" || entry.tmdb_id === undefined || removingEntryKey) return;
+    if (
+      entry.category !== "watchlist" ||
+      entry.tmdb_id === undefined ||
+      entry.media_type === undefined ||
+      removingEntryKey
+    )
+      return;
     removingEntryKey = entry.key;
     error = "";
     try {
-      await removeTitleFromWatchlist(entry.tmdb_id);
-      watchlistItems = watchlistItems.filter((item) => item.tmdb_id !== entry.tmdb_id);
+      await removeTitleFromWatchlist(entry.media_type, entry.tmdb_id);
+      watchlistItems = watchlistItems.filter(
+        (item) => item.media_type !== entry.media_type || item.tmdb_id !== entry.tmdb_id,
+      );
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
       error = `Could not remove watchlist entry. ${message}`;
@@ -349,7 +357,8 @@
 
   function searchWatchlistEntry(entry: LibraryEntry) {
     const tmdbParam = entry.tmdb_id === undefined ? "" : `&tmdb_id=${String(entry.tmdb_id)}`;
-    const searchPath: `/search?${string}` = `/search?q=${encodeURIComponent(entry.title)}${tmdbParam}`;
+    const mediaTypeParam = entry.media_type ? `&media_type=${entry.media_type}` : "";
+    const searchPath: `/search?${string}` = `/search?q=${encodeURIComponent(entry.title)}${tmdbParam}${mediaTypeParam}`;
     void goto(resolve(searchPath));
   }
 
@@ -363,6 +372,7 @@
       poster_url: item.poster_url,
       watchlist_id: item.id,
       tmdb_id: item.tmdb_id,
+      media_type: item.media_type,
       imdb_id: item.imdb_id,
       year: item.year,
       overview: item.overview,

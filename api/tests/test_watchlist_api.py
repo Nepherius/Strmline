@@ -51,15 +51,18 @@ async def test_watchlist_routes_list_save_and_delete(
             year="2026",
             overview="An example.",
             poster_url="https://image.tmdb.org/example.jpg",
+            media_type="movie",
         ),
         session,
     )
-    response = await watchlist_api.delete_watchlist_item(123, session)
+    response = await watchlist_api.delete_watchlist_item("series", 123, session)
 
     assert listed[0].title == "Example Series"
     assert saved.tmdb_id == 123
     write = repository.upsert.await_args.args[0]
     assert write.title == "Example Series"
+    assert write.media_type == "movie"
+    repository.delete.assert_awaited_once_with("series", 123)
     assert response.status_code == 204
     assert session.commit.await_count == 2
 
@@ -77,7 +80,7 @@ async def test_delete_missing_watchlist_item_returns_not_found(
     monkeypatch.setattr(watchlist_api, "WatchlistRepository", repository_factory)
 
     with pytest.raises(watchlist_api.HTTPException) as caught:
-        _ = await watchlist_api.delete_watchlist_item(999, session)
+        _ = await watchlist_api.delete_watchlist_item("movie", 999, session)
 
     assert caught.value.status_code == 404
 
@@ -87,7 +90,7 @@ async def test_watchlist_repository_upserts_and_deletes() -> None:
     session = AsyncMock(spec=AsyncSession)
     repository = WatchlistRepository(session)
     existing = watchlist_item()
-    repository._by_tmdb_id = AsyncMock(  # pyright: ignore[reportPrivateUsage, reportAttributeAccessIssue]
+    repository._by_identity = AsyncMock(  # pyright: ignore[reportPrivateUsage, reportAttributeAccessIssue]
         side_effect=[None, existing, existing, None]
     )
     write = WatchlistItemWrite(
@@ -101,8 +104,8 @@ async def test_watchlist_repository_upserts_and_deletes() -> None:
 
     created = await repository.upsert(write)
     updated = await repository.upsert(write)
-    removed = await repository.delete(123)
-    missing = await repository.delete(999)
+    removed = await repository.delete("series", 123)
+    missing = await repository.delete("series", 999)
 
     assert created.title == "Example Series"
     assert updated is existing

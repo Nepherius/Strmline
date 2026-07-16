@@ -30,7 +30,7 @@ class WatchlistRepository:
         return tuple(result.scalars())
 
     async def upsert(self, write: WatchlistItemWrite) -> WatchlistItem:
-        item = await self._by_tmdb_id(write.tmdb_id)
+        item = await self._by_identity(write.media_type, write.tmdb_id)
         if item is None:
             item = WatchlistItem(tmdb_id=write.tmdb_id)
             self._session.add(item)
@@ -44,16 +44,19 @@ class WatchlistRepository:
         await self._session.flush()
         return item
 
-    async def delete(self, tmdb_id: int) -> bool:
-        item = await self._by_tmdb_id(tmdb_id)
+    async def delete(self, media_type: str, tmdb_id: int) -> bool:
+        item = await self._by_identity(media_type, tmdb_id)
         if item is None:
             return False
         await self._session.delete(item)
         await self._session.flush()
         return True
 
-    async def _by_tmdb_id(self, tmdb_id: int) -> WatchlistItem | None:
+    async def _by_identity(self, media_type: str, tmdb_id: int) -> WatchlistItem | None:
         result = await self._session.execute(
-            select(WatchlistItem).where(WatchlistItem.tmdb_id == tmdb_id)
+            select(WatchlistItem).where(
+                WatchlistItem.media_type == media_type,
+                WatchlistItem.tmdb_id == tmdb_id,
+            )
         )
         return result.scalar_one_or_none()

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
@@ -20,7 +20,7 @@ class WatchlistItemRequest(BaseModel):
     year: str | None = Field(default=None, max_length=20)
     overview: str = Field(default="", max_length=5000)
     poster_url: str | None = Field(default=None, max_length=1000, pattern=r"^https?://")
-    media_type: str = Field(default="series", pattern=r"^series$")
+    media_type: Literal["movie", "series"] = "series"
 
 
 class WatchlistItemResponse(BaseModel):
@@ -63,12 +63,13 @@ async def save_watchlist_item(
     return _response(item)
 
 
-@router.delete("/{tmdb_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{media_type}/{tmdb_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_watchlist_item(
+    media_type: Literal["movie", "series"],
     tmdb_id: int,
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> Response:
-    removed = await WatchlistRepository(session).delete(tmdb_id)
+    removed = await WatchlistRepository(session).delete(media_type, tmdb_id)
     if not removed:
         raise HTTPException(status_code=404, detail="Watchlist entry not found.")
     await session.commit()

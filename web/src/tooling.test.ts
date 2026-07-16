@@ -39,11 +39,15 @@ describe("frontend tooling", () => {
 });
 
 describe("watchlist lifecycle", () => {
-  it("removes a matching series only after a confirmed stream add", () => {
-    expect(watchlistCleanupTarget("series", 123, true, [123])).toBe(123);
-    expect(watchlistCleanupTarget("series", 123, false, [123])).toBeNull();
-    expect(watchlistCleanupTarget("series", 456, true, [123])).toBeNull();
-    expect(watchlistCleanupTarget("movie", 123, true, [123])).toBeNull();
+  const series = { media_type: "series" as const, tmdb_id: 123 };
+  const movie = { media_type: "movie" as const, tmdb_id: 123 };
+
+  it("removes matching movies and series only after a confirmed stream add", () => {
+    expect(watchlistCleanupTarget("series", 123, true, [series])).toEqual(series);
+    expect(watchlistCleanupTarget("movie", 123, true, [movie])).toEqual(movie);
+    expect(watchlistCleanupTarget("series", 123, false, [series])).toBeNull();
+    expect(watchlistCleanupTarget("series", 456, true, [series])).toBeNull();
+    expect(watchlistCleanupTarget("movie", 123, true, [series])).toBeNull();
   });
 });
 
