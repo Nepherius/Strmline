@@ -65,6 +65,7 @@ async def search_titles(
     """Search for titles via TMDB, or directly use an IMDB ID."""
     settings = get_settings()
     query = request.query.strip()
+    logger.debug("Starting title search query_length=%d.", len(query))
 
     if is_imdb_id(query):
         return TitleSearchResponse(
@@ -112,6 +113,7 @@ async def search_titles(
     except TmdbClientError:
         return TitleSearchResponse(ok=False, message="TMDB search failed.")
 
+    logger.debug("Title search completed with %d result(s).", len(results))
     return TitleSearchResponse(
         ok=True,
         message=f"Found {len(results)} result(s).",
@@ -170,6 +172,12 @@ async def search_streams_endpoint(
 ) -> StreamSearchResponse:
     """Query AIOStreams for sanitized stream preview results."""
     settings = get_settings()
+    logger.debug(
+        "Starting stream search media_type=%s season=%s episode=%s.",
+        request.media_type,
+        request.season,
+        request.episode,
+    )
 
     imdb_id = await _resolve_imdb_id(
         media_type=request.media_type,
@@ -205,12 +213,18 @@ async def search_streams_endpoint(
             media_id=media_id,
         )
     except AioStreamsClientError:
+        logger.debug("Stream search failed while requesting AIOStreams.")
         return StreamSearchResponse(
             ok=False,
             message="AIOStreams stream lookup failed.",
         )
 
     selected_keys = await _selected_stream_keys(session, [result.stream_key for result in results])
+    logger.debug(
+        "Stream search completed with %d result(s), including %d selected stream(s).",
+        len(results),
+        len(selected_keys),
+    )
     return StreamSearchResponse(
         ok=True,
         message=f"Found {len(results)} stream(s).",
@@ -232,6 +246,7 @@ async def add_stream_endpoint(
     request: StreamActionRequest,
     session: Annotated[AsyncSession | None, Depends(get_optional_db_session)],
 ) -> StreamActionResponse:
+    logger.debug("Starting stream add media_type=%s.", request.media_type)
     if session is None:
         return _action_response(
             request.stream_key,
@@ -308,6 +323,11 @@ async def add_stream_endpoint(
         settings=settings,
         action_message=outcome.message,
     )
+    logger.debug(
+        "Stream add completed selected=%s auto_sync_status=%s.",
+        outcome.selected,
+        auto_sync.status,
+    )
 
     return StreamActionResponse(
         ok=True,
@@ -325,6 +345,7 @@ async def remove_stream_endpoint(
     request: StreamRemoveRequest,
     session: Annotated[AsyncSession | None, Depends(get_optional_db_session)],
 ) -> StreamActionResponse:
+    logger.debug("Starting stream removal.")
     if session is None:
         return _action_response(
             request.stream_key,
@@ -361,6 +382,7 @@ async def remove_stream_endpoint(
             message=_safe_action_message(error),
         )
 
+    logger.debug("Stream removal completed selected=%s.", outcome.selected)
     return StreamActionResponse(
         ok=True,
         message=outcome.message,

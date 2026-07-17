@@ -27,7 +27,7 @@ ENV PYTHONUNBUFFERED=1
 ENV STRMLINE_STATIC_DIR=/app/static
 
 WORKDIR /app
-RUN mkdir -p /config /library \
+RUN mkdir -p /config/logs /library \
     && chown -R 1000:1000 /config /library
 COPY --from=api-build /opt/venv /opt/venv
 COPY api/alembic.ini ./alembic.ini

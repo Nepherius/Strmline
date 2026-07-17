@@ -15,13 +15,15 @@ services:
       postgres:
         condition: service_healthy
     environment:
+      # APP Secret Key and Postgres password are set to a random value for development purposes.
+      # Change these values in production deployments.
       STRMLINE_APP_SECRET_KEY: "8a60a71e801d6cb9e0681684a9ba04ab3ffbfb81c07835aa48b15645c1696b97"
       STRMLINE_POSTGRES_HOST: postgres
       STRMLINE_POSTGRES_PORT: 5432
       STRMLINE_POSTGRES_DATABASE: strmline
       STRMLINE_POSTGRES_USER: strmline
       STRMLINE_POSTGRES_PASSWORD: "8a60a71e801d6cb9e0681684a9ba04ab3ffbfb81c07835aa48b15645c1696b97"
-      STRMLINE_DEBUG_LOGGING: "true"
+      STRMLINE_API_DOCS_ENABLED: "true" # Should be false in production deployments.
     ports:
       - "45733:45733"
     volumes:
@@ -38,6 +40,8 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
+      # APP Secret Key and Postgres password are set to a random value for development purposes.
+      # Change these values in production deployments.
       POSTGRES_DB: strmline
       POSTGRES_USER: strmline
       POSTGRES_PASSWORD: "8a60a71e801d6cb9e0681684a9ba04ab3ffbfb81c07835aa48b15645c1696b97"

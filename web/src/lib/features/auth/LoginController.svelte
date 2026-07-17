@@ -20,7 +20,7 @@
     error = "";
     try {
       await login(username, password);
-      
+
       // Check if setup is already complete, redirect accordingly
       const status = await loadSetupStatus();
       if (status.configured) {
@@ -29,17 +29,12 @@
         await goto(resolve("/setup?required=1"));
       }
     } catch (caughtError) {
-      error = caughtError instanceof Error ? caughtError.message : "Incorrect username or password.";
+      error =
+        caughtError instanceof Error ? caughtError.message : "Incorrect username or password.";
     } finally {
       loading = false;
     }
   }
 </script>
 
-<LoginView
-  bind:username
-  bind:password
-  {error}
-  {loading}
-  onLogin={handleLogin}
-/>
+<LoginView bind:username bind:password {error} {loading} onLogin={handleLogin} />

@@ -164,9 +164,14 @@ class AutoSyncScheduler:
     async def reschedule_from_settings(self) -> None:
         snapshot = await self._settings_snapshot()
         if not snapshot.torbox_configured:
+            logger.debug("Automatic TorBox sync is disabled because TorBox is not configured.")
             self._remove_job()
         else:
             interval_minutes = snapshot.sync_interval_minutes
+            logger.debug(
+                "Scheduling automatic TorBox sync every %d minute(s).",
+                interval_minutes,
+            )
             self._backend.schedule_auto_sync(
                 self.run_once,
                 interval_minutes=interval_minutes,
@@ -210,11 +215,17 @@ class AutoSyncScheduler:
         was_enabled = self._season_completion_enabled
         self._season_completion_enabled = snapshot.season_auto_complete_enabled
         if not snapshot.season_auto_complete_enabled:
+            logger.debug("Season auto-complete scheduling is disabled.")
             self._backend.remove_season_completion()
             return
         next_run_time = datetime.now(UTC)
         if was_enabled is True:
             next_run_time += timedelta(days=snapshot.season_auto_complete_interval_days)
+        logger.debug(
+            "Scheduling season auto-complete every %d day(s), checking %d show(s) per minute.",
+            snapshot.season_auto_complete_interval_days,
+            snapshot.season_auto_complete_shows_per_minute,
+        )
         self._backend.schedule_season_completion(
             self.run_season_completion_once,
             interval_days=snapshot.season_auto_complete_interval_days,

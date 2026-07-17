@@ -93,6 +93,41 @@ def test_extract_torbox_files_filters_pack_extras() -> None:
     assert result.files[0].file_id == "20"
 
 
+def test_extract_torbox_files_keeps_only_largest_bluray_feature() -> None:
+    folder_name = "The.Witch.Part.1.The.Subversion.2018.1080p.BluRay"
+    downloads = [
+        {
+            "id": 10,
+            "name": folder_name,
+            "cached": True,
+            "files": [
+                {
+                    "id": 20,
+                    "name": f"{folder_name}/BDMV/STREAM/00000.m2ts",
+                    "size": 2_500_000,
+                },
+                {
+                    "id": 21,
+                    "name": f"{folder_name}/BDMV/STREAM/00001.m2ts",
+                    "size": 29_500_000_000,
+                },
+                {
+                    "id": 22,
+                    "name": f"{folder_name}/BDMV/STREAM/00002.m2ts",
+                    "size": 140_000_000,
+                },
+            ],
+        }
+    ]
+
+    result = extract_torbox_files(downloads, "torrents")
+
+    assert result.skipped_count == 2
+    assert len(result.files) == 1
+    assert result.files[0].file_name == "00001.m2ts"
+    assert result.files[0].library_name == folder_name
+
+
 def test_request_download_url_uses_torbox_id_parameter_for_kind() -> None:
     result = extract_torbox_files(
         [

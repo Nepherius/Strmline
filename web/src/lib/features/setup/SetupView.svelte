@@ -166,6 +166,7 @@
       >
       <CheckboxField
         bind:checked={values.debugLogging}
+        helpText="This is the only debug logging control. Detailed logs appear in container output; retained errors are stored in /config/logs."
         label="Enable debug logging"
       />
     </fieldset>
@@ -207,18 +208,9 @@
           text="Choose which generated media-library folders Strmline maintains."
         /></legend
       >
-      <CheckboxField
-        bind:checked={values.moviesEnabled}
-        label="Movies"
-      />
-      <CheckboxField
-        bind:checked={values.showsEnabled}
-        label="Shows"
-      />
-      <CheckboxField
-        bind:checked={values.animeEnabled}
-        label="Anime"
-      />
+      <CheckboxField bind:checked={values.moviesEnabled} label="Movies" />
+      <CheckboxField bind:checked={values.showsEnabled} label="Shows" />
+      <CheckboxField bind:checked={values.animeEnabled} label="Anime" />
     </fieldset>
     <div class="actions">
       <UiButton type="submit" disabled={saving}>{saving ? "Saving" : "Save settings"}</UiButton>

@@ -113,11 +113,7 @@ class AppSettingsRepository:
                 "sync_interval_minutes",
                 default=DEFAULT_SYNC_INTERVAL_MINUTES,
             ),
-            debug_logging=(
-                self._settings.debug_logging
-                if self._settings.debug_logging is not None
-                else _database_value(database_settings, "debug_logging", default=False)
-            ),
+            debug_logging=_database_value(database_settings, "debug_logging", default=False),
             season_auto_complete_enabled=(
                 self._settings.season_auto_complete_enabled
                 if self._settings.season_auto_complete_enabled is not None

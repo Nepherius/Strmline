@@ -6,7 +6,7 @@ from app.main import create_app
 
 
 @pytest.mark.asyncio
-async def test_docs_and_openapi_are_disabled_without_debug_logging() -> None:
+async def test_docs_and_openapi_are_disabled_by_default() -> None:
     app = create_app()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -18,10 +18,10 @@ async def test_docs_and_openapi_are_disabled_without_debug_logging() -> None:
 
 
 @pytest.mark.asyncio
-async def test_docs_csp_allows_swagger_assets_when_debug_logging_is_enabled(
+async def test_docs_csp_allows_swagger_assets_when_api_docs_are_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("STRMLINE_DEBUG_LOGGING", "true")
+    monkeypatch.setenv("STRMLINE_API_DOCS_ENABLED", "true")
     get_settings.cache_clear()
     app = create_app()
     transport = httpx.ASGITransport(app=app)

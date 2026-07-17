@@ -1,6 +1,7 @@
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from time import perf_counter
 
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +27,7 @@ from app.core.config import get_settings
 from app.core.error_logging import ErrorLogWriter
 from app.core.logging import configure_debug_logging
 from app.db.dependencies import get_session_factory
+from app.db.repositories.settings import AppSettingsRepository
 from app.static_ui import mount_static_ui
 from app.sync.scheduler import shutdown_auto_sync_scheduler, start_auto_sync_scheduler
 
@@ -36,32 +38,33 @@ _SWAGGER_FAVICON = "https://fastapi.tiangolo.com"
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     settings = get_settings()
-    error_log_writer: ErrorLogWriter | None = None
-    if settings.database_url is not None:
-        error_log_writer = ErrorLogWriter(get_session_factory())
-        await error_log_writer.start()
-        app.state.error_log_writer = error_log_writer
-    await start_auto_sync_scheduler(app)
+    error_log_writer = ErrorLogWriter(settings.log_dir)
+    await error_log_writer.start()
+    app.state.error_log_writer = error_log_writer
     try:
+        if settings.database_url is not None:
+            async with get_session_factory()() as session:
+                snapshot = await AppSettingsRepository(session, settings).snapshot_with_env()
+            configure_debug_logging(enabled=snapshot.debug_logging)
+        await start_auto_sync_scheduler(app)
         yield
     finally:
         await shutdown_auto_sync_scheduler(app)
-        if error_log_writer is not None:
-            await error_log_writer.shutdown()
+        await error_log_writer.shutdown()
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    configure_debug_logging(enabled=settings.debug_logging is True)
-    debug_enabled = settings.debug_logging is True
+    configure_debug_logging(enabled=False)
+    docs_enabled = settings.api_docs_enabled
     app = FastAPI(
         title=settings.service_name,
         version=settings.version,
         lifespan=lifespan,
-        debug=debug_enabled,
-        docs_url="/docs" if debug_enabled else None,
-        redoc_url="/redoc" if debug_enabled else None,
-        openapi_url="/openapi.json" if debug_enabled else None,
+        debug=False,
+        docs_url="/docs" if docs_enabled else None,
+        redoc_url="/redoc" if docs_enabled else None,
+        openapi_url="/openapi.json" if docs_enabled else None,
     )
     app.add_middleware(
         CORSMiddleware,
@@ -77,11 +80,20 @@ def create_app() -> FastAPI:
     async def security_headers(  # pyright: ignore[reportUnusedFunction]
         request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
+        started_at = perf_counter()
         try:
             response = await call_next(request)
         except Exception:
             logging.getLogger(__name__).exception("Unhandled request failure.")
             raise
+        if request.url.path != "/api/health":
+            logging.getLogger("app.requests").debug(
+                "Request completed method=%s route=%s status=%d duration_ms=%.1f.",
+                request.method,
+                _route_path(request),
+                response.status_code,
+                (perf_counter() - started_at) * 1000,
+            )
         response.headers["Content-Security-Policy"] = _content_security_policy(
             request.url.path, script_hashes
         )
@@ -134,6 +146,12 @@ def create_app() -> FastAPI:
     )
     script_hashes = mount_static_ui(app, settings.static_dir)
     return app
+
+
+def _route_path(request: Request) -> str:
+    route = request.scope.get("route")
+    route_path = getattr(route, "path", None)
+    return route_path if isinstance(route_path, str) else request.url.path
 
 
 app = create_app()

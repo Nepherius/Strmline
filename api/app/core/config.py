@@ -30,12 +30,13 @@ class Settings(BaseSettings):
     secure_cookies: bool | None = None
     static_dir: Path | None = None
     library_root: Path = Path("/library")
+    log_dir: Path = Path("/config/logs")
     tmdb_api_key: SecretStr | None = None
     torbox_api_key: SecretStr | None = None
     resolver_token: SecretStr | None = None
     playback_mode: Literal["resolver", "direct"] | None = None
     sync_interval_minutes: int | None = Field(default=None, ge=1)
-    debug_logging: bool | None = None
+    api_docs_enabled: bool = False
     season_auto_complete_enabled: bool | None = None
     season_auto_complete_interval_days: int | None = Field(default=None, ge=1)
     season_auto_complete_allow_uncached: bool | None = None

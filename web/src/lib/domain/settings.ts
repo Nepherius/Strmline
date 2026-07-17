@@ -93,9 +93,7 @@ export function settingsToFormValues(settings: AppSettings | null): SettingsForm
     seasonAutoCompleteEnabled: settings?.season_auto_complete_enabled ?? false,
     seasonAutoCompleteIntervalDays: String(settings?.season_auto_complete_interval_days ?? 1),
     seasonAutoCompleteAllowUncached: settings?.season_auto_complete_allow_uncached ?? false,
-    seasonAutoCompleteShowsPerMinute: String(
-      settings?.season_auto_complete_shows_per_minute ?? 1,
-    ),
+    seasonAutoCompleteShowsPerMinute: String(settings?.season_auto_complete_shows_per_minute ?? 1),
     torboxApiKey: "",
     tmdbApiKey: "",
     resolverToken: "",

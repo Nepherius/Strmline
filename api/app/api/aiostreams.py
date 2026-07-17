@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
@@ -17,6 +18,7 @@ from app.providers.aiostreams.client import (
 )
 
 router = APIRouter(prefix="/api/providers/aiostreams", tags=["providers"])
+logger = logging.getLogger(__name__)
 
 
 class AioStreamsTestRequest(BaseModel):
@@ -55,6 +57,10 @@ async def test_aiostreams(
     request: AioStreamsTestRequest,
     session: Annotated[AsyncSession | None, Depends(get_optional_db_session)],
 ) -> AioStreamsTestResponse:
+    logger.debug(
+        "Starting AIOStreams connection test include_stream_lookup=%s.",
+        request.media_type is not None and request.media_id is not None,
+    )
     settings = get_settings()
     base_url = await _effective_base_url(request.base_url, session)
     if base_url is None:
@@ -72,7 +78,9 @@ async def test_aiostreams(
         if request.media_type is not None and request.media_id is not None:
             streams = await client.streams(media_type=request.media_type, media_id=request.media_id)
     except AioStreamsClientError:
+        logger.debug("AIOStreams connection test failed.")
         return AioStreamsTestResponse(ok=False, message="AIOStreams connection failed.")
+    logger.debug("AIOStreams connection test succeeded stream_count=%d.", len(streams))
     return _test_response(manifest, streams)
 
 

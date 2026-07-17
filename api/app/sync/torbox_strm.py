@@ -174,7 +174,7 @@ class TorBoxStrmSync:
                 )
                 selected_identity = self._selected_media_identity(torbox_file.item_id, info_hash)
                 entry = library_entry_from_file_name(
-                    torbox_file.file_name,
+                    torbox_file.library_name,
                     playback_url,
                     torbox_file.folder_name,
                 )

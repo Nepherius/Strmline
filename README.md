@@ -151,7 +151,7 @@ docker compose -f examples/docker-compose.development.yml up -d --build
 
 The development file has `build.context: ..` because it is stored under `examples/`; this resolves to the repository root and uses the local `Dockerfile`. It uses the same Compose project name as deployment, so stop the deployment stack before starting the development stack.
 
-The development configuration enables debug logging and exposes `/docs`, `/redoc`, and `/openapi.json`. These endpoints are disabled in the Docker Hub deployment configuration. Do not enable debug logging for routine production operation.
+The development configuration exposes `/docs`, `/redoc`, and `/openapi.json` through the dedicated `STRMLINE_API_DOCS_ENABLED` setting. These endpoints are disabled in the Docker Hub deployment configuration. Debug logging is controlled only from the Setup page.
 
 For repeatable server releases, replace the `latest` image tag in `docker-compose.yml` with a published version tag before deployment.
 
@@ -184,9 +184,10 @@ Most operational settings are available after login in the setup interface. Dock
 | `STRMLINE_APP_SECRET_KEY` | Required secret used to protect application state. Keep it stable after deployment.                                |
 | `STRMLINE_DATABASE_URL`   | Full PostgreSQL connection URL. The compose configuration constructs this from the PostgreSQL settings by default. |
 | `STRMLINE_LIBRARY_ROOT`   | Container path where the generated library is written. Defaults to `/library`.                                     |
+| `STRMLINE_LOG_DIR`        | Container directory for rotated error logs. Defaults to `/config/logs`.                                             |
+| `STRMLINE_API_DOCS_ENABLED` | Exposes `/docs`, `/redoc`, and `/openapi.json`. Intended for development only.                                    |
 | `STRMLINE_BASE_URL`       | Public Strmline URL used when resolver playback is selected.                                                       |
 | `STRMLINE_SECURE_COOKIES` | Enable for HTTPS deployments.                                                                                      |
-| `STRMLINE_DEBUG`          | Enables detailed application logging. Avoid using it routinely in production.                                      |
 
 The setup interface also manages TorBox, TMDB, resolver, synchronization, category, and season auto-completion settings.
 
@@ -203,6 +204,16 @@ Follow application logs:
 
 ```sh
 docker compose logs -f strmline
+```
+
+Sanitized application errors are also retained as daily rotating files in
+`/config/logs` inside the application container. The active file is
+`strmline-errors.log`; rotated files older than 90 days are removed automatically.
+To inspect them from the host:
+
+```sh
+docker compose exec strmline ls -lah /config/logs
+docker compose exec strmline tail -n 100 /config/logs/strmline-errors.log
 ```
 
 Stop the stack:

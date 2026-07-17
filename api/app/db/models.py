@@ -389,20 +389,6 @@ class SyncError(Base):
     sync_run: Mapped[SyncRun] = relationship(back_populates="errors")
 
 
-class ErrorLog(Base):
-    __tablename__ = "error_logs"
-    __table_args__ = (Index("ix_error_logs_created_at", "created_at"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    logger_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    message: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=utc_now,
-        nullable=False,
-    )
-
-
 class ResolverToken(Base):
     __tablename__ = "resolver_tokens"
     __table_args__ = (Index("ix_resolver_tokens_revoked_at", "revoked_at"),)

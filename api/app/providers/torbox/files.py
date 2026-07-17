@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 from urllib.parse import urlencode
+
+logger = logging.getLogger(__name__)
 
 DownloadKind = Literal["torrents", "usenet", "webdl"]
 
@@ -13,8 +16,20 @@ ID_PARAM_BY_KIND: dict[DownloadKind, str] = {
     "usenet": "usenet_id",
     "webdl": "web_id",
 }
-VIDEO_EXTENSIONS = {".avi", ".m4v", ".mkv", ".mov", ".mp4", ".mpeg", ".mpg", ".webm", ".wmv"}
+VIDEO_EXTENSIONS = {
+    ".avi",
+    ".m2ts",
+    ".m4v",
+    ".mkv",
+    ".mov",
+    ".mp4",
+    ".mpeg",
+    ".mpg",
+    ".webm",
+    ".wmv",
+}
 SMALL_SAMPLE_MAX_BYTES = 250 * 1024 * 1024
+MIN_BLURAY_STREAM_FILES = 2
 SEPARATORS = re.compile(r"[._\-\s]+")
 PACK_EXTRA = re.compile(r"(?i)^s\d{1,2}[\s._-]*(?:op|ed|sp)\d*(?:\D|$)")
 NAMED_EXTRA_TOKENS = {"ncop", "nced", "opening", "ending"}
@@ -30,6 +45,12 @@ class TorBoxFile:
     path: str
     mime_type: str
     size: int | None
+
+    @property
+    def library_name(self) -> str:
+        if is_bluray_stream_path(self.path) and self.folder_name:
+            return self.folder_name
+        return self.file_name
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +75,7 @@ def extract_torbox_files(
             skipped_count += 1
             continue
 
+        extracted_item_files: list[TorBoxFile] = []
         for raw_file in cast(list[object], item_files):
             if not isinstance(raw_file, dict):
                 skipped_count += 1
@@ -62,7 +84,10 @@ def extract_torbox_files(
             if torbox_file is None:
                 skipped_count += 1
                 continue
-            files.append(torbox_file)
+            extracted_item_files.append(torbox_file)
+        selected_item_files, bluray_skipped = _select_bluray_feature_files(extracted_item_files)
+        files.extend(selected_item_files)
+        skipped_count += bluray_skipped
 
     return ExtractedTorBoxFiles(files=tuple(files), skipped_count=skipped_count)
 
@@ -129,6 +154,58 @@ def _is_video(file_name: str, mime_type: str) -> bool:
         return mime_type.startswith("video/")
     lowered = file_name.casefold()
     return any(lowered.endswith(extension) for extension in VIDEO_EXTENSIONS)
+
+
+def is_bluray_stream_path(path: str) -> bool:
+    return _bluray_stream_group(path) is not None
+
+
+def _select_bluray_feature_files(
+    files: list[TorBoxFile],
+) -> tuple[list[TorBoxFile], int]:
+    groups: dict[str, list[TorBoxFile]] = {}
+    for torbox_file in files:
+        group = _bluray_stream_group(torbox_file.path)
+        if group is not None:
+            groups.setdefault(group, []).append(torbox_file)
+
+    selected_by_group: dict[str, TorBoxFile] = {}
+    skipped_count = 0
+    for group, candidates in groups.items():
+        sized_candidates = [candidate for candidate in candidates if candidate.size is not None]
+        if len(candidates) < MIN_BLURAY_STREAM_FILES or not sized_candidates:
+            continue
+        selected = max(
+            sized_candidates,
+            key=lambda candidate: candidate.size or 0,
+        )
+        selected_by_group[group] = selected
+        skipped_count += len(candidates) - 1
+        logger.debug(
+            "Selected Blu-ray feature item_id=%s file=%s size=%s from %d stream(s).",
+            selected.item_id,
+            selected.file_name,
+            selected.size,
+            len(candidates),
+        )
+
+    selected_files = [
+        torbox_file
+        for torbox_file in files
+        if (group := _bluray_stream_group(torbox_file.path)) not in selected_by_group
+        or torbox_file is selected_by_group[group]
+    ]
+    return selected_files, skipped_count
+
+
+def _bluray_stream_group(path: str) -> str | None:
+    parts = [part for part in re.split(r"[\\/]", path) if part]
+    if not parts or not parts[-1].casefold().endswith(".m2ts"):
+        return None
+    for index in range(len(parts) - 2):
+        if parts[index].casefold() == "bdmv" and parts[index + 1].casefold() == "stream":
+            return "/".join(part.casefold() for part in parts[: index + 1])
+    return None
 
 
 def _is_sample_file(file_name: str, path: str, size: int | None) -> bool:

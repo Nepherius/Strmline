@@ -1,121 +1,102 @@
 from __future__ import annotations
 
-import asyncio
+import json
 import logging
+import os
 from datetime import UTC, datetime, timedelta
-from typing import cast
+from pathlib import Path
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.error_logging import (
-    AsyncSessionFactory,
-    DatabaseErrorLogHandler,
-    ErrorLogEvent,
+    ERROR_LOG_FILENAME,
+    ERROR_LOG_RETENTION,
     ErrorLogWriter,
+    purge_expired_error_logs,
+    read_recent_error_logs,
     redact_message,
 )
-from app.db.models import ErrorLog
-from app.db.repositories.error_log import ErrorLogRepository
-
-
-class FakeResult:
-    def __init__(self, scalars: list[object] | None = None) -> None:
-        self._scalars = scalars or []
-
-    def scalars(self) -> list[object]:
-        return self._scalars
-
-
-class FakeSession:
-    def __init__(self, results: list[FakeResult] | None = None) -> None:
-        self._results = results or []
-        self.added: list[object] = []
-        self.committed = False
-
-    async def execute(self, statement: object) -> FakeResult:
-        _ = statement
-        return self._results.pop(0) if self._results else FakeResult()
-
-    def add(self, instance: object) -> None:
-        self.added.append(instance)
-
-    async def commit(self) -> None:
-        self.committed = True
 
 
 @pytest.mark.asyncio
-async def test_error_log_repository_records_and_purges_error_records() -> None:
-    session = FakeSession([FakeResult(), FakeResult()])
-    repository = ErrorLogRepository(cast(AsyncSession, session))
+async def test_error_log_writer_writes_redacted_application_errors(tmp_path: Path) -> None:
+    log_dir = tmp_path
+    writer = ErrorLogWriter(log_dir)
+    await writer.start()
+    logging.getLogger("app.api.search").error("Failed with token=secret and Bearer abc.def")
+    logging.getLogger("httpx").error("External client failure.")
+    await writer.shutdown()
 
-    await repository.record(logger_name="app.main", message="Request failed.")
-    await repository.purge_before(datetime.now(UTC) - timedelta(days=90))
+    records = read_recent_error_logs(log_dir, limit=10)
 
-    assert session.committed is True
-    error_log = cast(ErrorLog, session.added[0])
-    assert error_log.logger_name == "app.main"
-    assert error_log.message == "Request failed."
+    assert len(records) == 1
+    assert records[0].logger_name == "app.api.search"
+    assert records[0].message == "Failed with token=[redacted] and Bearer [redacted]"
+    assert (log_dir / ERROR_LOG_FILENAME).is_file()
 
 
-def test_error_log_handler_queues_redacted_error_messages() -> None:
-    queue: asyncio.Queue[ErrorLogEvent] = asyncio.Queue()
-    handler = DatabaseErrorLogHandler(queue)
-    record = logging.LogRecord(
-        name="app.api.search",
-        level=logging.ERROR,
-        pathname="",
-        lineno=0,
-        msg="Failed with token=secret and Bearer abc.def",
-        args=(),
-        exc_info=None,
+@pytest.mark.asyncio
+async def test_error_log_writer_uses_daily_utc_rotation(tmp_path: Path) -> None:
+    writer = ErrorLogWriter(tmp_path)
+    await writer.start()
+
+    handler = writer._handler  # pyright: ignore[reportPrivateUsage]
+    assert handler is not None
+    assert handler.backupCount == 90
+    assert handler.utc is True
+    assert handler.when == "MIDNIGHT"
+
+    await writer.shutdown()
+    assert handler not in logging.getLogger("app").handlers
+
+
+def test_purge_expired_error_logs_removes_only_old_rotations(tmp_path: Path) -> None:
+    log_dir = tmp_path
+    now = datetime(2026, 7, 16, tzinfo=UTC)
+    old_rotation = log_dir / f"{ERROR_LOG_FILENAME}.2026-01-01"
+    recent_rotation = log_dir / f"{ERROR_LOG_FILENAME}.2026-07-15"
+    active_log = log_dir / ERROR_LOG_FILENAME
+    for path in (old_rotation, recent_rotation, active_log):
+        _ = path.write_text("", encoding="utf-8")
+    old_timestamp = (now - ERROR_LOG_RETENTION - timedelta(days=1)).timestamp()
+    os.utime(old_rotation, (old_timestamp, old_timestamp))
+
+    removed = purge_expired_error_logs(log_dir, now=now)
+
+    assert removed == 1
+    assert not old_rotation.exists()
+    assert recent_rotation.exists()
+    assert active_log.exists()
+
+
+def test_read_recent_error_logs_sorts_records_and_ignores_invalid_lines(tmp_path: Path) -> None:
+    log_dir = tmp_path
+    older = {
+        "created_at": "2026-07-15T10:00:00+00:00",
+        "logger_name": "app.sync.service",
+        "message": "Older failure.",
+    }
+    newer = {
+        "created_at": "2026-07-16T10:00:00+00:00",
+        "logger_name": "app.api.search",
+        "message": "Newer failure.",
+    }
+    _ = (log_dir / f"{ERROR_LOG_FILENAME}.2026-07-15").write_text(
+        f"{json.dumps(older)}\nnot-json\n",
+        encoding="utf-8",
+    )
+    _ = (log_dir / ERROR_LOG_FILENAME).write_text(
+        f"{json.dumps(newer)}\n",
+        encoding="utf-8",
     )
 
-    handler.emit(record)
+    records = read_recent_error_logs(log_dir, limit=1)
 
-    event = queue.get_nowait()
-    assert event.logger_name == "app.api.search"
-    assert event.message == "Failed with token=[redacted] and Bearer [redacted]"
-
-
-def test_error_log_handler_ignores_non_application_logs() -> None:
-    queue: asyncio.Queue[ErrorLogEvent] = asyncio.Queue()
-    handler = DatabaseErrorLogHandler(queue)
-    record = logging.LogRecord(
-        name="httpx",
-        level=logging.ERROR,
-        pathname="",
-        lineno=0,
-        msg="Request failed.",
-        args=(),
-        exc_info=None,
-    )
-
-    handler.emit(record)
-
-    assert queue.empty()
+    assert len(records) == 1
+    assert records[0].message == "Newer failure."
 
 
 def test_redact_message_removes_common_secret_values() -> None:
     assert redact_message("password=hunter2 api-key=abc") == (
         "password=[redacted] api-key=[redacted]"
     )
-
-
-@pytest.mark.asyncio
-async def test_error_log_writer_removes_handler_on_shutdown() -> None:
-    class FakeSessionContext:
-        async def __aenter__(self) -> FakeSession:
-            return FakeSession()
-
-        async def __aexit__(self, *args: object) -> None:
-            _ = args
-
-    def session_factory() -> FakeSessionContext:
-        return FakeSessionContext()
-
-    writer = ErrorLogWriter(cast(AsyncSessionFactory, session_factory))
-    await writer.start()
-    await writer.shutdown()
-
-    assert writer._handler not in logging.getLogger("app").handlers  # pyright: ignore[reportPrivateUsage]

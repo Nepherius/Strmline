@@ -40,9 +40,7 @@
     </a>
   {/each}
   {#if showLogout && pathname !== resolve("/login")}
-    <button on:click={handleLogout} class="logout-btn">
-      Logout
-    </button>
+    <button on:click={handleLogout} class="logout-btn"> Logout </button>
   {/if}
 </nav>
 

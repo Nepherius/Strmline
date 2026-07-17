@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -16,6 +17,7 @@ from app.providers.tmdb.connection import TmdbConnectionError, check_tmdb_connec
 from app.providers.torbox.connection import TorBoxConnectionError, check_torbox_connection
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
+logger = logging.getLogger(__name__)
 
 SETUP_FIELDS = ("torbox_api_key",)
 
@@ -54,6 +56,7 @@ async def test_torbox(
     request: TorBoxConnectionTestRequest,
     session: Annotated[AsyncSession | None, Depends(get_optional_db_session)],
 ) -> ConnectionTestResponse:
+    logger.debug("Starting TorBox connection test.")
     settings = get_settings()
     api_key = request.torbox_api_key or await _effective_provider_api_key("torbox", session)
     if api_key is None:
@@ -68,7 +71,9 @@ async def test_torbox(
             timeout_seconds=settings.outbound_timeout_seconds,
         )
     except TorBoxConnectionError:
+        logger.debug("TorBox connection test failed.")
         return ConnectionTestResponse(ok=False, message="TorBox connection failed.")
+    logger.debug("TorBox connection test succeeded.")
     return ConnectionTestResponse(ok=True, message="TorBox connection succeeded.")
 
 
@@ -77,6 +82,7 @@ async def test_tmdb(
     request: TmdbConnectionTestRequest,
     session: Annotated[AsyncSession | None, Depends(get_optional_db_session)],
 ) -> ConnectionTestResponse:
+    logger.debug("Starting TMDB connection test.")
     settings = get_settings()
     api_key = request.tmdb_api_key or await _effective_provider_api_key("tmdb", session)
     if api_key is None:
@@ -91,7 +97,9 @@ async def test_tmdb(
             timeout_seconds=settings.outbound_timeout_seconds,
         )
     except TmdbConnectionError:
+        logger.debug("TMDB connection test failed.")
         return ConnectionTestResponse(ok=False, message="TMDB connection failed.")
+    logger.debug("TMDB connection test succeeded.")
     return ConnectionTestResponse(ok=True, message="TMDB connection succeeded.")
 
 

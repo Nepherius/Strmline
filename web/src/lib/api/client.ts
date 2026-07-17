@@ -27,7 +27,6 @@ function handleResponse(response: Response): void {
   }
 }
 
-
 export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const finalInit = buildInit(init);
   const response = await fetch(path, finalInit);
