@@ -12,7 +12,7 @@ async def test_tmdb_poster_client_fetches_supported_image() -> None:
         lambda request: httpx.Response(
             200,
             headers={"content-type": "image/jpeg"},
-            content=b"poster-data",
+            content=b"\xff\xd8\xffposter-data",
             request=request,
         )
     )
@@ -20,7 +20,7 @@ async def test_tmdb_poster_client_fetches_supported_image() -> None:
 
     poster = await client.fetch("/poster.jpg")
 
-    assert poster.content == b"poster-data"
+    assert poster.content == b"\xff\xd8\xffposter-data"
     assert poster.suffix == ".jpg"
 
 

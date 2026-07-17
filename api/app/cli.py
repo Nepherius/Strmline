@@ -14,7 +14,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import Settings, get_settings
 from app.db.repositories.library_exclusion import LibraryExclusionRepository
 from app.db.repositories.settings import AppSettingsRepository
-from app.db.repositories.sync_state import SyncStateRepository
+from app.db.repositories.sync_runs import SyncRunRepository
+from app.db.repositories.sync_state import SyncLibraryStateRepository
 from app.db.repositories.tmdb_cache import TmdbCacheRepository
 from app.db.session import build_session_factory
 from app.library.strm_probe import StrmProbeError, probe_strm_file
@@ -421,7 +422,10 @@ async def _persist_sync_result(
 ) -> int:
     session_factory = build_session_factory(database_url)
     async with session_factory() as session:
-        return await SyncStateRepository(session).record_success(result, output_root)
+        sync_run_id = await SyncRunRepository(session).record_success(result)
+        await SyncLibraryStateRepository(session).persist_result(result, output_root)
+        await session.commit()
+        return sync_run_id
 
 
 def _write_output(message: str) -> None:

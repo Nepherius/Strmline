@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import LibraryEntry, MediaItem, TorBoxStoredFile
+from app.db.models import LibraryEntry, MediaExternalIdentity, MediaItem, TorBoxStoredFile
 from app.season_completion.ranking import EpisodeRef
 
 
@@ -25,9 +25,15 @@ class SeasonInventoryRepository:
 
     async def shows(self) -> tuple[LibraryShow, ...]:
         result = await self._session.execute(
-            select(MediaItem, LibraryEntry, TorBoxStoredFile)
+            select(MediaItem, LibraryEntry, TorBoxStoredFile, MediaExternalIdentity.external_id)
             .join(LibraryEntry, LibraryEntry.media_item_id == MediaItem.id)
             .outerjoin(TorBoxStoredFile, LibraryEntry.torbox_file_id == TorBoxStoredFile.id)
+            .outerjoin(
+                MediaExternalIdentity,
+                (MediaExternalIdentity.media_item_id == MediaItem.id)
+                & (MediaExternalIdentity.provider == "tmdb")
+                & (MediaExternalIdentity.provider_media_kind == "tv"),
+            )
             .where(
                 LibraryEntry.category.in_(("shows", "anime")),
                 LibraryEntry.season_number.is_not(None),
@@ -37,22 +43,22 @@ class SeasonInventoryRepository:
         )
         grouped: dict[
             int,
-            list[tuple[MediaItem, LibraryEntry, TorBoxStoredFile | None]],
+            list[tuple[MediaItem, LibraryEntry, TorBoxStoredFile | None, str | None]],
         ] = defaultdict(list)
-        for media_item, entry, torbox_file in result.all():
-            grouped[media_item.id].append((media_item, entry, torbox_file))
+        for media_item, entry, torbox_file, tmdb_id in result.all():
+            grouped[media_item.id].append((media_item, entry, torbox_file, tmdb_id))
 
         shows = (library_show(rows) for _, rows in sorted(grouped.items()) if rows)
         return tuple(show for show in shows if show.episodes)
 
 
 def library_show(
-    rows: list[tuple[MediaItem, LibraryEntry, TorBoxStoredFile | None]],
+    rows: list[tuple[MediaItem, LibraryEntry, TorBoxStoredFile | None, str | None]],
 ) -> LibraryShow:
     media_item = rows[0][0]
     episodes: set[EpisodeRef] = set()
     by_season: dict[int, list[str]] = defaultdict(list)
-    for _, entry, torbox_file in rows:
+    for _, entry, torbox_file, _tmdb_id in rows:
         if entry.season_number is None or entry.episode_number is None:
             continue
         episodes.add(EpisodeRef(entry.season_number, entry.episode_number))
@@ -61,7 +67,7 @@ def library_show(
             by_season[entry.season_number].append(file_name)
     return LibraryShow(
         media_item_id=media_item.id,
-        tmdb_id=media_item.tmdb_id,
+        tmdb_id=rows[0][3],
         title=media_item.title,
         episodes=frozenset(episodes),
         filenames_by_season={season: tuple(values) for season, values in by_season.items()},

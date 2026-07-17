@@ -7,19 +7,24 @@
   } from "$lib/domain/library/summary";
 
   import LibraryEntryActions from "./LibraryEntryActions.svelte";
+  import LibraryTmdbIdDialog from "./LibraryTmdbIdDialog.svelte";
 
   export let entry: LibraryEntry;
   export let currentOverride: ClassificationOverride | null;
   export let disabled = false;
   export let pending = false;
   export let refreshing = false;
+  export let updatingTmdb = false;
   export let onClose: () => void;
   export let onMove: (entry: LibraryEntry, targetCategory: LibraryCategory) => Promise<void>;
   export let onReset: (entry: LibraryEntry) => Promise<void>;
   export let onRemove: (entry: LibraryEntry) => Promise<void>;
   export let onRefresh: (entry: LibraryEntry) => Promise<void>;
+  export let onUpdateTmdb: (entry: LibraryEntry, tmdbId: number) => Promise<void>;
   export let onRemoveWatchlist: (entry: LibraryEntry) => Promise<void>;
   export let onSearchWatchlist: (entry: LibraryEntry) => void;
+
+  let tmdbDialogOpen = false;
 
   async function moveEntry(
     nextEntry: LibraryEntry,
@@ -44,6 +49,12 @@
     onClose();
   }
 
+  async function updateTmdbId(nextEntry: LibraryEntry, tmdbId: number): Promise<void> {
+    await onUpdateTmdb(nextEntry, tmdbId);
+    tmdbDialogOpen = false;
+    onClose();
+  }
+
   async function removeWatchlistEntry(nextEntry: LibraryEntry): Promise<void> {
     await onRemoveWatchlist(nextEntry);
     onClose();
@@ -57,7 +68,8 @@
 
 <svelte:window
   on:keydown={(event) => {
-    if (event.key === "Escape" && !pending && !refreshing) onClose();
+    if (event.key === "Escape" && !pending && !refreshing && !updatingTmdb && !tmdbDialogOpen)
+      onClose();
   }}
 />
 
@@ -65,7 +77,7 @@
   class="dialog-backdrop"
   role="presentation"
   on:click|self={() => {
-    if (!pending && !refreshing) onClose();
+    if (!pending && !refreshing && !updatingTmdb && !tmdbDialogOpen) onClose();
   }}
 >
   <dialog open class="dialog" aria-labelledby="entry-title">
@@ -78,7 +90,7 @@
         type="button"
         aria-label="Close entry details"
         title="Close"
-        disabled={pending || refreshing}
+        disabled={pending || refreshing || updatingTmdb}
         on:click={onClose}>x</button
       >
     </header>
@@ -117,6 +129,21 @@
           <div>
             <dt>Location</dt>
             <dd><code>{entry.relative_path}</code></dd>
+          </div>
+          <div>
+            <dt>TMDB ID</dt>
+            <dd class="tmdb-identity">
+              <code>{entry.tmdb_id ?? "Not set"}</code>
+              <button
+                type="button"
+                disabled={disabled || pending || refreshing || updatingTmdb}
+                on:click={() => {
+                  tmdbDialogOpen = true;
+                }}
+              >
+                {entry.tmdb_id ? "Change" : "Set ID"}
+              </button>
+            </dd>
           </div>
         {/if}
       </dl>
@@ -158,6 +185,17 @@
     </footer>
   </dialog>
 </div>
+
+{#if tmdbDialogOpen}
+  <LibraryTmdbIdDialog
+    {entry}
+    pending={updatingTmdb}
+    onClose={() => {
+      tmdbDialogOpen = false;
+    }}
+    onSave={updateTmdbId}
+  />
+{/if}
 
 <style>
   .dialog-backdrop {
@@ -273,6 +311,24 @@
   dd {
     margin: 0;
     color: #f8f5ed;
+  }
+
+  .tmdb-identity {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .tmdb-identity button {
+    height: 28px;
+    border: 1px solid #3e9c7a;
+    border-radius: 6px;
+    padding: 0 10px;
+    background: #193c31;
+    color: #c9f8e6;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 800;
   }
 
   .overview {

@@ -6,6 +6,7 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import GeneratedFile, LibraryEntry, LibraryExclusion, TorBoxItem
+from app.db.repositories.media_metadata import LIKE_ESCAPE, escape_like
 from app.providers.torbox.files import DOWNLOAD_KINDS, DownloadKind
 
 
@@ -38,6 +39,14 @@ class LibraryExclusionRepository:
         )
         await self._session.flush()
 
+    async def remove(self, relative_prefix: str) -> bool:
+        result = await self._session.execute(
+            delete(LibraryExclusion)
+            .where(LibraryExclusion.relative_prefix == relative_prefix)
+            .returning(LibraryExclusion.id)
+        )
+        return result.scalar_one_or_none() is not None
+
     async def clear_for_selected_media(
         self,
         *,
@@ -60,6 +69,7 @@ class LibraryExclusionRepository:
         return len(tuple(result.scalars()))
 
     async def backing_items(self, relative_prefix: str) -> tuple[BackingProviderItem, ...]:
+        escaped_prefix = escape_like(relative_prefix)
         result = await self._session.execute(
             select(TorBoxItem)
             .select_from(GeneratedFile)
@@ -69,7 +79,10 @@ class LibraryExclusionRepository:
             .where(
                 or_(
                     GeneratedFile.relative_path == relative_prefix,
-                    GeneratedFile.relative_path.like(f"{relative_prefix}/%"),
+                    GeneratedFile.relative_path.like(
+                        f"{escaped_prefix}/%",
+                        escape=LIKE_ESCAPE,
+                    ),
                 )
             )
         )
@@ -80,6 +93,27 @@ class LibraryExclusionRepository:
                 continue
             key = (kind, torbox_item.external_id)
             items[key] = BackingProviderItem(kind=kind, item_id=torbox_item.external_id)
+        return tuple(items.values())
+
+    async def backing_items_for_media(
+        self,
+        media_item_id: int,
+    ) -> tuple[BackingProviderItem, ...]:
+        result = await self._session.execute(
+            select(TorBoxItem)
+            .select_from(LibraryEntry)
+            .join(LibraryEntry.torbox_file)
+            .join(TorBoxItem)
+            .where(LibraryEntry.media_item_id == media_item_id)
+        )
+        items: dict[tuple[DownloadKind, str], BackingProviderItem] = {}
+        for torbox_item in result.scalars():
+            kind = _torbox_kind(torbox_item.kind)
+            if kind is not None:
+                items[(kind, torbox_item.external_id)] = BackingProviderItem(
+                    kind=kind,
+                    item_id=torbox_item.external_id,
+                )
         return tuple(items.values())
 
 

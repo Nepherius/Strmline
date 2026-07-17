@@ -14,21 +14,19 @@ export interface ClassificationOverride {
 }
 
 export interface ClassificationOverridePayload {
-  source_category: LibraryCategory;
-  source_prefix: string;
-  title: string;
+  media_item_id: number;
   target_category: LibraryCategory;
 }
 
 export interface ClassificationOverrideDeletePayload {
-  source_category: LibraryCategory;
-  source_prefix: string;
+  media_item_id: number;
 }
 
 export interface RemoveLibraryEntryPayload {
   category: string;
   title: string;
   relative_path: string;
+  media_item_id?: number;
   remove_torbox?: boolean;
 }
 
@@ -42,11 +40,26 @@ export interface RemoveLibraryEntryResult {
 export interface RefreshLibraryEntryMetadataPayload {
   category: LibraryCategory;
   relative_path: string;
+  media_item_id: number;
 }
 
 export interface RefreshLibraryEntryMetadataResult {
   ok: boolean;
   message: string;
+  refreshed_posters: number;
+}
+
+export interface UpdateLibraryEntryTmdbIdPayload {
+  category: LibraryCategory;
+  relative_path: string;
+  tmdb_id: number;
+  media_item_id: number;
+}
+
+export interface UpdateLibraryEntryTmdbIdResult {
+  ok: boolean;
+  message: string;
+  tmdb_id: number;
   refreshed_posters: number;
 }
 
@@ -97,6 +110,16 @@ export function refreshLibraryEntryMetadata(
 ): Promise<RefreshLibraryEntryMetadataResult> {
   return fetchJson<RefreshLibraryEntryMetadataResult>("/api/library/entries/refresh-metadata", {
     method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateLibraryEntryTmdbId(
+  payload: UpdateLibraryEntryTmdbIdPayload,
+): Promise<UpdateLibraryEntryTmdbIdResult> {
+  return fetchJson<UpdateLibraryEntryTmdbIdResult>("/api/library/entries/tmdb-id", {
+    method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
   });

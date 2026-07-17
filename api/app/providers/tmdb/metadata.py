@@ -54,8 +54,17 @@ class TmdbMetadataService:
             response_payload=payload,
             ttl=ttl,
         )
-        await self._cache_repository.commit()
         return payload
+
+    async def get_cached_json(
+        self,
+        endpoint: str,
+        *,
+        params: dict[str, str] | None = None,
+    ) -> dict[str, Any] | None:
+        request_params = params or {}
+        cached = await self._cache_repository.get_fresh(tmdb_cache_key(endpoint, request_params))
+        return cached.response_payload if cached is not None else None
 
     async def get_season_completion_json(
         self,

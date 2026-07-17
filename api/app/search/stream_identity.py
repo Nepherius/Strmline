@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlparse
 
+from app.domain.normalization import normalize_info_hash
 from app.providers.aiostreams.client import AioStreamsStream
 
-INFO_HASH_PATTERN = re.compile(r"^[A-Za-z0-9]{20,80}$")
 STREAM_KEY_LENGTH = 32
 
 
@@ -138,9 +137,4 @@ def _info_hash_from_magnet(magnet: str | None) -> str | None:
 
 
 def _normalized_info_hash(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    candidate = value.strip()
-    if not INFO_HASH_PATTERN.fullmatch(candidate):
-        return None
-    return candidate.casefold()
+    return normalize_info_hash(value)

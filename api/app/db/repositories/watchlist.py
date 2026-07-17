@@ -5,7 +5,15 @@ from dataclasses import dataclass
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import GeneratedFile, LibraryEntry, LibraryExclusion, MediaItem, WatchlistItem
+from app.db.models import (
+    GeneratedFile,
+    LibraryEntry,
+    LibraryExclusion,
+    MediaExternalIdentity,
+    MediaItem,
+    WatchlistItem,
+)
+from app.domain.media_identity import provider_kind_for_search
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,8 +58,12 @@ class WatchlistRepository:
             select(GeneratedFile.relative_path)
             .join(LibraryEntry)
             .join(MediaItem)
+            .join(MediaExternalIdentity)
             .where(
-                MediaItem.tmdb_id == str(tmdb_id),
+                MediaExternalIdentity.provider == "tmdb",
+                MediaExternalIdentity.provider_media_kind
+                == provider_kind_for_search(media_type).value,
+                MediaExternalIdentity.external_id == str(tmdb_id),
                 LibraryEntry.category.in_(categories),
             )
         )

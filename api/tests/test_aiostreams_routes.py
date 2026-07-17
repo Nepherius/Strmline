@@ -5,12 +5,12 @@ from app.api import aiostreams as aiostreams_api
 from app.core.config import get_settings
 from app.db.dependencies import get_optional_db_session
 from app.main import create_app
-from tests.conftest import override_auth
 from app.providers.aiostreams.client import (
     AioStreamsClientError,
     AioStreamsManifest,
     AioStreamsStream,
 )
+from tests.conftest import override_auth
 
 
 @pytest.mark.asyncio

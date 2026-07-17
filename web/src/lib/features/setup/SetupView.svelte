@@ -56,7 +56,7 @@
   </PageHeader>
 
   {#if error}
-    <Notice variant="error">{error}</Notice>
+    <Notice variant="error" resetKey={error}>{error}</Notice>
   {/if}
 
   {#if saved}
@@ -242,19 +242,21 @@
         Clear saved setup
       </UiButton>
       {#if torboxTestResult}
-        <span class:ok={torboxTestResult.ok} class:error-text={!torboxTestResult.ok}>
-          {torboxTestResult.message}
-        </span>
+        <Notice
+          variant={torboxTestResult.ok ? "success" : "error"}
+          resetKey={torboxTestResult.message}>{torboxTestResult.message}</Notice
+        >
       {/if}
       {#if tmdbTestResult}
-        <span class:ok={tmdbTestResult.ok} class:error-text={!tmdbTestResult.ok}>
-          {tmdbTestResult.message}
-        </span>
+        <Notice variant={tmdbTestResult.ok ? "success" : "error"} resetKey={tmdbTestResult.message}
+          >{tmdbTestResult.message}</Notice
+        >
       {/if}
       {#if aiostreamsTestResult}
-        <span class:ok={aiostreamsTestResult.ok} class:error-text={!aiostreamsTestResult.ok}>
-          {aiostreamsTestResult.message}
-        </span>
+        <Notice
+          variant={aiostreamsTestResult.ok ? "success" : "error"}
+          resetKey={aiostreamsTestResult.message}>{aiostreamsTestResult.message}</Notice
+        >
       {/if}
     </div>
   </form>
@@ -373,18 +375,8 @@
     gap: 8px;
   }
 
-  .actions span {
-    color: var(--text-muted);
-    font-size: 13px;
-    font-weight: 700;
-  }
-
-  .actions span.ok {
-    color: var(--success-text);
-  }
-
-  .actions span.error-text {
-    color: var(--danger-text);
+  .actions :global(.notice) {
+    margin: 0;
   }
 
   @media (max-width: 760px) {

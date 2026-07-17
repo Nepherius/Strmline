@@ -20,7 +20,8 @@ export interface LibraryEntry {
   file_count: number;
   poster_url?: string | null;
   watchlist_id?: number;
-  tmdb_id?: number;
+  tmdb_id?: number | null;
+  media_item_id?: number | null;
   media_type?: "movie" | "series";
   imdb_id?: string | null;
   year?: string | null;
@@ -94,8 +95,4 @@ export function sortFiles(
 
 export function duplicateFileCount(summary: LibrarySummary): number {
   return summary.duplicate_groups.reduce((total, group) => total + group.files.length, 0);
-}
-
-export function validationIssueCount(validation: LibraryValidation): number {
-  return validation.errors.length + validation.warnings.length;
 }

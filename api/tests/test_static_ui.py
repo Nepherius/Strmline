@@ -33,9 +33,10 @@ async def test_static_ui_serves_favicon_and_index_for_application_routes(
     assert root_response.status_code == httpx.codes.OK
     assert "Strmline UI" in root_response.text
     expected_hash = b64encode(sha256(bootstrap_script.encode("utf-8")).digest()).decode("ascii")
-    assert f"script-src 'self' 'sha256-{expected_hash}'" in root_response.headers[
-        "content-security-policy"
-    ]
+    assert (
+        f"script-src 'self' 'sha256-{expected_hash}'"
+        in root_response.headers["content-security-policy"]
+    )
     assert favicon_response.status_code == httpx.codes.OK
     assert favicon_response.headers["content-type"] == "image/svg+xml"
     assert setup_response.status_code == httpx.codes.OK

@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Annotated, cast
-from urllib.parse import quote
+from typing import Annotated
 
 from anyio.to_thread import run_sync
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -11,20 +10,33 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import FileResponse
 
+from app.api.library_classification import (
+    delete_media_classification,
+    save_media_classification,
+)
+from app.api.library_identity import require_matching_media_record, require_media_location
 from app.api.provider_config import effective_tmdb_key, effective_torbox_key
 from app.core.config import get_settings
 from app.db.dependencies import get_db_session, get_optional_db_session
 from app.db.repositories.classification_override import ClassificationOverrideRepository
 from app.db.repositories.library_exclusion import LibraryExclusionRepository
-from app.db.repositories.media_metadata import MediaMetadataRepository
+from app.db.repositories.media_identity import AuthoritativeIdentityConflictError
+from app.db.repositories.media_metadata import (
+    LibraryMediaRecord,
+    MediaMetadataRepository,
+)
 from app.library.classification_override import (
     LibraryClassificationOverride,
     target_prefix_for_override,
 )
-from app.library.entries import LibraryCategory
-from app.library.metadata_refresh import MetadataRefreshError, refresh_library_metadata
+from app.library.metadata_refresh import MetadataRefreshError
+from app.library.metadata_update import refresh_tmdb_metadata
 from app.library.posters import poster_for_tmdb_id
-from app.library.removal import LibraryRemovalResult, remove_library_prefix
+from app.library.removal_service import (
+    LibraryRemovalProviderError,
+    TorBoxRemovalConfig,
+    remove_library_media,
+)
 from app.library.summary import (
     LibraryDuplicateGroup,
     LibraryEntrySummary,
@@ -37,9 +49,9 @@ from app.library.validation import (
     LibraryValidationReport,
     validate_jellyfin_library,
 )
-from app.providers.tmdb.client import TmdbClient, TmdbClientError
-from app.providers.tmdb.posters import TmdbPosterClient, TmdbPosterError
-from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
+from app.providers.tmdb.client import TmdbClientError
+from app.providers.tmdb.posters import TmdbPosterError
+from app.providers.torbox.client import TorBoxClient
 
 router = APIRouter(prefix="/api/library", tags=["library"])
 logger = logging.getLogger(__name__)
@@ -63,6 +75,8 @@ class LibraryEntryResponse(BaseModel):
     relative_path: str
     file_count: int
     poster_url: str | None
+    tmdb_id: int | None
+    media_item_id: int | None
 
 
 class LibrarySummaryResponse(BaseModel):
@@ -97,6 +111,7 @@ class LibraryRemoveRequest(BaseModel):
     category: str = Field(pattern=r"^(movies|shows|anime)$")
     title: str = Field(min_length=1, max_length=300)
     relative_path: str = Field(min_length=1, max_length=1000)
+    media_item_id: int | None = Field(default=None, ge=1)
     remove_torbox: bool = True
 
 
@@ -110,6 +125,7 @@ class LibraryRemoveResponse(BaseModel):
 class LibraryMetadataRefreshRequest(BaseModel):
     category: str = Field(pattern=r"^(movies|shows|anime)$")
     relative_path: str = Field(min_length=1, max_length=1000)
+    media_item_id: int = Field(ge=1)
 
 
 class LibraryMetadataRefreshResponse(BaseModel):
@@ -118,16 +134,27 @@ class LibraryMetadataRefreshResponse(BaseModel):
     refreshed_posters: int
 
 
+class LibraryTmdbIdUpdateRequest(BaseModel):
+    category: str = Field(pattern=r"^(movies|shows|anime)$")
+    relative_path: str = Field(min_length=1, max_length=1000)
+    tmdb_id: int = Field(ge=1)
+    media_item_id: int = Field(ge=1)
+
+
+class LibraryTmdbIdUpdateResponse(BaseModel):
+    ok: bool
+    message: str
+    tmdb_id: int
+    refreshed_posters: int
+
+
 class ClassificationOverrideRequest(BaseModel):
-    source_category: str = Field(pattern=r"^(movies|shows|anime)$")
-    source_prefix: str = Field(min_length=1, max_length=1000)
-    title: str = Field(min_length=1, max_length=300)
+    media_item_id: int = Field(ge=1)
     target_category: str = Field(pattern=r"^(movies|shows|anime)$")
 
 
 class ClassificationOverrideDeleteRequest(BaseModel):
-    source_category: str = Field(pattern=r"^(movies|shows|anime)$")
-    source_prefix: str = Field(min_length=1, max_length=1000)
+    media_item_id: int = Field(ge=1)
 
 
 class ClassificationOverrideResponse(BaseModel):
@@ -148,7 +175,7 @@ async def library_summary(
     library_root: Annotated[Path, Depends(get_library_root)],
 ) -> LibrarySummaryResponse:
     summary = await _summarize_library(library_root)
-    poster_urls = await _entry_poster_urls(session, library_root, summary.entries)
+    records = await _entry_records(session, summary.entries)
     return LibrarySummaryResponse(
         configured=True,
         root=str(summary.root),
@@ -157,7 +184,7 @@ async def library_summary(
         category_counts=summary.category_counts,
         files=[_file_response(file) for file in summary.files],
         entries=[
-            _entry_response(entry, poster_urls.get(entry.relative_path))
+            _entry_response(entry, records.get(entry.relative_path), library_root)
             for entry in summary.entries
         ],
         duplicate_groups=[_duplicate_response(group) for group in summary.duplicate_groups],
@@ -183,16 +210,16 @@ async def library_validation(
 
 @router.get("/poster")
 async def library_poster(
-    relative_path: Annotated[str, Query(min_length=1, max_length=1000)],
+    media_item_id: Annotated[int, Query(ge=1)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
     library_root: Annotated[Path, Depends(get_library_root)],
 ) -> FileResponse:
-    record = await MediaMetadataRepository(session).find_for_library_prefix(relative_path)
+    record = await MediaMetadataRepository(session).find_for_media_item(media_item_id)
     await session.close()
-    if record is None or record.media_item.tmdb_id is None:
+    if record is None or record.tmdb_id is None:
         raise HTTPException(status_code=404, detail="Poster not found.")
     try:
-        poster = poster_for_tmdb_id(library_root, record.media_item.tmdb_id)
+        poster = poster_for_tmdb_id(library_root, record.tmdb_id)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     if poster is None:
@@ -213,14 +240,10 @@ async def save_classification_override(
     request: ClassificationOverrideRequest,
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> ClassificationOverrideResponse:
-    _validate_relative_prefix(request.source_prefix, request.source_category)
-    if request.target_category == request.source_category:
-        raise HTTPException(status_code=400, detail="Target category must be different.")
-    override = await ClassificationOverrideRepository(session).upsert(
-        source_category=_category(request.source_category),
-        source_prefix=request.source_prefix,
-        title=request.title,
-        target_category=_category(request.target_category),
+    override = await save_media_classification(
+        session,
+        media_item_id=request.media_item_id,
+        target_category=request.target_category,
     )
     await session.commit()
     return _classification_override_response(override)
@@ -231,8 +254,7 @@ async def delete_classification_override(
     request: ClassificationOverrideDeleteRequest,
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> None:
-    _validate_relative_prefix(request.source_prefix, request.source_category)
-    _ = await ClassificationOverrideRepository(session).delete(request.source_prefix)
+    await delete_media_classification(session, request.media_item_id)
     await session.commit()
 
 
@@ -242,42 +264,56 @@ async def remove_library_entry(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     library_root: Annotated[Path, Depends(get_library_root)],
 ) -> LibraryRemoveResponse:
-    _validate_relative_prefix(request.relative_path, request.category)
+    if request.media_item_id is not None:
+        location = await require_media_location(session, request.media_item_id)
+        category = location.category
+        title = location.title
+        relative_path = location.relative_prefix
+    else:
+        _validate_relative_prefix(request.relative_path, request.category)
+        category = request.category
+        title = request.title
+        relative_path = request.relative_path
     settings = get_settings()
     torbox_api_key = await effective_torbox_key(session, settings)
     if request.remove_torbox and torbox_api_key is None:
         raise HTTPException(status_code=400, detail="TorBox API key is not configured.")
 
     repository = LibraryExclusionRepository(session)
-    removed_torbox_items = 0
+    backing_items = ()
     if request.remove_torbox:
-        backing_items = await repository.backing_items(request.relative_path)
-        try:
-            async with TorBoxClient(
-                api_key=torbox_api_key or "",
-                base_url=settings.torbox_base_url,
-                timeout=settings.outbound_timeout_seconds,
-            ) as client:
-                for item in backing_items:
-                    await client.delete_download(item.kind, item.item_id)
-                    removed_torbox_items += 1
-        except TorBoxAPIError as error:
-            await session.rollback()
-            logger.warning("TorBox library removal failed.")
-            raise HTTPException(status_code=503, detail="TorBox operation failed.") from error
-
-    await repository.add(
-        category=request.category,
-        title=request.title,
-        relative_prefix=request.relative_path,
-    )
-    removal = await _remove_library_prefix(library_root, request.relative_path)
-    await session.commit()
+        backing_items = (
+            await repository.backing_items_for_media(request.media_item_id)
+            if request.media_item_id is not None
+            else await repository.backing_items(relative_path)
+        )
+    try:
+        removal = await remove_library_media(
+            session,
+            library_root=library_root,
+            category=category,
+            title=title,
+            relative_prefix=relative_path,
+            backing_items=backing_items,
+            torbox=(
+                TorBoxRemovalConfig(
+                    api_key=torbox_api_key or "",
+                    base_url=settings.torbox_base_url,
+                    timeout=settings.outbound_timeout_seconds,
+                )
+                if request.remove_torbox
+                else None
+            ),
+            client_factory=TorBoxClient,
+        )
+    except LibraryRemovalProviderError as error:
+        logger.warning("TorBox library removal failed.")
+        raise HTTPException(status_code=503, detail=str(error)) from error
     return LibraryRemoveResponse(
         ok=True,
         message="Library entry removed.",
         removed_files=removal.removed_files,
-        removed_torbox_items=removed_torbox_items,
+        removed_torbox_items=removal.removed_torbox_items,
     )
 
 
@@ -288,29 +324,86 @@ async def refresh_entry_metadata(
     library_root: Annotated[Path, Depends(get_library_root)],
 ) -> LibraryMetadataRefreshResponse:
     _validate_relative_prefix(request.relative_path, request.category)
+    _ = await require_matching_media_record(
+        session,
+        media_item_id=request.media_item_id,
+        relative_prefix=request.relative_path,
+    )
     settings = get_settings()
     tmdb_api_key = await effective_tmdb_key(session, settings)
     if tmdb_api_key is None:
         raise HTTPException(status_code=400, detail="TMDB API key is not configured.")
     try:
-        refreshed_posters = await refresh_library_metadata(
+        refreshed_posters = await refresh_tmdb_metadata(
             session,
+            settings,
             library_root=library_root,
-            relative_prefix=request.relative_path,
-            tmdb_client=TmdbClient(
-                api_key=tmdb_api_key,
-                base_url=settings.tmdb_base_url,
-                timeout_seconds=settings.outbound_timeout_seconds,
-            ),
-            poster_fetcher=TmdbPosterClient(timeout_seconds=settings.outbound_timeout_seconds),
+            media_item_id=request.media_item_id,
+            tmdb_api_key=tmdb_api_key,
         )
     except MetadataRefreshError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
-    except (TmdbClientError, TmdbPosterError) as error:
+    except (OSError, TmdbClientError, TmdbPosterError, ValueError) as error:
         raise HTTPException(status_code=503, detail="TMDB metadata refresh failed.") from error
+    await session.commit()
     return LibraryMetadataRefreshResponse(
         ok=True,
         message="Metadata and poster refreshed.",
+        refreshed_posters=refreshed_posters,
+    )
+
+
+@router.put("/entries/tmdb-id", response_model=LibraryTmdbIdUpdateResponse)
+async def update_entry_tmdb_id(
+    request: LibraryTmdbIdUpdateRequest,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    library_root: Annotated[Path, Depends(get_library_root)],
+) -> LibraryTmdbIdUpdateResponse:
+    _validate_relative_prefix(request.relative_path, request.category)
+    _ = await require_matching_media_record(
+        session,
+        media_item_id=request.media_item_id,
+        relative_prefix=request.relative_path,
+    )
+    settings = get_settings()
+    tmdb_api_key = await effective_tmdb_key(session, settings)
+    if tmdb_api_key is None:
+        raise HTTPException(status_code=400, detail="TMDB API key is not configured.")
+    try:
+        record = await MediaMetadataRepository(session).set_tmdb_id_for_media_item(
+            request.media_item_id,
+            str(request.tmdb_id),
+        )
+    except AuthoritativeIdentityConflictError as error:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    if record is None:
+        await session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Library entry has no unique media record.",
+        )
+
+    try:
+        refreshed_posters = await refresh_tmdb_metadata(
+            session,
+            settings,
+            library_root=library_root,
+            media_item_id=record.media_item.id,
+            tmdb_api_key=tmdb_api_key,
+        )
+    except MetadataRefreshError as error:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except (OSError, TmdbClientError, TmdbPosterError, ValueError) as error:
+        await session.rollback()
+        raise HTTPException(status_code=503, detail="TMDB metadata refresh failed.") from error
+
+    await session.commit()
+    return LibraryTmdbIdUpdateResponse(
+        ok=True,
+        message="TMDB ID, metadata, and artwork updated.",
+        tmdb_id=request.tmdb_id,
         refreshed_posters=refreshed_posters,
     )
 
@@ -322,7 +415,20 @@ def _duplicate_response(group: LibraryDuplicateGroup) -> LibraryDuplicateGroupRe
     )
 
 
-def _entry_response(entry: LibraryEntrySummary, poster_url: str | None) -> LibraryEntryResponse:
+def _entry_response(
+    entry: LibraryEntrySummary,
+    record: LibraryMediaRecord | None,
+    library_root: Path,
+) -> LibraryEntryResponse:
+    tmdb_id = record.tmdb_id if record is not None else None
+    valid_tmdb_id = tmdb_id if tmdb_id is not None and tmdb_id.isdecimal() else None
+    poster_url = None
+    if (
+        record is not None
+        and valid_tmdb_id is not None
+        and poster_for_tmdb_id(library_root, valid_tmdb_id) is not None
+    ):
+        poster_url = f"/api/library/poster?media_item_id={record.media_item.id}"
     return LibraryEntryResponse(
         key=entry.key,
         category=entry.category,
@@ -330,6 +436,8 @@ def _entry_response(entry: LibraryEntrySummary, poster_url: str | None) -> Libra
         relative_path=entry.relative_path,
         file_count=entry.file_count,
         poster_url=poster_url,
+        tmdb_id=int(valid_tmdb_id) if valid_tmdb_id is not None else None,
+        media_item_id=record.media_item.id if record is not None else None,
     )
 
 
@@ -365,32 +473,19 @@ async def _summarize_library(library_root: Path) -> LibrarySummary:
     return await run_sync(summarize_library, library_root)
 
 
-async def _entry_poster_urls(
+async def _entry_records(
     session: AsyncSession | None,
-    library_root: Path,
     entries: tuple[LibraryEntrySummary, ...],
-) -> dict[str, str]:
+) -> dict[str, LibraryMediaRecord]:
     if session is None:
         return {}
-    tmdb_ids = await MediaMetadataRepository(session).tmdb_ids_for_library_prefixes(
+    return await MediaMetadataRepository(session).records_for_library_prefixes(
         {entry.relative_path for entry in entries}
     )
-    return {
-        relative_prefix: f"/api/library/poster?relative_path={quote(relative_prefix, safe='')}"
-        for relative_prefix, tmdb_id in tmdb_ids.items()
-        if poster_for_tmdb_id(library_root, tmdb_id) is not None
-    }
 
 
 async def _validate_library(library_root: Path) -> LibraryValidationReport:
     return validate_jellyfin_library(library_root)
-
-
-async def _remove_library_prefix(
-    library_root: Path,
-    relative_prefix: str,
-) -> LibraryRemovalResult:
-    return await run_sync(remove_library_prefix, library_root, relative_prefix)
 
 
 def _validate_relative_prefix(relative_path: str, category: str) -> None:
@@ -399,9 +494,3 @@ def _validate_relative_prefix(relative_path: str, category: str) -> None:
         raise HTTPException(status_code=400, detail="Library entry path is invalid.")
     if not relative_path.startswith(f"{category}/"):
         raise HTTPException(status_code=400, detail="Library entry category does not match path.")
-
-
-def _category(value: str) -> LibraryCategory:
-    if value in {"movies", "shows", "anime"}:
-        return cast(LibraryCategory, value)
-    raise HTTPException(status_code=400, detail="Library category is invalid.")

@@ -34,6 +34,9 @@ class FakeSession:
     async def commit(self) -> None:
         self.committed = True
 
+    async def flush(self) -> None:
+        return None
+
 
 @pytest.mark.asyncio
 async def test_resolver_repository_validates_saved_tokens() -> None:

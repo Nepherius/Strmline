@@ -213,7 +213,7 @@ async def test_tmdb_metadata_service_fetches_and_caches_misses() -> None:
 
     assert payload == {"results": [{"id": 1, "title": "Alien"}]}
     assert client.calls == [("/search/movie", {"query": "Alien"})]
-    assert session.committed is True
+    assert session.committed is False
 
 
 @pytest.mark.asyncio

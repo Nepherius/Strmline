@@ -4,7 +4,7 @@ from app.season_completion.ranking import EpisodeRef
 
 
 def test_library_show_uses_normalized_current_torbox_files() -> None:
-    media_item = MediaItem(id=1, media_type="show", title="Example Show", tmdb_id="42")
+    media_item = MediaItem(id=1, content_kind="series", title="Example Show")
     active = _entry(file_id=1, episode=1)
     source_file = TorBoxStoredFile(
         id=1,
@@ -16,19 +16,19 @@ def test_library_show_uses_normalized_current_torbox_files() -> None:
         size=1,
     )
 
-    show = library_show([(media_item, active, source_file)])
+    show = library_show([(media_item, active, source_file, "42")])
 
     assert show.episodes == frozenset({EpisodeRef(1, 1)})
     assert show.filenames_by_season == {1: ("Example.Show.S01E01.mkv",)}
 
 
 def test_library_show_includes_permanent_virtual_episodes() -> None:
-    media_item = MediaItem(id=1, media_type="show", title="Example Show", tmdb_id="42")
+    media_item = MediaItem(id=1, content_kind="series", title="Example Show")
     virtual = _entry(file_id=1, episode=1)
     virtual.torbox_file_id = None
     virtual.source_file_name = "Example.Show.S01E01.mkv"
 
-    show = library_show([(media_item, virtual, None)])
+    show = library_show([(media_item, virtual, None, "42")])
 
     assert show.episodes == frozenset({EpisodeRef(1, 1)})
     assert show.filenames_by_season == {1: ("Example.Show.S01E01.mkv",)}

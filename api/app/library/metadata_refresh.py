@@ -25,17 +25,18 @@ async def refresh_library_metadata(
     session: AsyncSession,
     *,
     library_root: Path,
-    relative_prefix: str,
+    media_item_id: int,
     tmdb_client: TmdbClient,
     poster_fetcher: PosterFetcher,
+    require_poster: bool = True,
 ) -> int:
-    record = await MediaMetadataRepository(session).find_for_library_prefix(relative_prefix)
+    record = await MediaMetadataRepository(session).find_for_media_item(media_item_id)
     if record is None:
         raise MetadataRefreshError("Library entry has no unique media record.")
-    if record.media_item.tmdb_id is None or not record.media_item.tmdb_id.isdecimal():
+    if record.tmdb_id is None or not record.tmdb_id.isdecimal():
         raise MetadataRefreshError("Library entry has no TMDB identity to refresh.")
 
-    endpoint = _tmdb_endpoint(record.media_item.media_type, record.media_item.tmdb_id)
+    endpoint = _tmdb_endpoint(record.media_item.content_kind, record.tmdb_id)
     payload = await tmdb_client.get_json(endpoint)
     _apply_metadata(record.media_item, payload)
     await TmdbCacheRepository(session).store(
@@ -47,29 +48,29 @@ async def refresh_library_metadata(
     )
     poster_path = payload.get("poster_path")
     if not isinstance(poster_path, str) or not poster_path:
-        raise MetadataRefreshError("TMDB returned no poster for this library entry.")
-    refreshed = await refresh_posters(
+        if require_poster:
+            raise MetadataRefreshError("TMDB returned no poster for this library entry.")
+        return 0
+    return await refresh_posters(
         library_root,
         poster_fetcher,
         poster_path,
-        record.media_item.tmdb_id,
+        record.tmdb_id,
     )
-    await session.commit()
-    return refreshed
 
 
-def _tmdb_endpoint(media_type: str, tmdb_id: str) -> str:
-    provider_type = "movie" if media_type == "movies" else "tv"
+def _tmdb_endpoint(content_kind: str, tmdb_id: str) -> str:
+    provider_type = "movie" if content_kind == "movie" else "tv"
     return f"/{provider_type}/{tmdb_id}"
 
 
 def _apply_metadata(media_item: MediaItem, payload: dict[str, Any]) -> None:
-    title = payload.get("title") if media_item.media_type == "movies" else payload.get("name")
+    title = payload.get("title") if media_item.content_kind == "movie" else payload.get("name")
     if isinstance(title, str) and title.strip():
         media_item.title = title
     date_value = (
         payload.get("release_date")
-        if media_item.media_type == "movies"
+        if media_item.content_kind == "movie"
         else payload.get("first_air_date")
     )
     if (
@@ -78,3 +79,6 @@ def _apply_metadata(media_item: MediaItem, payload: dict[str, Any]) -> None:
         and date_value[:YEAR_LENGTH].isdecimal()
     ):
         media_item.year = int(date_value[:YEAR_LENGTH])
+    poster_path = payload.get("poster_path")
+    if isinstance(poster_path, str) and poster_path:
+        media_item.poster_path = poster_path

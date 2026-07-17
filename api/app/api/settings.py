@@ -62,7 +62,13 @@ class SettingsUpdateRequest(BaseModel):
 async def get_settings_repository(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> AsyncIterator[AppSettingsRepository]:
-    yield AppSettingsRepository(session, get_settings())
+    try:
+        yield AppSettingsRepository(session, get_settings())
+    except Exception:
+        await session.rollback()
+        raise
+    else:
+        await session.commit()
 
 
 @router.get("", response_model=SettingsResponse)

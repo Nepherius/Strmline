@@ -89,15 +89,15 @@
 </div>
 
 {#if error}
-  <Notice variant="error">{error}</Notice>
+  <Notice variant="error" resetKey={error}>{error}</Notice>
 {/if}
 
 {#if streamActionMessage}
-  <Notice variant="success">{streamActionMessage}</Notice>
+  <Notice variant="success" resetKey={streamActionMessage}>{streamActionMessage}</Notice>
 {/if}
 
 {#if watchlistMessage}
-  <Notice variant={watchlistMessageVariant}>{watchlistMessage}</Notice>
+  <Notice variant={watchlistMessageVariant} resetKey={watchlistMessage}>{watchlistMessage}</Notice>
 {/if}
 
 {#if searchingStreams}

@@ -95,7 +95,6 @@ class AniListAnimeService:
             ),
             ttl=ttl,
         )
-        await self._cache_repository.commit()
         return payload
 
     async def has_anime_match(self, title: str, *, year: int | None = None) -> bool:

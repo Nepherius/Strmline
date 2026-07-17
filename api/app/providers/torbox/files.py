@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import Any, Literal, cast
 from urllib.parse import urlencode
 
+from app.domain.normalization import normalize_info_hash
+
 logger = logging.getLogger(__name__)
 
 DownloadKind = Literal["torrents", "usenet", "webdl"]
@@ -106,15 +108,16 @@ def request_download_url(base_url: str, api_key: str, torbox_file: TorBoxFile) -
 
 
 def torrent_info_hash(item: dict[str, Any]) -> str | None:
-    value = item.get("hash")
-    if isinstance(value, str) and value.strip():
-        return value.strip().casefold()
+    normalized = normalize_info_hash(item.get("hash"))
+    if normalized is not None:
+        return normalized
     alternative_hashes = item.get("alternative_hashes")
     if not isinstance(alternative_hashes, list):
         return None
     for candidate in cast(list[object], alternative_hashes):
-        if isinstance(candidate, str) and candidate.strip():
-            return candidate.strip().casefold()
+        normalized = normalize_info_hash(candidate)
+        if normalized is not None:
+            return normalized
     return None
 
 

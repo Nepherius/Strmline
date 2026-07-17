@@ -5,9 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from app.library.atomic_io import atomic_write_bytes
 from app.library.paths import ensure_within_root
 
 POSTER_STEM = "poster"
+IMAGE_SIGNATURE_BYTES = 12
 POSTER_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp")
 ARTWORK_DIRECTORY = "artwork"
 
@@ -99,7 +101,13 @@ def find_poster(root: Path, directory: Path) -> Path | None:
     safe_directory = ensure_within_root(root, directory)
     for suffix in POSTER_SUFFIXES:
         candidate = ensure_within_root(root, safe_directory / f"{POSTER_STEM}{suffix}")
-        if candidate.is_file():
+        if not candidate.is_file():
+            continue
+        try:
+            signature = candidate.read_bytes()[:IMAGE_SIGNATURE_BYTES]
+        except OSError:
+            continue
+        if _is_supported_image(signature, suffix):
             return candidate
     return None
 
@@ -111,13 +119,29 @@ def write_poster(root: Path, directory: Path, image: PosterImage) -> Path:
     if not image.content:
         msg = "Poster content is empty."
         raise ValueError(msg)
+    if not _is_supported_image(image.content[:IMAGE_SIGNATURE_BYTES], image.suffix):
+        msg = "Poster content does not match its image format."
+        raise ValueError(msg)
 
     safe_directory = ensure_within_root(root, directory)
-    safe_directory.mkdir(parents=True, exist_ok=True)
     target = ensure_within_root(root, safe_directory / f"{POSTER_STEM}{image.suffix}")
-    _ = target.write_bytes(image.content)
+    atomic_write_bytes(target, image.content)
     for suffix in POSTER_SUFFIXES:
         stale = ensure_within_root(root, safe_directory / f"{POSTER_STEM}{suffix}")
         if stale != target and stale.is_file():
             stale.unlink()
     return target
+
+
+def _is_supported_image(content: bytes, suffix: str) -> bool:
+    if suffix in {".jpg", ".jpeg"}:
+        return content.startswith(b"\xff\xd8\xff")
+    if suffix == ".png":
+        return content.startswith(b"\x89PNG\r\n\x1a\n")
+    if suffix == ".webp":
+        return (
+            len(content) >= IMAGE_SIGNATURE_BYTES
+            and content[:4] == b"RIFF"
+            and content[8:IMAGE_SIGNATURE_BYTES] == b"WEBP"
+        )
+    return False

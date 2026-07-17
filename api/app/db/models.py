@@ -28,7 +28,17 @@ def utc_now() -> datetime:
 
 class ApplicationSettings(Base):
     __tablename__ = "application_settings"
-    __table_args__ = (CheckConstraint("id = 1", name="ck_application_settings_singleton"),)
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_application_settings_singleton"),
+        CheckConstraint(
+            "playback_mode IN ('direct', 'resolver')",
+            name="ck_application_settings_playback_mode",
+        ),
+        CheckConstraint(
+            "sync_interval_minutes > 0",
+            name="ck_application_settings_sync_interval_positive",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     base_url: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -178,6 +188,18 @@ class StreamSelection(Base):
         UniqueConstraint("stream_key", name="uq_stream_selections_stream_key"),
         Index("ix_stream_selections_info_hash", "info_hash"),
         Index("ix_stream_selections_status", "status"),
+        CheckConstraint(
+            "media_type IN ('movie', 'series')",
+            name="ck_stream_selections_media_type",
+        ),
+        CheckConstraint(
+            "status IN ('selected')",
+            name="ck_stream_selections_status",
+        ),
+        CheckConstraint(
+            "media_year IS NULL OR media_year BETWEEN 1800 AND 3000",
+            name="ck_stream_selections_media_year",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -188,6 +210,9 @@ class StreamSelection(Base):
     media_title: Mapped[str | None] = mapped_column(Text, nullable=True)
     media_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     media_poster_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    identity_authority: Mapped[str] = mapped_column(
+        String(30), default="search_confirmed", nullable=False
+    )
     title: Mapped[str] = mapped_column(Text, nullable=False)
     source_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     info_hash: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -249,30 +274,20 @@ class ClassificationOverride(Base):
     )
 
 
-class MediaItem(Base):
-    __tablename__ = "media_items"
-    __table_args__ = (
-        Index("ix_media_items_type_title", "media_type", "title"),
-        Index(
-            "ix_media_items_tmdb_id",
-            "tmdb_id",
-            unique=True,
-            postgresql_where=text("tmdb_id IS NOT NULL"),
-        ),
-    )
+from app.db.media_models import (  # noqa: E402
+    MediaAlias,
+    MediaExternalIdentity,
+    MediaItem,
+    SourceMediaBinding,
+)
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    media_type: Mapped[str] = mapped_column(String(20), nullable=False)
-    title: Mapped[str] = mapped_column(Text, nullable=False)
-    year: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    tmdb_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=utc_now,
-        nullable=False,
-    )
-
-    library_entries: Mapped[list[LibraryEntry]] = relationship(back_populates="media_item")
+__all__ = [
+    "MediaAlias",
+    "MediaExternalIdentity",
+    "MediaItem",
+    "SourceMediaBinding",
+    "WatchlistItem",
+]
 
 
 class LibraryEntry(Base):
@@ -282,6 +297,28 @@ class LibraryEntry(Base):
         UniqueConstraint("torbox_file_id", name="uq_library_entries_torbox_file_id"),
         Index("ix_library_entries_category", "category"),
         Index("ix_library_entries_info_hash", "info_hash"),
+        CheckConstraint(
+            "category IN ('movies', 'shows', 'anime')",
+            name="ck_library_entries_category",
+        ),
+        CheckConstraint(
+            "season_number IS NULL OR season_number >= 0",
+            name="ck_library_entries_season_nonnegative",
+        ),
+        CheckConstraint(
+            "episode_number IS NULL OR episode_number >= 0",
+            name="ck_library_entries_episode_nonnegative",
+        ),
+        Index(
+            "uq_library_entries_source_file",
+            "source_kind",
+            "source_item_id",
+            "source_file_id",
+            unique=True,
+            postgresql_where=text(
+                "source_kind IS NOT NULL AND source_item_id IS NOT NULL AND source_file_id IS NOT NULL"
+            ),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -349,6 +386,14 @@ class SyncRun(Base):
     __table_args__ = (
         Index("ix_sync_runs_status_started_at", "status", "started_at"),
         Index("ix_sync_runs_source_started_at", "source", "started_at"),
+        CheckConstraint(
+            "status IN ('success', 'failed', 'partial')",
+            name="ck_sync_runs_status",
+        ),
+        CheckConstraint(
+            "source IN ('manual', 'auto', 'season_auto_complete')",
+            name="ck_sync_runs_source",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -440,33 +485,4 @@ class User(Base):
     )
 
 
-class WatchlistItem(Base):
-    __tablename__ = "watchlist_items"
-    __table_args__ = (
-        UniqueConstraint(
-            "media_type",
-            "tmdb_id",
-            name="uq_watchlist_items_media_type_tmdb_id",
-        ),
-        Index("ix_watchlist_items_title", "title"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    tmdb_id: Mapped[int] = mapped_column(Integer, nullable=False)
-    imdb_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    title: Mapped[str] = mapped_column(Text, nullable=False)
-    year: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    overview: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    poster_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    media_type: Mapped[str] = mapped_column(String(20), default="series", nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=utc_now,
-        nullable=False,
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=utc_now,
-        onupdate=utc_now,
-        nullable=False,
-    )
+from app.db.watchlist_models import WatchlistItem  # noqa: E402

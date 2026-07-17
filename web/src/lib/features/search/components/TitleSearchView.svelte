@@ -16,7 +16,7 @@
 </script>
 
 {#if error}
-  <Notice variant="error">{error}</Notice>
+  <Notice variant="error" resetKey={error}>{error}</Notice>
 {/if}
 
 {#if !tmdbConfigured}

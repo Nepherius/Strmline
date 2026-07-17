@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.db.repositories.settings import AppSettingsRepository
-from app.db.repositories.sync_state import SyncStateRepository
+from app.db.repositories.sync_runs import SyncRunRepository
 from app.db.repositories.tmdb_cache import TmdbCacheRepository
 from app.providers.aiostreams.client import AioStreamsClient, AioStreamsClientError
 from app.providers.tmdb.client import TmdbClient, TmdbClientError
@@ -356,12 +356,13 @@ async def _record_summary(
     session: AsyncSession,
     summary: SeasonCompletionSummary,
 ) -> SeasonCompletionSummary:
-    _ = await SyncStateRepository(session).record_season_completion(
+    _ = await SyncRunRepository(session).record_season_completion(
         checked_shows=summary.checked_shows,
         missing_episodes=summary.missing_episodes,
         added_torrents=summary.added_torrents,
         diagnostics=summary.diagnostics,
     )
+    await session.commit()
     return summary
 
 

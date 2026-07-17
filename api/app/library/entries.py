@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
 
-LibraryCategory = Literal["movies", "shows", "anime"]
+from app.domain.media_identity import LibraryCategory
 
 
 @dataclass(frozen=True, slots=True)

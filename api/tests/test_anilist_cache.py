@@ -190,7 +190,7 @@ async def test_anilist_anime_service_fetches_and_caches_misses() -> None:
 
     assert payload == _anime_payload(year=2023)
     assert len(client.calls) == 1
-    assert session.committed is True
+    assert session.committed is False
     cache_entry = next(item for item in session.added if isinstance(item, AniListCacheEntry))
     assert cache_entry.variables == {
         "search": "Frieren",

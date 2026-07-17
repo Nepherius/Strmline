@@ -6,30 +6,31 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.db.repositories.media_identity import (
+    AliasIdentityBinding,
+    PersistedMediaIdentity,
+    SourceIdentityBinding,
+)
 from app.db.repositories.settings import SettingsSnapshot
 from app.db.repositories.stream_selection import StreamSelectionRecord
+from app.domain.media_identity import IdentityAuthority
 from app.providers.torbox.client import TorBoxAPIError
-from app.sync import service as sync_service
+from app.sync import identity_inputs as sync_identity_inputs, service as sync_service
 from app.sync.media_identity import MediaIdentity
 from app.sync.service import SyncExecutionError, run_torbox_account_sync
 from app.sync.torbox_strm import ResolverUrlConfig, TorBoxStrmSyncResult
 
 
-class FakeSyncStateRepository:
+class FakeSyncLibraryStateRepository:
     def __init__(self, session: object) -> None:
         _ = session
 
-    async def record_success(self, result: object, library_root: object, **kwargs: object) -> int:
+    async def persist_result(self, result: object, library_root: object, **kwargs: object) -> None:
         _ = result
         _ = library_root
         _ = kwargs
-        return 12
 
-    async def record_failure(self, **kwargs: object) -> int:
-        _ = kwargs
-        return 13
-
-    async def permanent_library_paths(
+    async def retained_library_paths(
         self,
         library_root: Path,
         info_hashes: frozenset[str],
@@ -38,8 +39,28 @@ class FakeSyncStateRepository:
         _ = info_hashes
         return set()
 
-    async def permanent_info_hashes(self) -> frozenset[str]:
-        return frozenset()
+class FakeSyncRunRepository:
+    def __init__(self, session: object) -> None:
+        _ = session
+
+    async def record_success(self, result: object, **kwargs: object) -> int:
+        _ = (result, kwargs)
+        return 12
+
+    async def record_failure(self, **kwargs: object) -> int:
+        _ = kwargs
+        return 13
+
+
+class FakeSession:
+    def __init__(self) -> None:
+        self.committed = False
+
+    async def commit(self) -> None:
+        self.committed = True
+
+    async def rollback(self) -> None:
+        pass
 
 
 class FakeStreamSelectionRepository:
@@ -74,12 +95,46 @@ class FakeClassificationOverrideRepository:
         return ()
 
 
+class FakeMediaIdentityQueryRepository:
+    def __init__(self, session: object) -> None:
+        _ = session
+
+    async def source_bindings(self) -> tuple[SourceIdentityBinding, ...]:
+        return ()
+
+    async def alias_bindings(self) -> tuple[AliasIdentityBinding, ...]:
+        return ()
+
+
+class FakeSyncCoordinationRepository:
+    def __init__(self, session: object) -> None:
+        _ = session
+
+    async def try_lock(self) -> bool:
+        return True
+
+    async def release(self) -> None:
+        pass
+
+
 @pytest.mark.asyncio
 async def test_sync_service_uses_saved_resolver_token(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     captured: dict[str, object] = {}
+    retained_hash_requests: list[frozenset[str]] = []
+
+    class CapturingLibraryStateRepository(FakeSyncLibraryStateRepository):
+        @override
+        async def retained_library_paths(
+            self,
+            library_root: Path,
+            info_hashes: frozenset[str],
+        ) -> set[Path]:
+            _ = library_root
+            retained_hash_requests.append(info_hashes)
+            return set()
 
     def fake_client_factory(**kwargs: object) -> FakeClient:
         _ = kwargs
@@ -92,7 +147,22 @@ async def test_sync_service_uses_saved_resolver_token(
         FakeClassificationOverrideRepository,
     )
     monkeypatch.setattr(sync_service, "LibraryExclusionRepository", FakeLibraryExclusionRepository)
-    monkeypatch.setattr(sync_service, "SyncStateRepository", FakeSyncStateRepository)
+    monkeypatch.setattr(
+        sync_identity_inputs,
+        "MediaIdentityQueryRepository",
+        FakeMediaIdentityQueryRepository,
+    )
+    monkeypatch.setattr(
+        sync_service,
+        "SyncCoordinationRepository",
+        FakeSyncCoordinationRepository,
+    )
+    monkeypatch.setattr(
+        sync_service,
+        "SyncLibraryStateRepository",
+        CapturingLibraryStateRepository,
+    )
+    monkeypatch.setattr(sync_service, "SyncRunRepository", FakeSyncRunRepository)
     monkeypatch.setattr(
         sync_service,
         "StreamSelectionRepository",
@@ -101,8 +171,9 @@ async def test_sync_service_uses_saved_resolver_token(
     monkeypatch.setattr(sync_service, "TorBoxStrmSync", fake_torbox_strm_sync(captured))
     monkeypatch.setattr(sync_service, "ensure_selected_streams_in_torbox", no_selected_streams)
 
+    session = FakeSession()
     summary = await run_torbox_account_sync(
-        cast(AsyncSession, object()),
+        cast(AsyncSession, session),
         Settings(),
         client_factory=cast(sync_service.TorBoxClientFactory, fake_client_factory),
     )
@@ -113,7 +184,9 @@ async def test_sync_service_uses_saved_resolver_token(
     assert captured["anime_classifier"] is not None
     assert captured["classification_overrides"] == ()
     assert captured["excluded_prefixes"] == ("shows/Removed Show",)
+    assert retained_hash_requests == [frozenset()]
     assert summary.sync_run_id == 12
+    assert session.committed is True
 
 
 @pytest.mark.asyncio
@@ -127,7 +200,7 @@ async def test_sync_service_records_provider_failures(
         _ = kwargs
         return FakeClient()
 
-    class CapturingSyncStateRepository(FakeSyncStateRepository):
+    class CapturingSyncRunRepository(FakeSyncRunRepository):
         @override
         async def record_failure(self, **kwargs: object) -> int:
             failures.append(kwargs)
@@ -147,7 +220,22 @@ async def test_sync_service_records_provider_failures(
         FakeClassificationOverrideRepository,
     )
     monkeypatch.setattr(sync_service, "LibraryExclusionRepository", FakeLibraryExclusionRepository)
-    monkeypatch.setattr(sync_service, "SyncStateRepository", CapturingSyncStateRepository)
+    monkeypatch.setattr(
+        sync_identity_inputs,
+        "MediaIdentityQueryRepository",
+        FakeMediaIdentityQueryRepository,
+    )
+    monkeypatch.setattr(
+        sync_service,
+        "SyncCoordinationRepository",
+        FakeSyncCoordinationRepository,
+    )
+    monkeypatch.setattr(
+        sync_service,
+        "SyncLibraryStateRepository",
+        FakeSyncLibraryStateRepository,
+    )
+    monkeypatch.setattr(sync_service, "SyncRunRepository", CapturingSyncRunRepository)
     monkeypatch.setattr(
         sync_service,
         "StreamSelectionRepository",
@@ -156,9 +244,10 @@ async def test_sync_service_records_provider_failures(
     monkeypatch.setattr(sync_service, "TorBoxStrmSync", FailingTorBoxStrmSync)
     monkeypatch.setattr(sync_service, "ensure_selected_streams_in_torbox", no_selected_streams)
 
+    session = FakeSession()
     with pytest.raises(SyncExecutionError):
         _ = await run_torbox_account_sync(
-            cast(AsyncSession, object()),
+            cast(AsyncSession, session),
             Settings(),
             client_factory=cast(sync_service.TorBoxClientFactory, fake_client_factory),
         )
@@ -168,6 +257,93 @@ async def test_sync_service_records_provider_failures(
             "phase": "torbox_sync",
             "message": "TorBox request failed with status 503.",
             "source": "manual",
+        }
+    ]
+    assert session.committed is True
+
+
+@pytest.mark.asyncio
+async def test_sync_service_restores_files_when_database_persistence_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    existing = tmp_path / "shows" / "Show" / "Show - S01E01.strm"
+    existing.parent.mkdir(parents=True)
+    _ = existing.write_text("original\n", encoding="utf-8")
+    failures: list[dict[str, object]] = []
+
+    class FailingLibraryStateRepository(FakeSyncLibraryStateRepository):
+        @override
+        async def persist_result(
+            self,
+            result: object,
+            library_root: object,
+            **kwargs: object,
+        ) -> None:
+            _ = (result, library_root, kwargs)
+            raise RuntimeError("database unavailable")
+
+    class CapturingRunRepository(FakeSyncRunRepository):
+        @override
+        async def record_failure(self, **kwargs: object) -> int:
+            failures.append(kwargs)
+            return 13
+
+    class WritingTorBoxStrmSync:
+        def __init__(self, **kwargs: object) -> None:
+            self.library_root = cast(Path, kwargs["library_root"])
+
+        async def run(self) -> TorBoxStrmSyncResult:
+            changed = self.library_root / "shows" / "Show" / "Show - S01E01.strm"
+            new_file = self.library_root / "shows" / "Show" / "Show - S01E02.strm"
+            _ = changed.write_text("changed\n", encoding="utf-8")
+            _ = new_file.write_text("new\n", encoding="utf-8")
+            return TorBoxStrmSyncResult(2, 2, 0, (changed, new_file), ())
+
+    def fake_client_factory(**kwargs: object) -> FakeClient:
+        _ = kwargs
+        return FakeClient()
+
+    monkeypatch.setattr(sync_service, "AppSettingsRepository", fake_settings_repository(tmp_path))
+    monkeypatch.setattr(
+        sync_service,
+        "ClassificationOverrideRepository",
+        FakeClassificationOverrideRepository,
+    )
+    monkeypatch.setattr(sync_service, "LibraryExclusionRepository", FakeLibraryExclusionRepository)
+    monkeypatch.setattr(
+        sync_identity_inputs,
+        "MediaIdentityQueryRepository",
+        FakeMediaIdentityQueryRepository,
+    )
+    monkeypatch.setattr(sync_service, "SyncCoordinationRepository", FakeSyncCoordinationRepository)
+    monkeypatch.setattr(
+        sync_service,
+        "SyncLibraryStateRepository",
+        FailingLibraryStateRepository,
+    )
+    monkeypatch.setattr(sync_service, "SyncRunRepository", CapturingRunRepository)
+    monkeypatch.setattr(sync_service, "StreamSelectionRepository", FakeStreamSelectionRepository)
+    monkeypatch.setattr(sync_service, "TorBoxStrmSync", WritingTorBoxStrmSync)
+    monkeypatch.setattr(sync_service, "ensure_selected_streams_in_torbox", no_selected_streams)
+
+    with pytest.raises(SyncExecutionError, match="generated files were restored"):
+        _ = await run_torbox_account_sync(
+            cast(AsyncSession, FakeSession()),
+            Settings(),
+            client_factory=cast(sync_service.TorBoxClientFactory, fake_client_factory),
+        )
+
+    assert existing.read_text(encoding="utf-8") == "original\n"
+    assert (tmp_path / "shows" / "Show" / "Show - S01E02.strm").exists() is False
+    assert failures == [
+        {
+            "phase": "persistence",
+            "message": "Database persistence failed; generated files were restored.",
+            "source": "manual",
+            "scanned_count": 2,
+            "written_count": 2,
+            "skipped_count": 0,
         }
     ]
 
@@ -253,7 +429,7 @@ async def test_selected_media_identities_backfill_legacy_stream_selections() -> 
     repository = CapturingRepository()
     resolver = ExternalIdentityResolver()
 
-    by_torrent_id, by_info_hash = await sync_service._selected_media_identities(  # pyright: ignore[reportPrivateUsage]
+    by_torrent_id, by_info_hash = await sync_identity_inputs.selected_media_identities(
         cast(sync_service.StreamSelectionRepository, repository),
         selections,
         cast(sync_service.MediaIdentityResolver, resolver),
@@ -280,6 +456,127 @@ def test_watchlist_identities_include_movies_shows_and_anime() -> None:
     assert sync_service._watchlist_identities(  # pyright: ignore[reportPrivateUsage]
         cast(TorBoxStrmSyncResult, result)
     ) == {("movie", 10), ("series", 20), ("series", 30)}
+
+
+def test_manual_source_binding_overrides_stale_stream_selection_identity() -> None:
+    stale_identity = MediaIdentity(
+        tmdb_id="99999",
+        title="Wrong Bookworm Match",
+        year=2022,
+        media_type="tv",
+    )
+    by_torrent_id = {"44": stale_identity}
+    by_info_hash = {"abc123": stale_identity}
+    persisted = (
+        SourceIdentityBinding(
+            source_kind="torrents",
+            source_item_id="44",
+            info_hash="ABC123",
+            identity=PersistedMediaIdentity(
+                media_item_id=1,
+                content_kind="series",
+                tmdb_id="91768",
+                title="Ascendance of a Bookworm",
+                year=2019,
+                provider_media_kind="tv",
+                authority=IdentityAuthority.MANUAL.value,
+                authoritative=True,
+                confidence=100,
+                resolver_version=None,
+            ),
+        ),
+    )
+
+    sync_identity_inputs.merge_source_bindings(
+        by_torrent_id,
+        by_info_hash,
+        persisted,
+    )
+
+    assert by_torrent_id["44"].tmdb_id == "91768"
+    assert by_info_hash["abc123"].tmdb_id == "91768"
+
+
+def test_provider_binding_does_not_override_search_confirmed_identity() -> None:
+    selected_identity = MediaIdentity(
+        tmdb_id="91768",
+        title="Ascendance of a Bookworm",
+        year=2019,
+        media_type="tv",
+        authority=IdentityAuthority.SEARCH_CONFIRMED,
+    )
+    by_torrent_id = {"44": selected_identity}
+    by_info_hash: dict[str, MediaIdentity] = {}
+    persisted = (
+        SourceIdentityBinding(
+            source_kind="torrents",
+            source_item_id="44",
+            info_hash="ABC123",
+            identity=PersistedMediaIdentity(
+                media_item_id=2,
+                content_kind="series",
+                tmdb_id="99999",
+                title="Old Match",
+                year=2022,
+                provider_media_kind="tv",
+                authority=IdentityAuthority.PROVIDER_RESOLVED.value,
+                authoritative=False,
+                confidence=70,
+                resolver_version="tmdb-v2",
+            ),
+        ),
+    )
+
+    sync_identity_inputs.merge_source_bindings(
+        by_torrent_id,
+        by_info_hash,
+        persisted,
+    )
+
+    assert by_torrent_id["44"] is selected_identity
+    assert by_info_hash == {"abc123": selected_identity}
+
+
+def test_stale_files_are_removed_only_by_post_commit_reconciliation(tmp_path: Path) -> None:
+    current = tmp_path / "anime" / "Kaiju No. 8" / "Season 01" / "S01E01.strm"
+    stale = tmp_path / "anime" / "Kaijuu 8-gou" / "Season 01" / "S01E01.strm"
+    preserved = tmp_path / "movies" / "Saved Movie" / "Saved Movie.strm"
+    for path in (current, stale, preserved):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _ = path.write_text("stream\n", encoding="utf-8")
+    result = TorBoxStrmSyncResult(
+        scanned_files=1,
+        written_files=1,
+        skipped_files=0,
+        written_paths=(current,),
+        synced_files=(),
+    )
+
+    sync_service._remove_stale_sync_files(  # pyright: ignore[reportPrivateUsage]
+        tmp_path,
+        result,
+        {preserved},
+    )
+
+    assert current.exists() is True
+    assert preserved.exists() is True
+    assert stale.exists() is False
+
+
+def test_only_selected_hashes_absent_from_current_sync_are_retained() -> None:
+    result = SimpleNamespace(
+        synced_files=(
+            SimpleNamespace(info_hash="current-hash"),
+            SimpleNamespace(info_hash=None),
+        )
+    )
+
+    retained = sync_service._absent_selected_hashes(  # pyright: ignore[reportPrivateUsage]
+        frozenset({"current-hash", "temporarily-absent-hash"}),
+        cast(TorBoxStrmSyncResult, result),
+    )
+
+    assert retained == frozenset({"temporarily-absent-hash"})
 
 
 def fake_torbox_strm_sync(captured: dict[str, object]) -> type:

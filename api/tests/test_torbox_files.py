@@ -156,6 +156,7 @@ def test_request_download_url_uses_torbox_id_parameter_for_kind() -> None:
 
 
 def test_torrent_info_hash_normalizes_primary_and_alternative_hashes() -> None:
-    assert torrent_info_hash({"hash": " ABC123 "}) == "abc123"
-    assert torrent_info_hash({"alternative_hashes": ["DEF456"]}) == "def456"
+    assert torrent_info_hash({"hash": f" {'AB' * 20} "}) == "ab" * 20
+    assert torrent_info_hash({"alternative_hashes": ["CD" * 20]}) == "cd" * 20
+    assert torrent_info_hash({"hash": "not-a-valid-info-hash"}) is None
     assert torrent_info_hash({}) is None

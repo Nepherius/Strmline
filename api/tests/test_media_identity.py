@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import TmdbCacheEntry, utc_now
 from app.db.repositories.tmdb_cache import TmdbCacheRepository
+from app.domain.media_identity import ResolutionStatus
 from app.providers.tmdb.metadata import TmdbMetadataService
 from app.sync.media_identity import (
     MediaIdentityResolver,
@@ -180,6 +181,42 @@ def test_extract_search_queries() -> None:
         "My Royal Nemesis",
         "멋진 신세계",
     ]
+    assert extract_search_queries("Kaijuu 8-gou") == ["Kaijuu 8-gou"]
+
+
+@pytest.mark.asyncio
+async def test_media_identity_resolver_does_not_invent_title_specific_aliases() -> None:
+    class MetadataService:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        async def get_cached_json(
+            self,
+            _endpoint: str,
+            *,
+            params: dict[str, str] | None = None,
+        ) -> None:
+            _ = params
+
+        async def get_json(
+            self,
+            _endpoint: str,
+            *,
+            params: dict[str, str] | None = None,
+        ) -> dict[str, object]:
+            query = (params or {}).get("query", "")
+            self.queries.append(query)
+            return {"results": []}
+
+    service = MetadataService()
+    resolver = MediaIdentityResolver(cast(TmdbMetadataService, service), delay_seconds=0.0)
+
+    identity = await resolver.resolve("Kaijuu 8-gou", None, "anime")
+
+    assert identity.tmdb_id is None
+    assert identity.title == "Kaijuu 8-gou"
+    assert identity.status == ResolutionStatus.NO_MATCH
+    assert service.queries == ["Kaijuu 8-gou"]
 
 
 @pytest.mark.asyncio
@@ -212,6 +249,103 @@ async def test_media_identity_resolver_with_junk_prefix() -> None:
 
 
 @pytest.mark.asyncio
+async def test_media_identity_resolver_validates_romanized_tmdb_alternate_title() -> None:
+    class AlternateTitleMetadata:
+        def __init__(self) -> None:
+            self.endpoints: list[str] = []
+
+        async def get_cached_json(
+            self,
+            endpoint: str,
+            *,
+            params: dict[str, str] | None = None,
+        ) -> None:
+            _ = (endpoint, params)
+
+        async def get_json(
+            self,
+            endpoint: str,
+            *,
+            params: dict[str, str] | None = None,
+        ) -> dict[str, Any]:
+            _ = params
+            self.endpoints.append(endpoint)
+            if endpoint == "/search/multi":
+                return {
+                    "results": [
+                        {
+                            "id": 207468,
+                            "media_type": "tv",
+                            "name": "Kaiju No. 8",
+                            "first_air_date": "2024-04-13",
+                            "poster_path": "/kaiju.jpg",
+                        },
+                        {
+                            "id": 1326106,
+                            "media_type": "movie",
+                            "title": "Kaiju No. 8: Mission Recon",
+                            "release_date": "2025-03-28",
+                        },
+                    ]
+                }
+            if endpoint == "/tv/207468/alternative_titles":
+                return {"results": [{"title": "Kaijuu 8-gou"}]}
+            raise AssertionError(endpoint)
+
+    metadata = AlternateTitleMetadata()
+    resolver = MediaIdentityResolver(cast(TmdbMetadataService, metadata), delay_seconds=0.0)
+
+    identity = await resolver.resolve("Kaijuu 8 gou", None, "anime")
+
+    assert identity.tmdb_id == "207468"
+    assert identity.title == "Kaiju No. 8"
+    assert identity.confidence == 90
+    assert metadata.endpoints == ["/search/multi", "/tv/207468/alternative_titles"]
+
+
+@pytest.mark.asyncio
+async def test_media_identity_resolver_does_not_guess_from_unrelated_alternate_title() -> None:
+    class UnrelatedAlternateTitleMetadata:
+        async def get_cached_json(
+            self,
+            endpoint: str,
+            *,
+            params: dict[str, str] | None = None,
+        ) -> None:
+            _ = (endpoint, params)
+
+        async def get_json(
+            self,
+            endpoint: str,
+            *,
+            params: dict[str, str] | None = None,
+        ) -> dict[str, Any]:
+            _ = params
+            if endpoint == "/search/multi":
+                return {
+                    "results": [
+                        {
+                            "id": 999,
+                            "media_type": "tv",
+                            "name": "Different Show",
+                            "first_air_date": "2024-01-01",
+                        }
+                    ]
+                }
+            return {"results": [{"title": "Another Name"}]}
+
+    resolver = MediaIdentityResolver(
+        cast(TmdbMetadataService, UnrelatedAlternateTitleMetadata()),
+        delay_seconds=0.0,
+    )
+
+    identity = await resolver.resolve("Wanted Show", None, "shows")
+
+    assert identity.tmdb_id is None
+    assert identity.status is ResolutionStatus.NO_MATCH
+
+
+@pytest.mark.asyncio
 async def test_media_identity_resolver_accepts_unique_same_year_localized_result() -> None:
     session = FakeSession([FakeResult(None), FakeResult(None), FakeResult(None)])
     cache_repo = TmdbCacheRepository(cast(AsyncSession, session))
@@ -241,6 +375,7 @@ def test_title_similarity() -> None:
     assert title_similarity("The King's Warden", "the kings warden") == 1.0
     assert title_similarity("Breaking Bad S01", "Breaking Bad") == pytest.approx(0.6666666)
     assert title_similarity("Alien", "Aliens") == 0.0  # different words
+    assert title_similarity("Kaijuu 8-gou", "Kaiju No. 8") == pytest.approx(0.2)
 
 
 def test_score_match() -> None:
@@ -282,6 +417,7 @@ async def test_media_identity_resolver_exception_fallback() -> None:
     assert identity.tmdb_id is None
     assert identity.title == "Alien"
     assert identity.year == 1979
+    assert identity.status == ResolutionStatus.PROVIDER_ERROR
 
 
 @pytest.mark.asyncio
@@ -313,3 +449,36 @@ async def test_media_identity_resolver_resolves_saved_imdb_identity() -> None:
     assert client.calls == [
         ("/find/tt21975436", {"external_source": "imdb_id"}),
     ]
+
+
+@pytest.mark.asyncio
+async def test_media_identity_resolver_enriches_one_exact_tmdb_identity() -> None:
+    class DirectMetadataService:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def get_json(
+            self,
+            endpoint: str,
+            *,
+            params: dict[str, str] | None = None,
+        ) -> dict[str, Any]:
+            assert params is None
+            self.calls.append(endpoint)
+            return {
+                "name": "Ascendance of a Bookworm",
+                "first_air_date": "2019-10-03",
+                "poster_path": "/bookworm.jpg",
+            }
+
+    service = DirectMetadataService()
+    resolver = MediaIdentityResolver(cast(TmdbMetadataService, service))
+
+    identity = await resolver.metadata_for_tmdb_id("91768", "tv")
+
+    assert identity is not None
+    assert identity.tmdb_id == "91768"
+    assert identity.title == "Ascendance of a Bookworm"
+    assert identity.year == 2019
+    assert identity.poster_path == "/bookworm.jpg"
+    assert service.calls == ["/tv/91768"]

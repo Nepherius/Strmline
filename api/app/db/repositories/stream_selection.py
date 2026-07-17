@@ -6,6 +6,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import LibraryEntry, StreamSelection
+from app.domain.normalization import normalize_info_hash
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +22,7 @@ class StreamSelectionWrite:
     media_title: str | None = None
     media_year: int | None = None
     media_poster_path: str | None = None
+    identity_authority: str = "search_confirmed"
     status: str = "selected"
 
 
@@ -38,6 +40,7 @@ class StreamSelectionRecord:
     media_title: str | None = None
     media_year: int | None = None
     media_poster_path: str | None = None
+    identity_authority: str = "search_confirmed"
 
 
 class StreamSelectionRepository:
@@ -73,9 +76,10 @@ class StreamSelectionRepository:
                 media_title=write.media_title,
                 media_year=write.media_year,
                 media_poster_path=write.media_poster_path,
+                identity_authority=write.identity_authority,
                 title=write.title,
                 source_name=write.source_name,
-                info_hash=write.info_hash,
+                info_hash=normalize_info_hash(write.info_hash),
                 torbox_torrent_id=write.torbox_torrent_id,
                 status=write.status,
             )
@@ -83,15 +87,17 @@ class StreamSelectionRepository:
             await self._session.flush()
             return _record(selection)
 
-        selection.media_type = write.media_type
-        selection.media_id = write.media_id
-        selection.tmdb_id = write.tmdb_id
-        selection.media_title = write.media_title
-        selection.media_year = write.media_year
-        selection.media_poster_path = write.media_poster_path
+        if not _has_authoritative_identity(selection):
+            selection.media_type = write.media_type
+            selection.media_id = write.media_id
+            selection.tmdb_id = write.tmdb_id
+            selection.media_title = write.media_title
+            selection.media_year = write.media_year
+            selection.media_poster_path = write.media_poster_path
+            selection.identity_authority = write.identity_authority
         selection.title = write.title
         selection.source_name = write.source_name
-        selection.info_hash = write.info_hash
+        selection.info_hash = normalize_info_hash(write.info_hash)
         selection.torbox_torrent_id = write.torbox_torrent_id
         selection.status = write.status
         await self._session.flush()
@@ -115,7 +121,7 @@ class StreamSelectionRepository:
             return
         selection.torbox_torrent_id = torbox_torrent_id
         if info_hash is not None:
-            selection.info_hash = info_hash
+            selection.info_hash = normalize_info_hash(info_hash)
         await self._session.flush()
 
     async def update_media_identity(
@@ -126,14 +132,18 @@ class StreamSelectionRepository:
         media_title: str,
         media_year: int | None,
         media_poster_path: str | None,
+        identity_authority: str = "search_confirmed",
     ) -> None:
         selection = await self._selection(stream_key)
         if selection is None:
+            return
+        if _has_authoritative_identity(selection):
             return
         selection.tmdb_id = tmdb_id
         selection.media_title = media_title
         selection.media_year = media_year
         selection.media_poster_path = media_poster_path
+        selection.identity_authority = identity_authority
         await self._session.flush()
 
     async def delete(self, stream_key: str) -> bool:
@@ -171,4 +181,13 @@ def _record(selection: StreamSelection) -> StreamSelectionRecord:
         media_title=selection.media_title,
         media_year=selection.media_year,
         media_poster_path=selection.media_poster_path,
+        identity_authority=selection.identity_authority,
+    )
+
+
+def _has_authoritative_identity(selection: StreamSelection) -> bool:
+    return (
+        selection.tmdb_id is not None
+        and selection.media_title is not None
+        and selection.identity_authority in {"manual", "search_confirmed"}
     )

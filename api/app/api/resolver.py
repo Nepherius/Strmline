@@ -95,12 +95,14 @@ async def _database_resolver_target(
                 torbox_client=torbox_client,
             )
     except ResolverLookupError as error:
+        await session.commit()
         raise HTTPException(status_code=404, detail="Resolver entry was not found.") from error
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     except (OSError, httpx.HTTPError, SQLAlchemyError) as error:
         raise HTTPException(status_code=503, detail="Resolver is not available.") from error
     else:
+        await session.commit()
         return target.target_url
 
 

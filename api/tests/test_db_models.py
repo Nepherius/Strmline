@@ -8,10 +8,13 @@ from app.db.models import (
     GeneratedFile,
     LibraryEntry,
     LibraryExclusion,
+    MediaAlias,
+    MediaExternalIdentity,
     MediaItem,
     PlaybackAttempt,
     ProviderCredential,
     ResolverToken,
+    SourceMediaBinding,
     StreamSelection,
     SyncError,
     SyncRun,
@@ -31,10 +34,13 @@ def test_initial_schema_tables_are_registered() -> None:
         "library_entries",
         "library_exclusions",
         "media_items",
+        "media_aliases",
+        "media_external_identities",
         "playback_attempts",
         "provider_credentials",
         "resolver_tokens",
         "stream_selections",
+        "source_media_bindings",
         "sync_errors",
         "sync_runs",
         "tmdb_cache_entries",
@@ -102,6 +108,19 @@ def test_stream_selections_preserve_selected_media_identity() -> None:
     columns = set(StreamSelection.__table__.columns.keys())
 
     assert {"tmdb_id", "media_title", "media_year", "media_poster_path"} <= columns
+
+
+def test_media_identity_is_normalized_and_provider_scoped() -> None:
+    media_columns = set(MediaItem.__table__.columns.keys())
+    identity_columns = set(MediaExternalIdentity.__table__.columns.keys())
+    binding_columns = set(SourceMediaBinding.__table__.columns.keys())
+    alias_columns = set(MediaAlias.__table__.columns.keys())
+
+    assert "content_kind" in media_columns
+    assert "tmdb_id" not in media_columns
+    assert {"provider", "provider_media_kind", "external_id", "authoritative"} <= identity_columns
+    assert {"source_kind", "source_item_id", "info_hash", "authoritative"} <= binding_columns
+    assert {"alias", "normalized_alias", "content_kind"} <= alias_columns
 
 
 def test_library_entries_reference_normalized_torbox_files() -> None:

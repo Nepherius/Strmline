@@ -62,6 +62,9 @@ class FakeSession:
     async def commit(self) -> None:
         self.committed = True
 
+    async def flush(self) -> None:
+        return None
+
 
 def test_secret_box_round_trips_without_storing_plaintext() -> None:
     box = SecretBox("local-test-secret")
@@ -172,7 +175,7 @@ async def test_settings_repository_saves_public_values_and_secrets() -> None:
         )
     )
 
-    assert session.committed is True
+    assert session.committed is False
     saved_settings = next(item for item in session.added if isinstance(item, ApplicationSettings))
     assert saved_settings.base_url == "http://strmline.test"
     assert saved_settings.movies_enabled is False
@@ -228,7 +231,7 @@ async def test_settings_repository_generates_resolver_token_when_missing() -> No
 
     credentials = [item for item in session.added if isinstance(item, ProviderCredential)]
     resolver_tokens = [item for item in session.added if isinstance(item, ResolverToken)]
-    assert session.committed is True
+    assert session.committed is False
     assert {credential.provider for credential in credentials} == {"resolver", "torbox"}
     assert len(resolver_tokens) == 1
     assert snapshot.resolver_configured is True

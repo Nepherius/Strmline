@@ -36,15 +36,16 @@
   export let syncResult: SyncRunResult | null;
   export let syncStatus: SyncStatus | null;
   export let validation: LibraryValidation | null;
-  export let validationIssues: number;
   export let visibleEntries: LibraryEntry[];
   export let dismissingErrorId: number | null;
   export let pendingClassificationKey: string;
   export let removingEntryKey: string;
   export let refreshingMetadataKey: string;
+  export let updatingTmdbKey: string;
   export let onRunSync: () => Promise<void>;
   export let onRemoveEntry: (entry: LibraryEntry) => Promise<void>;
   export let onRefreshMetadata: (entry: LibraryEntry) => Promise<void>;
+  export let onUpdateTmdb: (entry: LibraryEntry, tmdbId: number) => Promise<void>;
   export let onHideDuplicateFile: (file: LibraryFile) => Promise<void>;
   export let onMoveEntry: (entry: LibraryEntry, targetCategory: LibraryCategory) => Promise<void>;
   export let onResetEntryClassification: (entry: LibraryEntry) => Promise<void>;
@@ -91,11 +92,13 @@
   </PageHeader>
 
   {#if error}
-    <Notice variant="error">{error}</Notice>
+    <Notice variant="error" resetKey={error}>{error}</Notice>
   {/if}
 
   {#if syncResult}
-    <Notice variant="success">Sync #{syncResult.sync_run_id} completed. Library refreshed.</Notice>
+    <Notice variant="success" resetKey={String(syncResult.sync_run_id)}
+      >Sync #{syncResult.sync_run_id} completed. Library refreshed.</Notice
+    >
   {/if}
 
   <section class="sync-summary" aria-label="Sync summary">
@@ -106,7 +109,7 @@
   <SyncErrorsPanel errors={recentErrors} {dismissingErrorId} onDismiss={onDismissSyncError} />
 
   {#if summary}
-    <MetricGrid ariaLabel="Library status" columns={7}>
+    <MetricGrid ariaLabel="Library status" columns={6}>
       <MetricCard label="Total files" value={summary.total_files} />
       <MetricCard label="Movies" value={summary.category_counts.movies} />
       <MetricCard label="Shows" value={summary.category_counts.shows} />
@@ -117,16 +120,11 @@
         value={duplicateCount}
         variant={duplicateCount > 0 ? "warn" : "default"}
       />
-      <MetricCard
-        label="Curation issues"
-        value={validationIssues}
-        variant={validationIssues > 0 ? "warn" : "default"}
-      />
     </MetricGrid>
 
     <section class="workbench" aria-label="Generated library browser">
       <div class="filters">
-        <TextField bind:value={query} label="Search" placeholder="Title or path" />
+        <TextField bind:value={query} label="Search" placeholder="Title" />
         <div class="segments" aria-label="Category filter">
           {#each categories as item (item)}
             <button
@@ -164,10 +162,12 @@
         {pendingClassificationKey}
         {removingEntryKey}
         {refreshingMetadataKey}
+        {updatingTmdbKey}
         onMove={onMoveEntry}
         onReset={onResetEntryClassification}
         onRemove={onRemoveEntry}
         onRefresh={onRefreshMetadata}
+        {onUpdateTmdb}
         onRemoveWatchlist={onRemoveWatchlistEntry}
         onSearchWatchlist={onSearchWatchlistEntry}
       />

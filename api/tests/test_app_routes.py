@@ -6,8 +6,13 @@ import pytest
 from app.api import library as library_api, setup as setup_api
 from app.core.config import get_settings
 from app.db.dependencies import get_db_session, get_optional_db_session
+from app.db.repositories.library_exclusion import BackingProviderItem
 from app.library.classification_override import LibraryClassificationOverride
-from app.library.removal import LibraryRemovalResult
+from app.library.removal_service import (
+    LibraryRemovalOutcome,
+    TorBoxRemovalClientFactory,
+    TorBoxRemovalConfig,
+)
 from app.library.summary import LibraryEntrySummary, LibrarySummary
 from app.main import create_app
 from tests.conftest import override_auth
@@ -217,7 +222,8 @@ async def test_library_remove_entry_deletes_torbox_item_and_generated_files(
 
     monkeypatch.setattr(library_api, "TorBoxClient", FakeTorBoxClient)
     monkeypatch.setattr(library_api, "LibraryExclusionRepository", fake_exclusion_repository)
-    monkeypatch.setattr(library_api, "_remove_library_prefix", fake_remove_library_prefix)
+    monkeypatch.setattr(library_api, "remove_library_media", fake_remove_library_media)
+    monkeypatch.setattr(library_api, "require_media_location", fake_media_location)
 
     app = create_app()
     override_auth(app)
@@ -231,6 +237,7 @@ async def test_library_remove_entry_deletes_torbox_item_and_generated_files(
                 "category": "shows",
                 "title": "Show One",
                 "relative_path": "shows/Show One",
+                "media_item_id": 1,
             },
         )
 
@@ -270,7 +277,7 @@ async def test_library_remove_entry_can_skip_torbox_removal(
 
     monkeypatch.setattr(library_api, "TorBoxClient", FakeTorBoxClient)
     monkeypatch.setattr(library_api, "LibraryExclusionRepository", fake_exclusion_repository)
-    monkeypatch.setattr(library_api, "_remove_library_prefix", fake_remove_library_prefix)
+    monkeypatch.setattr(library_api, "remove_library_media", fake_remove_library_media)
 
     app = create_app()
     override_auth(app)
@@ -307,27 +314,34 @@ async def test_library_classification_override_routes(
         async def list_all(self) -> tuple[LibraryClassificationOverride, ...]:
             return tuple(saved)
 
-        async def upsert(self, **kwargs: object) -> LibraryClassificationOverride:
-            override = LibraryClassificationOverride(
-                source_category="shows",
-                source_prefix=str(kwargs["source_prefix"]),
-                title=str(kwargs["title"]),
-                target_category="anime",
-            )
-            saved[:] = [override]
-            return override
-
-        async def delete(self, source_prefix: str) -> bool:
-            if saved and saved[0].source_prefix == source_prefix:
-                saved.clear()
-                return True
-            return False
-
     monkeypatch.setattr(
         library_api,
         "ClassificationOverrideRepository",
         FakeClassificationOverrideRepository,
     )
+
+    async def fake_save_classification(
+        _session: object,
+        *,
+        media_item_id: int,
+        target_category: str,
+    ) -> LibraryClassificationOverride:
+        assert media_item_id == 1
+        override = LibraryClassificationOverride(
+            source_category="shows",
+            source_prefix="shows/Frieren",
+            title="Frieren",
+            target_category=target_category,  # type: ignore[arg-type]
+        )
+        saved[:] = [override]
+        return override
+
+    async def fake_delete_classification(_session: object, media_item_id: int) -> None:
+        assert media_item_id == 1
+        saved.clear()
+
+    monkeypatch.setattr(library_api, "save_media_classification", fake_save_classification)
+    monkeypatch.setattr(library_api, "delete_media_classification", fake_delete_classification)
 
     app = create_app()
     override_auth(app)
@@ -337,9 +351,7 @@ async def test_library_classification_override_routes(
         save_response = await client.post(
             "/api/library/classification-overrides",
             json={
-                "source_category": "shows",
-                "source_prefix": "shows/Frieren",
-                "title": "Frieren",
+                "media_item_id": 1,
                 "target_category": "anime",
             },
         )
@@ -348,8 +360,7 @@ async def test_library_classification_override_routes(
             "DELETE",
             "/api/library/classification-overrides",
             json={
-                "source_category": "shows",
-                "source_prefix": "shows/Frieren",
+                "media_item_id": 1,
             },
         )
 
@@ -401,6 +412,10 @@ class FakeExclusionRepository:
         _ = relative_prefix
         return (type("BackingItem", (), {"kind": "torrents", "item_id": "123"})(),)
 
+    async def backing_items_for_media(self, media_item_id: int) -> tuple[object, ...]:
+        assert media_item_id == 1
+        return (type("BackingItem", (), {"kind": "torrents", "item_id": "123"})(),)
+
     async def add(self, *, category: str, title: str, relative_prefix: str) -> None:
         self.added.append((category, title, relative_prefix))
 
@@ -409,12 +424,40 @@ def fake_exclusion_repository(session: object) -> FakeExclusionRepository:
     return FakeExclusionRepository(session)
 
 
-async def fake_remove_library_prefix(
+async def fake_media_location(_session: object, media_item_id: int) -> object:
+    assert media_item_id == 1
+    return type(
+        "Location",
+        (),
+        {
+            "category": "shows",
+            "relative_prefix": "shows/Frieren",
+            "title": "Frieren",
+        },
+    )()
+
+
+async def fake_remove_library_media(  # noqa: PLR0913
+    _session: object,
+    *,
     library_root: Path,
+    category: str,
+    title: str,
     relative_prefix: str,
-) -> LibraryRemovalResult:
-    _ = (library_root, relative_prefix)
-    return LibraryRemovalResult(removed_files=2)
+    backing_items: tuple[BackingProviderItem, ...],
+    torbox: TorBoxRemovalConfig | None,
+    client_factory: TorBoxRemovalClientFactory,
+) -> LibraryRemovalOutcome:
+    _ = (library_root, category, title, relative_prefix)
+    if torbox is None:
+        return LibraryRemovalOutcome(removed_files=2, removed_torbox_items=0)
+    async with client_factory(api_key="key", base_url="url", timeout=1.0) as client:
+        for item in backing_items:
+            await client.delete_download(item.kind, item.item_id)
+    return LibraryRemovalOutcome(
+        removed_files=2,
+        removed_torbox_items=len(backing_items),
+    )
 
 
 async def fake_library_summary(library_root: Path) -> LibrarySummary:

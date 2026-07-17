@@ -5,7 +5,7 @@ import pytest
 
 from app.api import sync as sync_api
 from app.db.dependencies import get_db_session
-from app.db.repositories.sync_state import SyncErrorRecord, SyncRunRecord, SyncStatusSnapshot
+from app.db.repositories.sync_runs import SyncErrorRecord, SyncRunRecord, SyncStatusSnapshot
 from app.main import create_app
 from app.sync.service import SyncAlreadyRunningError, SyncConfigurationError, SyncRunSummary
 from tests.conftest import override_auth
@@ -77,7 +77,7 @@ async def test_sync_status_route_reports_last_run_and_errors(
 ) -> None:
     started_at = datetime(2026, 7, 4, 12, 0, tzinfo=UTC)
 
-    class FakeSyncStateRepository:
+    class FakeSyncRunRepository:
         def __init__(self, session: object) -> None:
             _ = session
 
@@ -115,7 +115,7 @@ async def test_sync_status_route_reports_last_run_and_errors(
                 ),
             )
 
-    monkeypatch.setattr(sync_api, "SyncStateRepository", FakeSyncStateRepository)
+    monkeypatch.setattr(sync_api, "SyncRunRepository", FakeSyncRunRepository)
 
     response = await _get_sync_status()
 
@@ -158,14 +158,14 @@ async def test_sync_status_route_reports_last_run_and_errors(
 async def test_sync_error_dismiss_route_reports_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class FakeSyncStateRepository:
+    class FakeSyncRunRepository:
         def __init__(self, session: object) -> None:
             _ = session
 
         async def dismiss_error(self, error_id: int) -> bool:
             return error_id == 9
 
-    monkeypatch.setattr(sync_api, "SyncStateRepository", FakeSyncStateRepository)
+    monkeypatch.setattr(sync_api, "SyncRunRepository", FakeSyncRunRepository)
 
     response = await _post_dismiss_sync_error(9)
 
@@ -177,7 +177,7 @@ async def test_sync_error_dismiss_route_reports_success(
 async def test_sync_error_dismiss_route_reports_missing_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class FakeSyncStateRepository:
+    class FakeSyncRunRepository:
         def __init__(self, session: object) -> None:
             _ = session
 
@@ -185,7 +185,7 @@ async def test_sync_error_dismiss_route_reports_missing_error(
             _ = error_id
             return False
 
-    monkeypatch.setattr(sync_api, "SyncStateRepository", FakeSyncStateRepository)
+    monkeypatch.setattr(sync_api, "SyncRunRepository", FakeSyncRunRepository)
 
     response = await _post_dismiss_sync_error(404)
 
@@ -220,5 +220,10 @@ async def _post_dismiss_sync_error(error_id: int) -> httpx.Response:
         return await client.post(f"/api/sync/errors/{error_id}/dismiss")
 
 
+class FakeSession:
+    async def commit(self) -> None:
+        pass
+
+
 async def _session_override() -> object:
-    yield object()
+    yield FakeSession()

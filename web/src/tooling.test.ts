@@ -8,9 +8,7 @@ import {
   duplicateFileCount,
   filterFiles,
   sortFiles,
-  validationIssueCount,
   type LibrarySummary,
-  type LibraryValidation,
 } from "./lib/domain/library/summary";
 import {
   buildSettingsPayload,
@@ -107,22 +105,6 @@ describe("library summary helpers", () => {
     expect(duplicateFileCount(summary)).toBe(2);
   });
 
-  it("counts validation issues", () => {
-    const validation: LibraryValidation = {
-      configured: true,
-      root: "/tmp/library",
-      exists: true,
-      ok: false,
-      total_files: 1,
-      category_counts: { movies: 1, shows: 0, anime: 0 },
-      warnings: [
-        { code: "category_folder_missing", message: "shows missing", relative_path: "shows" },
-      ],
-      errors: [{ code: "strm_url_invalid", message: "bad url", relative_path: "movies/bad.strm" }],
-    };
-
-    expect(validationIssueCount(validation)).toBe(2);
-  });
 });
 
 describe("api helpers", () => {

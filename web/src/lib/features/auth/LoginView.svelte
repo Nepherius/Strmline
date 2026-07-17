@@ -21,7 +21,7 @@
 
   <div class="login-container">
     {#if error}
-      <Notice variant="error">{error}</Notice>
+      <Notice variant="error" resetKey={error}>{error}</Notice>
     {/if}
 
     <form class="login-form" on:submit|preventDefault={onLogin}>

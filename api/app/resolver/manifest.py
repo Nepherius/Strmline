@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from app.library.atomic_io import atomic_write_text
 from app.library.paths import ensure_within_root
 from app.providers.torbox.files import TorBoxFile
 
@@ -41,10 +42,9 @@ def write_manifest_entries(library_root: Path, entries: list[ResolverManifestEnt
         "version": 1,
         "entries": existing_entries,
     }
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    _ = manifest_path.write_text(
+    atomic_write_text(
+        manifest_path,
         json.dumps(payload, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
     )
     return manifest_path
 

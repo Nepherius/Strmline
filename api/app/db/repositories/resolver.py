@@ -186,7 +186,7 @@ class PlaybackResolverRepository:
                 failure_reason=failure_reason,
             )
         )
-        await self._session.commit()
+        await self._session.flush()
 
 
 def _torbox_kind(kind: str) -> DownloadKind | None:

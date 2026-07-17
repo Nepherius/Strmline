@@ -16,10 +16,12 @@
   export let pendingClassificationKey = "";
   export let removingEntryKey = "";
   export let refreshingMetadataKey = "";
+  export let updatingTmdbKey = "";
   export let onMove: (entry: LibraryEntry, targetCategory: LibraryCategory) => Promise<void>;
   export let onReset: (entry: LibraryEntry) => Promise<void>;
   export let onRemove: (entry: LibraryEntry) => Promise<void>;
   export let onRefresh: (entry: LibraryEntry) => Promise<void>;
+  export let onUpdateTmdb: (entry: LibraryEntry, tmdbId: number) => Promise<void>;
   export let onRemoveWatchlist: (entry: LibraryEntry) => Promise<void>;
   export let onSearchWatchlist: (entry: LibraryEntry) => void;
 
@@ -199,6 +201,7 @@
     pending={removingEntryKey === selectedEntry.key ||
       pendingClassificationKey === selectedEntry.key}
     refreshing={refreshingMetadataKey === selectedEntry.key}
+    updatingTmdb={updatingTmdbKey === selectedEntry.key}
     onClose={() => {
       selectedEntry = null;
     }}
@@ -206,6 +209,7 @@
     {onReset}
     {onRemove}
     {onRefresh}
+    {onUpdateTmdb}
     {onRemoveWatchlist}
     {onSearchWatchlist}
   />

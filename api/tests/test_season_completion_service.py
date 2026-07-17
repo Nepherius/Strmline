@@ -63,6 +63,14 @@ class FakeTorBox:
         return {"torrent_id": 10}
 
 
+class FakeSession:
+    def __init__(self) -> None:
+        self.committed = False
+
+    async def commit(self) -> None:
+        self.committed = True
+
+
 @pytest.mark.asyncio
 async def test_complete_show_adds_shared_pack_once(monkeypatch: pytest.MonkeyPatch) -> None:
     missing = frozenset({EpisodeRef(1, 2), EpisodeRef(1, 3)})
@@ -308,16 +316,15 @@ async def test_run_records_missing_provider_configuration(
         "AppSettingsRepository",
         _settings_repository(_snapshot(), torbox_key="key", tmdb_key=None, aiostreams_url=None),
     )
-    monkeypatch.setattr(service, "SyncStateRepository", _sync_state_repository(recorded))
+    monkeypatch.setattr(service, "SyncRunRepository", _sync_run_repository(recorded))
 
-    summary = await service.run_season_completion(
-        cast(Any, object()),
-        Settings(),
-    )
+    session = FakeSession()
+    summary = await service.run_season_completion(cast(Any, session), Settings())
 
     assert summary.checked_shows == 0
     assert "configured TMDB, AIOStreams" in summary.diagnostics[0][1]
     assert recorded["diagnostics"] == summary.diagnostics
+    assert session.committed is True
 
 
 @pytest.mark.asyncio
@@ -335,11 +342,13 @@ async def test_run_skips_when_series_categories_are_disabled(
             aiostreams_url="https://aio.example/manifest.json",
         ),
     )
-    monkeypatch.setattr(service, "SyncStateRepository", _sync_state_repository(recorded))
+    monkeypatch.setattr(service, "SyncRunRepository", _sync_run_repository(recorded))
 
-    summary = await service.run_season_completion(cast(Any, object()), Settings())
+    session = FakeSession()
+    summary = await service.run_season_completion(cast(Any, session), Settings())
 
     assert "shows and anime are disabled" in summary.diagnostics[0][1]
+    assert session.committed is True
 
 
 def _snapshot(**changes: object) -> SettingsSnapshot:
@@ -384,8 +393,8 @@ def _settings_repository(
     return FakeSettingsRepository
 
 
-def _sync_state_repository(recorded: dict[str, object]) -> type:
-    class FakeSyncStateRepository:
+def _sync_run_repository(recorded: dict[str, object]) -> type:
+    class FakeSyncRunRepository:
         def __init__(self, session: object) -> None:
             _ = session
 
@@ -393,4 +402,4 @@ def _sync_state_repository(recorded: dict[str, object]) -> type:
             recorded.update(kwargs)
             return 1
 
-    return FakeSyncStateRepository
+    return FakeSyncRunRepository

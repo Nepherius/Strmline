@@ -30,10 +30,7 @@ from app.db.dependencies import get_optional_db_session
 from app.db.repositories.library_exclusion import LibraryExclusionRepository
 from app.db.repositories.stream_selection import StreamSelectionRepository
 from app.db.repositories.tmdb_cache import TmdbCacheRepository
-from app.providers.aiostreams.client import (
-    AioStreamsClient,
-    AioStreamsClientError,
-)
+from app.providers.aiostreams.client import AioStreamsClient, AioStreamsClientError
 from app.providers.tmdb.client import TmdbClient, TmdbClientError
 from app.providers.tmdb.metadata import TmdbMetadataService
 from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
@@ -113,6 +110,8 @@ async def search_titles(
     except TmdbClientError:
         return TitleSearchResponse(ok=False, message="TMDB search failed.")
 
+    if session is not None:
+        await session.commit()
     logger.debug("Title search completed with %d result(s).", len(results))
     return TitleSearchResponse(
         ok=True,
@@ -220,6 +219,8 @@ async def search_streams_endpoint(
         )
 
     selected_keys = await _selected_stream_keys(session, [result.stream_key for result in results])
+    if session is not None:
+        await session.commit()
     logger.debug(
         "Stream search completed with %d result(s), including %d selected stream(s).",
         len(results),

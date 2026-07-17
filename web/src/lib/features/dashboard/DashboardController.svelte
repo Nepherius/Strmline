@@ -11,6 +11,7 @@
     removeLibraryEntry,
     refreshLibraryEntryMetadata,
     saveClassificationOverride,
+    updateLibraryEntryTmdbId,
     type ClassificationOverride,
   } from "$lib/api/library";
   import { loadSetupStatus } from "$lib/api/setup";
@@ -34,7 +35,6 @@
     type LibraryValidation,
     type SortDirection,
     type SortKey,
-    validationIssueCount,
   } from "$lib/domain/library/summary";
 
   import DashboardView from "./DashboardView.svelte";
@@ -63,6 +63,7 @@
   let pendingClassificationKey = "";
   let removingEntryKey = "";
   let refreshingMetadataKey = "";
+  let updatingTmdbKey = "";
   let dismissingErrorId: number | null = null;
 
   $: allEntries = summary
@@ -72,7 +73,6 @@
     ? sortFiles(filterFiles(allEntries, query, category), sortKey, sortDirection)
     : [];
   $: duplicateCount = summary ? duplicateFileCount(summary) : 0;
-  $: validationIssues = validation ? validationIssueCount(validation) : 0;
 
   onMount(() => {
     void routeToSetupOrLoadDashboard();
@@ -147,6 +147,11 @@
 
   async function removeEntry(entry: LibraryEntry) {
     if (entry.category === "watchlist") return;
+    const mediaItemId = entry.media_item_id;
+    if (!mediaItemId) {
+      error = "Remove failed. This entry has no stable media identity.";
+      return;
+    }
     if (removingEntryKey) return;
     const confirmed = window.confirm(
       `Remove "${entry.title}" from Strmline and TorBox? This cannot be undone from Strmline.`,
@@ -159,6 +164,7 @@
         category: entry.category,
         title: entry.title,
         relative_path: entry.relative_path,
+        media_item_id: mediaItemId,
       });
       syncResult = null;
       if (result.ok) {
@@ -176,6 +182,10 @@
 
   async function refreshEntryMetadata(entry: LibraryEntry) {
     if (entry.category === "watchlist") return;
+    if (!entry.media_item_id) {
+      error = "Metadata refresh failed. This entry has no stable media identity.";
+      return;
+    }
     if (refreshingMetadataKey) return;
     refreshingMetadataKey = entry.key;
     error = "";
@@ -184,6 +194,7 @@
       const result = await refreshLibraryEntryMetadata({
         category: entry.category,
         relative_path: entry.relative_path,
+        media_item_id: entry.media_item_id,
       });
       if (!result.ok) {
         error = result.message;
@@ -195,6 +206,36 @@
       error = `Metadata refresh failed. ${message}`;
     } finally {
       refreshingMetadataKey = "";
+    }
+  }
+
+  async function updateEntryTmdbId(entry: LibraryEntry, tmdbId: number) {
+    if (entry.category === "watchlist") return;
+    if (!entry.media_item_id) {
+      error = "TMDB ID update failed. This entry has no stable media identity.";
+      return;
+    }
+    if (updatingTmdbKey) return;
+    updatingTmdbKey = entry.key;
+    error = "";
+    syncResult = null;
+    try {
+      const result = await updateLibraryEntryTmdbId({
+        category: entry.category,
+        relative_path: entry.relative_path,
+        tmdb_id: tmdbId,
+        media_item_id: entry.media_item_id,
+      });
+      if (!result.ok) {
+        throw new Error(result.message);
+      }
+      await loadDashboard();
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
+      error = `TMDB ID update failed. ${message}`;
+      throw caughtError;
+    } finally {
+      updatingTmdbKey = "";
     }
   }
 
@@ -229,6 +270,10 @@
 
   async function moveEntry(entry: LibraryEntry, targetCategory: LibraryCategory) {
     if (entry.category === "watchlist") return;
+    if (!entry.media_item_id) {
+      error = "Move failed. This entry has no stable media identity.";
+      return;
+    }
     if (pendingClassificationKey) return;
     pendingClassificationKey = entry.key;
     syncing = true;
@@ -236,26 +281,11 @@
     syncResult = null;
     try {
       const currentOverride = overrideForEntry(entry);
-      if (currentOverride) {
-        await deleteMovedPathOverride(entry, currentOverride);
-        if (targetCategory === currentOverride.source_category) {
-          await deleteClassificationOverride({
-            source_category: currentOverride.source_category,
-            source_prefix: currentOverride.source_prefix,
-          });
-        } else {
-          await saveClassificationOverride({
-            source_category: currentOverride.source_category,
-            source_prefix: currentOverride.source_prefix,
-            title: currentOverride.title,
-            target_category: targetCategory,
-          });
-        }
+      if (currentOverride?.source_category === targetCategory) {
+        await deleteClassificationOverride({ media_item_id: entry.media_item_id });
       } else if (targetCategory !== entry.category) {
         await saveClassificationOverride({
-          source_category: entry.category,
-          source_prefix: entry.relative_path,
-          title: entry.title,
+          media_item_id: entry.media_item_id,
           target_category: targetCategory,
         });
       }
@@ -272,6 +302,10 @@
 
   async function resetEntryClassification(entry: LibraryEntry) {
     if (entry.category === "watchlist") return;
+    if (!entry.media_item_id) {
+      error = "Reset failed. This entry has no stable media identity.";
+      return;
+    }
     if (pendingClassificationKey) return;
     pendingClassificationKey = entry.key;
     syncing = true;
@@ -280,11 +314,7 @@
     try {
       const currentOverride = overrideForEntry(entry);
       if (!currentOverride) return;
-      await deleteMovedPathOverride(entry, currentOverride);
-      await deleteClassificationOverride({
-        source_category: currentOverride.source_category,
-        source_prefix: currentOverride.source_prefix,
-      });
+      await deleteClassificationOverride({ media_item_id: entry.media_item_id });
       syncResult = await runSyncNow();
       await loadDashboard();
     } catch (caughtError) {
@@ -320,22 +350,10 @@
     );
   }
 
-  async function deleteMovedPathOverride(
-    entry: LibraryEntry,
-    override: ClassificationOverride,
-  ): Promise<void> {
-    if (entry.category === "watchlist") return;
-    if (entry.relative_path === override.source_prefix) return;
-    await deleteClassificationOverride({
-      source_category: entry.category,
-      source_prefix: entry.relative_path,
-    });
-  }
-
   async function removeWatchlistEntry(entry: LibraryEntry) {
     if (
       entry.category !== "watchlist" ||
-      entry.tmdb_id === undefined ||
+      entry.tmdb_id == null ||
       entry.media_type === undefined ||
       removingEntryKey
     )
@@ -356,7 +374,7 @@
   }
 
   function searchWatchlistEntry(entry: LibraryEntry) {
-    const tmdbParam = entry.tmdb_id === undefined ? "" : `&tmdb_id=${String(entry.tmdb_id)}`;
+    const tmdbParam = entry.tmdb_id == null ? "" : `&tmdb_id=${String(entry.tmdb_id)}`;
     const mediaTypeParam = entry.media_type ? `&media_type=${entry.media_type}` : "";
     const searchPath: `/search?${string}` = `/search?q=${encodeURIComponent(entry.title)}${tmdbParam}${mediaTypeParam}`;
     void goto(resolve(searchPath));
@@ -394,16 +412,17 @@
   {syncResult}
   {syncStatus}
   {validation}
-  {validationIssues}
   {visibleEntries}
   {dismissingErrorId}
   {pendingClassificationKey}
   {removingEntryKey}
   {refreshingMetadataKey}
+  {updatingTmdbKey}
   onRunSync={runManualSync}
   onSort={sortBy}
   onRemoveEntry={removeEntry}
   onRefreshMetadata={refreshEntryMetadata}
+  onUpdateTmdb={updateEntryTmdbId}
   onHideDuplicateFile={hideDuplicateFile}
   onMoveEntry={moveEntry}
   onResetEntryClassification={resetEntryClassification}

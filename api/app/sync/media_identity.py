@@ -6,7 +6,13 @@ import re
 from dataclasses import dataclass
 from typing import Any, cast
 
-from app.providers.tmdb.cache_keys import tmdb_cache_key
+from app.domain.media_identity import (
+    IdentityAuthority,
+    LibraryCategory,
+    ResolutionStatus,
+    provider_kind_for_search,
+)
+from app.domain.normalization import normalize_title_for_identity
 from app.providers.tmdb.metadata import TmdbMetadataService
 
 logger = logging.getLogger(__name__)
@@ -16,6 +22,7 @@ MIN_DATE_LENGTH = 4
 MIN_LATIN_LENGTH = 3
 MIN_CJK_LENGTH = 2
 MAX_POSTER_PATH_LENGTH = 300
+RESOLVER_VERSION = "tmdb-v2"
 
 JUNK_PREFIXES = re.compile(
     r"(?i)^(?:\bwww\b.*\bcom\b|\bwww\b.*\borg\b|\bwww\b\s*|\b\d*tamilmv\b|\bcards\b|\bcenter\b|\b TamilMV\b|\b\d*tamilultra\b|\bmasstamilan\b|\bisaimini\b|\btamilyogi\b|\btamilrockers\b|\bcenter\s*|\[[^\]]+\]|\b(?:YIFY|YTS|RARBG|EZTV|ETTV|KAT|LimeTorrents|Demonoid|Scene|Tamilrockers|Tamilmv|Isaimini|Tamilyogi|Movierulz|Tamilgun|1337x|Worldfree4u|Madrasrockers|Thiruttumovies|Hiidude|Mymoviesda|Filmlinks4u|Tamildbox|Tamilrage|Mtamilrockers)\b|\b(?:www|https?://)\S+|\b(?:com|org|net|in|co\.uk|io)\b|\b(?:movies|films|download|free|watch|online)\b|[\s._-])+"
@@ -29,6 +36,11 @@ class MediaIdentity:
     year: int | None
     media_type: str
     poster_path: str | None = None
+    authority: IdentityAuthority = IdentityAuthority.PROVIDER_RESOLVED
+    status: ResolutionStatus = ResolutionStatus.RESOLVED
+    confidence: int | None = None
+    resolver_version: str = RESOLVER_VERSION
+    library_category: LibraryCategory | None = None
 
 
 class MediaIdentityResolver:
@@ -53,12 +65,16 @@ class MediaIdentityResolver:
         if cache_key in self._memory_cache:
             return self._memory_cache[cache_key]
 
-        query_media_type = "movie" if category == "movies" else "tv"
+        query_media_type = provider_kind_for_search(
+            "movie" if category == "movies" else "series"
+        ).value
         fallback = MediaIdentity(
             tmdb_id=None,
             title=_fallback_title(parsed_title),
             year=year,
             media_type=query_media_type,
+            authority=IdentityAuthority.FALLBACK,
+            status=ResolutionStatus.NO_MATCH,
         )
 
         if not self._metadata_service:
@@ -68,7 +84,14 @@ class MediaIdentityResolver:
             identity = await self._do_resolve(parsed_title, year, query_media_type)
         except Exception as error:  # noqa: BLE001
             logger.warning("Failed to resolve TMDB identity for '%s': %s", parsed_title, error)
-            return fallback
+            return MediaIdentity(
+                tmdb_id=None,
+                title=fallback.title,
+                year=year,
+                media_type=query_media_type,
+                authority=IdentityAuthority.FALLBACK,
+                status=ResolutionStatus.PROVIDER_ERROR,
+            )
         else:
             self._memory_cache[cache_key] = identity
             return identity
@@ -103,6 +126,28 @@ class MediaIdentityResolver:
                 return identity
         return None
 
+    async def metadata_for_tmdb_id(
+        self,
+        external_id: str,
+        media_type: str,
+    ) -> MediaIdentity | None:
+        """Fetch missing metadata for one exact TMDB identity without searching."""
+        service = self._metadata_service
+        if service is None or not external_id.isdecimal():
+            return None
+        result_media_type = "movie" if media_type == "movie" else "tv"
+        try:
+            payload = await service.get_json(f"/{result_media_type}/{external_id}")
+        except Exception as error:  # noqa: BLE001
+            logger.warning("Failed to enrich TMDB identity '%s': %s", external_id, error)
+            return None
+        normalized = {
+            **payload,
+            "id": int(external_id),
+            "media_type": result_media_type,
+        }
+        return _result_identity(normalized)
+
     async def _do_resolve(
         self,
         parsed_title: str,
@@ -123,12 +168,9 @@ class MediaIdentityResolver:
         for query in queries:
             endpoint = "/search/multi"
             params = {"query": query, "include_adult": "false"}
-            db_key = tmdb_cache_key(endpoint, params)
-
-            # Check DB cache first
-            cached_val = await service._cache_repository.get_fresh(db_key)  # pyright: ignore[reportPrivateUsage]
-            if cached_val is not None:
-                payload = cached_val.response_payload
+            cached_payload = await service.get_cached_json(endpoint, params=params)
+            if cached_payload is not None:
+                payload = cached_payload
             else:
                 # Cache miss: rate limit
                 async with self._semaphore:
@@ -157,13 +199,60 @@ class MediaIdentityResolver:
             )
             if unique_same_year is not None:
                 return unique_same_year
+            alternate_title_identity = await self._alternate_title_identity(
+                valid_results,
+                parsed_title=parsed_title,
+                query_media_type=query_media_type,
+            )
+            if alternate_title_identity is not None:
+                return alternate_title_identity
 
         return MediaIdentity(
             tmdb_id=None,
             title=_fallback_title(parsed_title),
             year=year,
             media_type=query_media_type,
+            authority=IdentityAuthority.FALLBACK,
+            status=ResolutionStatus.NO_MATCH,
         )
+
+    async def _alternate_title_identity(
+        self,
+        results: list[dict[str, Any]],
+        *,
+        parsed_title: str,
+        query_media_type: str,
+    ) -> MediaIdentity | None:
+        service = self._metadata_service
+        if service is None:
+            return None
+        candidates = [
+            raw
+            for raw in results
+            if raw.get("media_type") == query_media_type and raw.get("id") is not None
+        ]
+        for raw in candidates[:3]:
+            tmdb_id = raw["id"]
+            try:
+                payload = await service.get_json(
+                    f"/{query_media_type}/{tmdb_id}/alternative_titles"
+                )
+            except Exception as error:  # noqa: BLE001
+                logger.debug("Could not inspect TMDB alternate titles for %s: %s", tmdb_id, error)
+                continue
+            if not _has_matching_alternate_title(payload, parsed_title):
+                continue
+            identity = _result_identity(raw)
+            if identity is not None:
+                return MediaIdentity(
+                    tmdb_id=identity.tmdb_id,
+                    title=identity.title,
+                    year=identity.year,
+                    media_type=identity.media_type,
+                    poster_path=identity.poster_path,
+                    confidence=90,
+                )
+        return None
 
     def _score_results(
         self,
@@ -224,6 +313,7 @@ class MediaIdentityResolver:
                             year=res_year,
                             media_type=str(raw_media_type),
                             poster_path=_poster_path(raw),
+                            confidence=round(score * 100),
                         ),
                     )
                 )
@@ -268,6 +358,20 @@ def _result_identity(raw: dict[str, Any]) -> MediaIdentity | None:
         media_type=str(media_type),
         poster_path=_poster_path(raw),
     )
+
+
+def _has_matching_alternate_title(payload: dict[str, Any], query_title: str) -> bool:
+    raw_titles = payload.get("results") or payload.get("titles")
+    if not isinstance(raw_titles, list):
+        return False
+    normalized_query = normalize_title(query_title)
+    for raw in cast(list[object], raw_titles):
+        if not isinstance(raw, dict):
+            continue
+        title = cast(dict[str, object], raw).get("title")
+        if isinstance(title, str) and normalize_title(title) == normalized_query:
+            return True
+    return False
 
 
 def _poster_path(raw: dict[str, Any]) -> str | None:
@@ -334,8 +438,7 @@ def parse_year(date_str: object) -> int | None:
 
 def normalize_title(text: str) -> str:
     text = text.replace("'", "").replace("\u2019", "")
-    cleaned = re.sub(r"[^\w\s]", " ", text.lower())
-    return " ".join(cleaned.split())
+    return normalize_title_for_identity(text)
 
 
 def title_similarity(t1: str, t2: str) -> float:

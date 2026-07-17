@@ -28,7 +28,9 @@ class FakeSession:
 
 
 def test_torbox_action_errors_are_redacted() -> None:
-    message = search_api._safe_action_message(TorBoxAPIError("provider detail: account=123"))
+    message = search_api._safe_action_message(  # pyright: ignore[reportPrivateUsage]
+        TorBoxAPIError("provider detail: account=123")
+    )
 
     assert message == "TorBox operation failed."
 

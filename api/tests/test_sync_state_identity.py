@@ -4,97 +4,120 @@ from typing import cast
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import (
-    GeneratedFile,
-    LibraryEntry,
-    MediaItem,
-    SyncRun,
-    TorBoxItem,
-    TorBoxStoredFile,
+from app.db.models import MediaItem
+from app.db.repositories.media_identity import (
+    MediaIdentityRepository,
+    MediaIdentityWrite,
+    SourceBindingWrite,
 )
-from app.db.repositories.sync_state import SyncStateRepository
-from app.sync.torbox_strm import SyncedStrmFile, TorBoxStrmSyncResult
+from app.db.repositories.sync_state import SyncLibraryStateRepository
+from app.domain.media_identity import IdentityAuthority
+from app.sync.torbox_strm import SyncedStrmFile
 
 
-class FakeResult:
-    def __init__(self, scalar: object | None = None, values: list[object] | None = None) -> None:
-        self._scalar = scalar
-        self._values = values or []
+class CapturingIdentityRepository:
+    def __init__(self, existing: MediaItem) -> None:
+        self.existing = existing
+        self.identity_write: MediaIdentityWrite | None = None
+        self.source_write: SourceBindingWrite | None = None
 
-    def scalar_one_or_none(self) -> object | None:
-        return self._scalar
+    async def ensure_media(self, write: MediaIdentityWrite) -> MediaItem:
+        self.identity_write = write
+        return self.existing
 
-    def scalars(self) -> list[object]:
-        return self._values
-
-    def all(self) -> list[object]:
-        return self._values
-
-
-class FakeSession:
-    def __init__(self, results: list[FakeResult]) -> None:
-        self._results = results
-        self.added: list[object] = []
-        self._next_id = 1
-
-    async def execute(self, statement: object) -> FakeResult:
-        _ = statement
-        return self._results.pop(0)
-
-    def add(self, instance: object) -> None:
-        self.added.append(instance)
-
-    async def flush(self) -> None:
-        for instance in self.added:
-            if isinstance(
-                instance,
-                (GeneratedFile, LibraryEntry, MediaItem, SyncRun, TorBoxItem, TorBoxStoredFile),
-            ):
-                instance.id = instance.id or self._next_id
-                self._next_id += 1
-
-    async def commit(self) -> None:
-        pass
-
-    async def delete(self, instance: object) -> None:
-        _ = instance
+    async def bind_sources(
+        self,
+        media_item: MediaItem,
+        write: SourceBindingWrite,
+    ) -> None:
+        assert media_item is self.existing
+        self.source_write = write
 
 
 @pytest.mark.asyncio
-async def test_sync_corrects_existing_tmdb_media_category(tmp_path: Path) -> None:
+async def test_sync_delegates_identity_without_mutating_complete_media(tmp_path: Path) -> None:
     existing_item = MediaItem(
         id=10,
-        media_type="movies",
-        title="Ascendance of a Bookworm 01 JP BD Hi10",
-        year=None,
-        tmdb_id="91768",
-    )
-    output_path = tmp_path / "anime" / "Ascendance of a Bookworm" / "Season 01" / "S01E01.strm"
-    synced_file = SyncedStrmFile(
-        path=output_path,
-        entry_id="entry-id",
-        category="anime",
+        content_kind="series",
         title="Ascendance of a Bookworm",
         year=2019,
+    )
+    repository = CapturingIdentityRepository(existing_item)
+    synced_file = SyncedStrmFile(
+        path=tmp_path / "anime" / "Ascendance of a Bookworm" / "Season 01" / "S01E01.strm",
+        entry_id="entry-id",
+        category="anime",
+        title="Incorrect provider title",
+        source_title="Ascendance of a Bookworm 01 JP BD Hi10",
+        year=2024,
         season_number=1,
         episode_number=1,
         provider="torrents",
         provider_item_id="1",
         provider_file_id="2",
         content_hash="content-hash",
-        tmdb_id="91768",
-    )
-    result = TorBoxStrmSyncResult(1, 1, 0, (output_path,), (synced_file,))
-    session = FakeSession(
-        [
-            FakeResult(existing_item),
-            *[FakeResult() for _ in range(4)],
-            *[FakeResult(values=[]) for _ in range(3)],
-        ]
+        tmdb_id="99999",
+        info_hash="ABCDEF",
+        identity_authority=IdentityAuthority.PROVIDER_RESOLVED,
+        identity_confidence=82,
+        identity_resolver_version="tmdb-v2",
     )
 
-    _ = await SyncStateRepository(cast(AsyncSession, session)).record_success(result, tmp_path)
+    resolved = await SyncLibraryStateRepository(cast(AsyncSession, object()))._media_item(  # pyright: ignore[reportPrivateUsage]
+        synced_file,
+        cast(MediaIdentityRepository, repository),
+    )
 
-    assert existing_item.media_type == "anime"
-    assert existing_item.title == "Ascendance of a Bookworm"
-    assert existing_item.year == 2019
+    assert resolved is existing_item
+    assert (existing_item.title, existing_item.year) == ("Ascendance of a Bookworm", 2019)
+    assert repository.identity_write is not None
+    assert repository.identity_write.title == "Incorrect provider title"
+    assert repository.identity_write.year == 2024
+    assert repository.identity_write.tmdb_id == "99999"
+    assert repository.identity_write.authority is IdentityAuthority.PROVIDER_RESOLVED
+    assert repository.identity_write.confidence == 82
+    assert repository.identity_write.resolver_version == "tmdb-v2"
+    assert repository.source_write is not None
+    assert repository.source_write.source_title == "Ascendance of a Bookworm 01 JP BD Hi10"
+    assert repository.source_write.info_hash == "ABCDEF"
+
+
+@pytest.mark.asyncio
+async def test_search_confirmed_authority_is_persisted_on_source_binding(tmp_path: Path) -> None:
+    existing_item = MediaItem(
+        id=10,
+        content_kind="series",
+        title="Kaiju No. 8",
+        year=2024,
+    )
+    repository = CapturingIdentityRepository(existing_item)
+    synced_file = SyncedStrmFile(
+        path=tmp_path / "anime" / "Kaiju No. 8" / "Season 01" / "S01E01.strm",
+        entry_id="entry-id",
+        category="anime",
+        title="Kaiju No. 8",
+        source_title="Kaijuu 8-gou",
+        year=2024,
+        season_number=1,
+        episode_number=1,
+        provider="torrents",
+        provider_item_id="42",
+        provider_file_id="2",
+        content_hash="content-hash",
+        tmdb_id="207468",
+        info_hash="abcdef",
+        identity_authority=IdentityAuthority.SEARCH_CONFIRMED,
+        identity_confidence=100,
+    )
+
+    _ = await SyncLibraryStateRepository(cast(AsyncSession, object()))._media_item(  # pyright: ignore[reportPrivateUsage]
+        synced_file,
+        cast(MediaIdentityRepository, repository),
+    )
+
+    assert repository.identity_write is not None
+    assert repository.identity_write.authority is IdentityAuthority.SEARCH_CONFIRMED
+    assert repository.source_write is not None
+    assert repository.source_write.authority is IdentityAuthority.SEARCH_CONFIRMED
+    assert repository.source_write.source_item_id == "42"
+    assert repository.source_write.info_hash == "abcdef"

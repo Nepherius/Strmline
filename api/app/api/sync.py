@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.dependencies import get_db_session
-from app.db.repositories.sync_state import SyncRunRecord, SyncStateRepository
+from app.db.repositories.sync_runs import SyncRunRecord, SyncRunRepository
 from app.sync.service import (
     SyncAlreadyRunningError,
     SyncConfigurationError,
@@ -74,7 +74,7 @@ async def run_sync_now(
 async def sync_status(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> SyncStatusResponse:
-    status = await SyncStateRepository(session).status()
+    status = await SyncRunRepository(session).status()
     return SyncStatusResponse(
         last_run=_sync_run_response(status.last_run),
         last_auto_run=_sync_run_response(status.last_auto_run),
@@ -97,9 +97,10 @@ async def dismiss_sync_error(
     error_id: int,
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> None:
-    dismissed = await SyncStateRepository(session).dismiss_error(error_id)
+    dismissed = await SyncRunRepository(session).dismiss_error(error_id)
     if not dismissed:
         raise HTTPException(status_code=404, detail="Sync error was not found.")
+    await session.commit()
 
 
 def _sync_run_response(run: SyncRunRecord | None) -> SyncRunStatusResponse | None:

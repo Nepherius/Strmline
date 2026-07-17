@@ -12,11 +12,15 @@ from app.core.config import Settings
 from app.db.repositories.classification_override import ClassificationOverrideRepository
 from app.db.repositories.library_exclusion import LibraryExclusionRepository
 from app.db.repositories.settings import AppSettingsRepository, SettingsSnapshot
-from app.db.repositories.stream_selection import StreamSelectionRecord, StreamSelectionRepository
-from app.db.repositories.sync_state import SyncRunSource, SyncStateRepository
+from app.db.repositories.stream_selection import StreamSelectionRepository
+from app.db.repositories.sync_coordination import SyncCoordinationRepository
+from app.db.repositories.sync_runs import SyncRunRepository, SyncRunSource
+from app.db.repositories.sync_state import SyncLibraryStateRepository
 from app.db.repositories.tmdb_cache import TmdbCacheRepository
 from app.db.repositories.watchlist import WatchlistRepository
 from app.library.posters import cache_missing_posters
+from app.library.stale_cleanup import remove_stale_strm_files
+from app.library.sync_snapshot import LibrarySyncSnapshot
 from app.providers.aiostreams.client import AioStreamsClient
 from app.providers.tmdb.client import TmdbClient
 from app.providers.tmdb.metadata import TmdbMetadataService
@@ -24,7 +28,8 @@ from app.providers.tmdb.posters import TmdbPosterClient
 from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
 from app.search.actions import ensure_selected_streams_in_torbox
 from app.sync.anime_classification import build_anilist_anime_classifier
-from app.sync.media_identity import MediaIdentity, MediaIdentityResolver
+from app.sync.identity_inputs import identity_inputs as _identity_inputs
+from app.sync.media_identity import MediaIdentityResolver
 from app.sync.torbox_strm import ResolverUrlConfig, TorBoxStrmSync, TorBoxStrmSyncResult
 
 
@@ -54,6 +59,13 @@ class SyncRunSummary:
     scanned_files: int
     written_files: int
     skipped_files: int
+
+
+@dataclass(frozen=True, slots=True)
+class _GeneratedSync:
+    result: TorBoxStrmSyncResult
+    selected_hashes: frozenset[str]
+    tmdb_api_key: str | None
 
 
 _SYNC_LOCK = asyncio.Lock()
@@ -88,7 +100,29 @@ async def _run_torbox_account_sync(
     client_factory: TorBoxClientFactory,
 ) -> SyncRunSummary:
     logger.debug("Starting TorBox account sync from %s.", source)
-    sync_state = SyncStateRepository(session)
+    coordination = SyncCoordinationRepository(session)
+    if not await coordination.try_lock():
+        raise SyncAlreadyRunningError("A sync run is already in progress.")
+    try:
+        return await _run_locked_torbox_account_sync(
+            session,
+            settings,
+            source=source,
+            client_factory=client_factory,
+        )
+    finally:
+        await coordination.release()
+
+
+async def _run_locked_torbox_account_sync(
+    session: AsyncSession,
+    settings: Settings,
+    *,
+    source: SyncRunSource,
+    client_factory: TorBoxClientFactory,
+) -> SyncRunSummary:
+    sync_state = SyncLibraryStateRepository(session)
+    sync_runs = SyncRunRepository(session)
     settings_repository = AppSettingsRepository(session, settings)
     snapshot = await settings_repository.snapshot_with_env()
     api_key = await settings_repository.provider_api_key("torbox")
@@ -98,121 +132,68 @@ async def _run_torbox_account_sync(
         library_root = _library_root(snapshot)
         resolver = _resolver_config(snapshot, resolver_token)
     except SyncConfigurationError as error:
-        _ = await sync_state.record_failure(
+        _ = await sync_runs.record_failure(
             phase="configuration",
             message=str(error),
             source=source,
         )
+        await session.commit()
         raise
 
-    try:
-        async with client_factory(
-            api_key=api_key,
-            base_url=settings.torbox_base_url,
-            timeout=settings.outbound_timeout_seconds,
-        ) as client:
-            aiostreams_url = await settings_repository.aiostreams_base_url_value()
-            selection_repository = StreamSelectionRepository(session)
-            await ensure_selected_streams_in_torbox(
-                torbox_client=client,
-                repository=selection_repository,
-                aiostreams_client=(
-                    AioStreamsClient(
-                        base_url=aiostreams_url,
-                        timeout_seconds=settings.outbound_timeout_seconds,
-                    )
-                    if aiostreams_url is not None
-                    else None
-                ),
-            )
-            selected_streams = await selection_repository.list_selected()
-            selected_hashes = frozenset(
-                selection.info_hash.casefold()
-                for selection in selected_streams
-                if selection.info_hash is not None
-            )
-            torrent_hashes = {
-                selection.torbox_torrent_id: selection.info_hash.casefold()
-                for selection in selected_streams
-                if selection.torbox_torrent_id is not None and selection.info_hash is not None
-            }
-            permanent_info_hashes = await sync_state.permanent_info_hashes()
-            preserved_paths = await sync_state.permanent_library_paths(
-                library_root,
-                permanent_info_hashes,
-            )
-            tmdb_api_key = await settings_repository.provider_api_key("tmdb")
-            tmdb_service = None
-            if tmdb_api_key:
-                tmdb_service = TmdbMetadataService(
-                    cache_repository=TmdbCacheRepository(session),
-                    tmdb_client=TmdbClient(
-                        api_key=tmdb_api_key,
-                        base_url=settings.tmdb_base_url,
-                        timeout_seconds=settings.outbound_timeout_seconds,
-                    ),
-                )
-            identity_resolver = MediaIdentityResolver(tmdb_service)
-            (
-                selected_media_by_torrent_id,
-                selected_media_by_info_hash,
-            ) = await _selected_media_identities(
-                selection_repository,
-                selected_streams,
-                identity_resolver,
-            )
+    # End the configuration read transaction before any provider request begins.
+    await session.commit()
 
-            result = await TorBoxStrmSync(
-                client=client,
-                api_key=api_key,
-                torbox_base_url=settings.torbox_base_url,
-                library_root=library_root,
-                resolver=resolver,
-                anime_classifier=build_anilist_anime_classifier(session, settings),
-                classification_overrides=await ClassificationOverrideRepository(session).list_all(),
-                excluded_prefixes=await LibraryExclusionRepository(session).prefixes(),
-                media_identity_resolver=identity_resolver,
-                torrent_hashes=torrent_hashes,
-                selected_media_by_torrent_id=selected_media_by_torrent_id,
-                selected_media_by_info_hash=selected_media_by_info_hash,
-                preserved_paths=preserved_paths,
-            ).run()
-    except (OSError, TorBoxAPIError, ValueError) as error:
-        _ = await sync_state.record_failure(
+    file_snapshot = LibrarySyncSnapshot.capture(library_root)
+    try:
+        generated = await _generate_sync_files(
+            session,
+            settings,
+            settings_repository,
+            api_key=api_key,
+            library_root=library_root,
+            resolver=resolver,
+            client_factory=client_factory,
+        )
+    except Exception as error:
+        await session.rollback()
+        file_snapshot.restore()
+        _ = await sync_runs.record_failure(
             phase="torbox_sync",
             message=_safe_failure_message(error),
             source=source,
         )
+        await session.commit()
         raise SyncExecutionError("TorBox sync failed.") from error
 
-    await _remove_synced_from_watchlist(session, result)
-
-    sync_run_id = await sync_state.record_success(
-        result,
-        library_root,
-        source=source,
-        permanent_info_hashes=(
-            permanent_info_hashes
-            | selected_hashes
-            | frozenset(
-                synced_file.info_hash
-                for synced_file in result.synced_files
-                if synced_file.info_hash is not None
-            )
-        ),
-    )
-    if tmdb_api_key is not None:
-        poster_result = await cache_missing_posters(
+    result = generated.result
+    try:
+        retained_paths = await sync_state.retained_library_paths(
             library_root,
-            result.synced_files,
-            TmdbPosterClient(timeout_seconds=settings.outbound_timeout_seconds),
+            _absent_selected_hashes(generated.selected_hashes, result),
         )
-        logger.debug(
-            "TMDB poster cache: %d downloaded, %d already cached, %d failed.",
-            poster_result.downloaded,
-            poster_result.cached,
-            poster_result.failed,
+        await _remove_synced_from_watchlist(session, result)
+        sync_run_id = await sync_runs.record_success(result, source=source)
+        await sync_state.persist_result(
+            result,
+            library_root,
+            retained_info_hashes=generated.selected_hashes,
         )
+        await session.commit()
+    except Exception as error:
+        await session.rollback()
+        file_snapshot.restore()
+        _ = await sync_runs.record_failure(
+            phase="persistence",
+            message="Database persistence failed; generated files were restored.",
+            source=source,
+            scanned_count=result.scanned_files,
+            written_count=result.written_files,
+            skipped_count=result.skipped_files,
+        )
+        await session.commit()
+        raise SyncExecutionError("Sync persistence failed; generated files were restored.") from error
+    _remove_stale_sync_files(library_root, result, retained_paths)
+    await _cache_missing_sync_posters(settings, library_root, result, generated.tmdb_api_key)
     logger.debug(
         "Completed TorBox account sync from %s: %d scanned, %d written, %d skipped.",
         source,
@@ -227,6 +208,131 @@ async def _run_torbox_account_sync(
         scanned_files=result.scanned_files,
         written_files=result.written_files,
         skipped_files=result.skipped_files,
+    )
+
+
+async def _generate_sync_files(  # noqa: PLR0913
+    session: AsyncSession,
+    settings: Settings,
+    settings_repository: AppSettingsRepository,
+    *,
+    api_key: str,
+    library_root: Path,
+    resolver: ResolverUrlConfig | None,
+    client_factory: TorBoxClientFactory,
+) -> _GeneratedSync:
+    async with client_factory(
+        api_key=api_key,
+        base_url=settings.torbox_base_url,
+        timeout=settings.outbound_timeout_seconds,
+    ) as client:
+        aiostreams_url = await settings_repository.aiostreams_base_url_value()
+        selections = StreamSelectionRepository(session)
+        await ensure_selected_streams_in_torbox(
+            torbox_client=client,
+            repository=selections,
+            aiostreams_client=(
+                AioStreamsClient(
+                    base_url=aiostreams_url,
+                    timeout_seconds=settings.outbound_timeout_seconds,
+                )
+                if aiostreams_url is not None
+                else None
+            ),
+        )
+        await session.commit()
+        selected_streams = await selections.list_selected()
+        selected_hashes = frozenset(
+            selection.info_hash.casefold()
+            for selection in selected_streams
+            if selection.info_hash is not None
+        )
+        torrent_hashes = {
+            selection.torbox_torrent_id: selection.info_hash.casefold()
+            for selection in selected_streams
+            if selection.torbox_torrent_id is not None and selection.info_hash is not None
+        }
+        tmdb_api_key = await settings_repository.provider_api_key("tmdb")
+        tmdb_service = _tmdb_service(session, settings, tmdb_api_key)
+        identity_resolver = MediaIdentityResolver(tmdb_service)
+        selected_by_id, selected_by_hash, identity_by_alias = await _identity_inputs(
+            session,
+            selections,
+            selected_streams,
+            identity_resolver,
+        )
+        classification_overrides = await ClassificationOverrideRepository(session).list_all()
+        excluded_prefixes = await LibraryExclusionRepository(session).prefixes()
+        # Provider enumeration can be slow. Do not retain the input-read transaction.
+        await session.commit()
+        result = await TorBoxStrmSync(
+            client=client,
+            api_key=api_key,
+            torbox_base_url=settings.torbox_base_url,
+            library_root=library_root,
+            resolver=resolver,
+            anime_classifier=build_anilist_anime_classifier(session, settings),
+            classification_overrides=classification_overrides,
+            excluded_prefixes=excluded_prefixes,
+            media_identity_resolver=identity_resolver,
+            torrent_hashes=torrent_hashes,
+            selected_media_by_torrent_id=selected_by_id,
+            selected_media_by_info_hash=selected_by_hash,
+            media_identity_by_alias=identity_by_alias,
+        ).run()
+    return _GeneratedSync(
+        result=result,
+        selected_hashes=selected_hashes,
+        tmdb_api_key=tmdb_api_key,
+    )
+
+
+def _tmdb_service(
+    session: AsyncSession,
+    settings: Settings,
+    api_key: str | None,
+) -> TmdbMetadataService | None:
+    if api_key is None:
+        return None
+    return TmdbMetadataService(
+        cache_repository=TmdbCacheRepository(session),
+        tmdb_client=TmdbClient(
+            api_key=api_key,
+            base_url=settings.tmdb_base_url,
+            timeout_seconds=settings.outbound_timeout_seconds,
+        ),
+    )
+async def _cache_missing_sync_posters(
+    settings: Settings,
+    library_root: Path,
+    result: TorBoxStrmSyncResult,
+    tmdb_api_key: str | None,
+) -> None:
+    if tmdb_api_key is None:
+        return
+    poster_result = await cache_missing_posters(
+        library_root,
+        result.synced_files,
+        TmdbPosterClient(timeout_seconds=settings.outbound_timeout_seconds),
+    )
+    logger.debug(
+        "TMDB poster cache: %d downloaded, %d already cached, %d failed.",
+        poster_result.downloaded,
+        poster_result.cached,
+        poster_result.failed,
+    )
+
+
+def _remove_stale_sync_files(
+    library_root: Path,
+    result: TorBoxStrmSyncResult,
+    preserved_paths: set[Path],
+) -> None:
+    if result.partial:
+        return
+    remove_stale_strm_files(
+        library_root,
+        set(result.written_paths) | preserved_paths,
     )
 
 
@@ -246,6 +352,22 @@ def _watchlist_identities(result: TorBoxStrmSyncResult) -> set[tuple[str, int]]:
     return identities
 
 
+def _result_info_hashes(result: TorBoxStrmSyncResult) -> frozenset[str]:
+    return frozenset(
+        synced_file.info_hash
+        for synced_file in result.synced_files
+        if synced_file.info_hash is not None
+    )
+
+
+def _absent_selected_hashes(
+    selected_hashes: frozenset[str],
+    result: TorBoxStrmSyncResult,
+) -> frozenset[str]:
+    """Retain only selected media that is absent from the current provider result."""
+    return selected_hashes - _result_info_hashes(result)
+
+
 async def _remove_synced_from_watchlist(
     session: AsyncSession,
     result: TorBoxStrmSyncResult,
@@ -259,54 +381,6 @@ def _require_torbox_api_key(api_key: str | None) -> str:
     if api_key is None:
         raise SyncConfigurationError("TorBox API key is not configured.")
     return api_key
-
-
-async def _selected_media_identities(
-    repository: StreamSelectionRepository,
-    selections: tuple[StreamSelectionRecord, ...],
-    resolver: MediaIdentityResolver,
-) -> tuple[dict[str, MediaIdentity], dict[str, MediaIdentity]]:
-    by_torrent_id: dict[str, MediaIdentity] = {}
-    by_info_hash: dict[str, MediaIdentity] = {}
-    resolved_external_ids: dict[tuple[str, str], MediaIdentity | None] = {}
-    for selection in selections:
-        identity = _stored_media_identity(selection)
-        if identity is None:
-            external_id = selection.media_id.split(":", maxsplit=1)[0]
-            external_key = (external_id, selection.media_type)
-            if external_key not in resolved_external_ids:
-                resolved_external_ids[external_key] = await resolver.resolve_external_id(
-                    external_id,
-                    selection.media_type,
-                )
-            identity = resolved_external_ids[external_key]
-            if identity is not None and identity.tmdb_id is not None:
-                await repository.update_media_identity(
-                    selection.stream_key,
-                    tmdb_id=identity.tmdb_id,
-                    media_title=identity.title,
-                    media_year=identity.year,
-                    media_poster_path=identity.poster_path,
-                )
-        if identity is None or identity.tmdb_id is None:
-            continue
-        if selection.torbox_torrent_id is not None:
-            by_torrent_id[selection.torbox_torrent_id] = identity
-        if selection.info_hash is not None:
-            by_info_hash[selection.info_hash.casefold()] = identity
-    return by_torrent_id, by_info_hash
-
-
-def _stored_media_identity(selection: StreamSelectionRecord) -> MediaIdentity | None:
-    if selection.tmdb_id is None or selection.media_title is None:
-        return None
-    return MediaIdentity(
-        tmdb_id=selection.tmdb_id,
-        title=selection.media_title,
-        year=selection.media_year,
-        media_type="movie" if selection.media_type == "movie" else "tv",
-        poster_path=selection.media_poster_path,
-    )
 
 
 def _resolver_config(

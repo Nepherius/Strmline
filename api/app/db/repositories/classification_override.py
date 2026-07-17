@@ -6,7 +6,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ClassificationOverride
-from app.library.classification_override import LibraryClassificationOverride
+from app.library.classification_override import (
+    LibraryClassificationOverride,
+    target_prefix_for_override,
+)
 from app.library.entries import LibraryCategory
 
 
@@ -24,6 +27,17 @@ class ClassificationOverrideRepository:
 
     async def by_source_prefix(self) -> dict[str, LibraryClassificationOverride]:
         return {override.source_prefix: override for override in await self.list_all()}
+
+    async def for_current_prefix(
+        self,
+        relative_prefix: str,
+    ) -> LibraryClassificationOverride | None:
+        for override in await self.list_all():
+            if override.source_prefix == relative_prefix:
+                return override
+            if target_prefix_for_override(override) == relative_prefix:
+                return override
+        return None
 
     async def upsert(
         self,

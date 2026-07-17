@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from app.domain.media_identity import IdentityAuthority, ResolutionStatus
+from app.domain.normalization import normalize_title_for_identity
 from app.library.classification_override import (
     LibraryClassificationOverride,
     apply_classification_override,
@@ -13,7 +15,6 @@ from app.library.classification_override import (
 from app.library.entries import LibraryCategory, LibraryEntry
 from app.library.naming import library_entry_from_file_name
 from app.library.paths import library_entry_relative_path
-from app.library.stale_cleanup import remove_stale_strm_files
 from app.library.strm_writer import write_strm_file
 from app.providers.torbox.files import (
     DOWNLOAD_KINDS,
@@ -66,6 +67,14 @@ class TorBoxStrmSyncResult:
     synced_files: tuple[SyncedStrmFile, ...]
     manifest_path: Path | None = None
     partial: bool = False
+    diagnostics: tuple[SyncDiagnostic, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SyncDiagnostic:
+    phase: str
+    item_ref: str | None
+    message: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +98,10 @@ class SyncedStrmFile:
     provider_file_mime_type: str = ""
     provider_file_size: int | None = None
     info_hash: str | None = None
+    source_title: str = ""
+    identity_authority: IdentityAuthority = IdentityAuthority.FALLBACK
+    identity_confidence: int | None = None
+    identity_resolver_version: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,7 +126,7 @@ class TorBoxStrmSync:
         torrent_hashes: dict[str, str] | None = None,
         selected_media_by_torrent_id: dict[str, MediaIdentity] | None = None,
         selected_media_by_info_hash: dict[str, MediaIdentity] | None = None,
-        preserved_paths: set[Path] | None = None,
+        media_identity_by_alias: dict[tuple[str, str], MediaIdentity] | None = None,
     ) -> None:
         self._client = client
         self._api_key = api_key
@@ -132,7 +145,7 @@ class TorBoxStrmSync:
             info_hash.casefold(): identity
             for info_hash, identity in (selected_media_by_info_hash or {}).items()
         }
-        self._preserved_paths = preserved_paths or set()
+        self._media_identity_by_alias = media_identity_by_alias or {}
 
     async def run(
         self,
@@ -147,6 +160,7 @@ class TorBoxStrmSync:
         written_paths: list[Path] = []
         synced_files: list[SyncedStrmFile] = []
         manifest_entries: list[ResolverManifestEntry] = []
+        diagnostics: set[SyncDiagnostic] = set()
         scanned_files = 0
         skipped_files = 0
 
@@ -159,11 +173,11 @@ class TorBoxStrmSync:
             for torbox_file in extracted.files:
                 if max_files is not None and len(written_paths) >= max_files:
                     return self._result(
-                        scanned_files,
-                        skipped_files,
+                        (scanned_files, skipped_files),
                         written_paths,
                         synced_files,
                         manifest_entries,
+                        diagnostics,
                         partial=True,
                     )
                 scanned_files += 1
@@ -178,31 +192,25 @@ class TorBoxStrmSync:
                     playback_url,
                     torbox_file.folder_name,
                 )
-                if selected_identity is not None:
-                    entry = _entry_with_identity(entry, selected_identity)
-                entry = await self._with_anime_classification(entry)
-                entry = self._with_classification_override(entry)
-
-                tmdb_id = selected_identity.tmdb_id if selected_identity is not None else None
+                source_title = entry.title
+                resolved = await self._resolve_entry(entry, selected_identity)
+                entry, resolved_identity = resolved
+                if (
+                    resolved_identity is not None
+                    and resolved_identity.status == ResolutionStatus.PROVIDER_ERROR
+                ):
+                    diagnostics.add(_provider_error_diagnostic(source_title))
+                    skipped_files += 1
+                    continue
+                if (
+                    resolved_identity is not None
+                    and resolved_identity.status == ResolutionStatus.NO_MATCH
+                ):
+                    diagnostics.add(_no_match_diagnostic(source_title))
+                tmdb_id = resolved_identity.tmdb_id if resolved_identity is not None else None
                 tmdb_poster_path = (
-                    selected_identity.poster_path if selected_identity is not None else None
+                    resolved_identity.poster_path if resolved_identity is not None else None
                 )
-                if selected_identity is None and self._media_identity_resolver is not None:
-                    identity = await self._media_identity_resolver.resolve(
-                        parsed_title=entry.title,
-                        year=entry.year,
-                        category=entry.category,
-                    )
-                    tmdb_id = identity.tmdb_id
-                    tmdb_poster_path = identity.poster_path
-                    entry = LibraryEntry(
-                        category=_category_from_identity(entry, identity.media_type),
-                        title=identity.title,
-                        year=identity.year,
-                        season_number=entry.season_number,
-                        episode_number=entry.episode_number,
-                        resolver_url=entry.resolver_url,
-                    )
 
                 if _is_excluded(entry, self._excluded_prefixes):
                     skipped_files += 1
@@ -218,19 +226,17 @@ class TorBoxStrmSync:
                         info_hash=info_hash,
                         tmdb_id=tmdb_id,
                         tmdb_poster_path=tmdb_poster_path,
+                        source_title=source_title,
+                        identity=resolved_identity,
                     )
                 )
 
-        remove_stale_strm_files(
-            self._library_root,
-            set(written_paths) | self._preserved_paths,
-        )
         return self._result(
-            scanned_files,
-            skipped_files,
+            (scanned_files, skipped_files),
             written_paths,
             synced_files,
             manifest_entries,
+            diagnostics,
         )
 
     def _with_classification_override(self, entry: LibraryEntry) -> LibraryEntry:
@@ -248,6 +254,36 @@ class TorBoxStrmSync:
         if info_hash is None:
             return None
         return self._selected_media_by_info_hash.get(info_hash.casefold())
+
+    def _alias_identity(self, entry: LibraryEntry) -> MediaIdentity | None:
+        content_kind = "movie" if entry.category == "movies" else "series"
+        return self._media_identity_by_alias.get(
+            (content_kind, normalize_title_for_identity(entry.title))
+        )
+
+    async def _resolve_entry(
+        self,
+        entry: LibraryEntry,
+        selected_identity: MediaIdentity | None,
+    ) -> tuple[LibraryEntry, MediaIdentity | None]:
+        identity = selected_identity or self._alias_identity(entry)
+        if identity is not None and identity.tmdb_id is None:
+            # A record without an external identity remains unresolved regardless of
+            # whether it originated from migration or fallback discovery. Retry it.
+            identity = None
+        if identity is not None:
+            entry = _entry_with_identity(entry, identity)
+        if identity is None or identity.library_category is None:
+            entry = await self._with_anime_classification(entry)
+        entry = self._with_classification_override(entry)
+        if identity is not None or self._media_identity_resolver is None:
+            return entry, identity
+        identity = await self._media_identity_resolver.resolve(
+            parsed_title=entry.title,
+            year=entry.year,
+            category=entry.category,
+        )
+        return _entry_with_identity(entry, identity), identity
 
     async def _with_anime_classification(self, entry: LibraryEntry) -> LibraryEntry:
         if self._anime_classifier is None or entry.category == "anime":
@@ -289,14 +325,15 @@ class TorBoxStrmSync:
 
     def _result(
         self,
-        scanned_files: int,
-        skipped_files: int,
+        counts: tuple[int, int],
         written_paths: list[Path],
         synced_files: list[SyncedStrmFile],
         manifest_entries: list[ResolverManifestEntry],
+        diagnostics: set[SyncDiagnostic],
         *,
         partial: bool = False,
     ) -> TorBoxStrmSyncResult:
+        scanned_files, skipped_files = counts
         manifest_path = None
         if manifest_entries:
             manifest_path = write_manifest_entries(self._library_root, manifest_entries)
@@ -309,7 +346,36 @@ class TorBoxStrmSync:
             synced_files=tuple(synced_files),
             manifest_path=manifest_path,
             partial=partial,
+            diagnostics=tuple(
+                sorted(
+                    diagnostics,
+                    key=lambda diagnostic: (
+                        diagnostic.phase,
+                        diagnostic.item_ref or "",
+                        diagnostic.message,
+                    ),
+                )
+            ),
         )
+
+
+def _no_match_diagnostic(title: str) -> SyncDiagnostic:
+    return SyncDiagnostic(
+        phase="metadata_match",
+        item_ref=title,
+        message=(
+            "No confident TMDB match was found. The existing library item was preserved; "
+            "set its TMDB ID manually if the title remains unmatched."
+        ),
+    )
+
+
+def _provider_error_diagnostic(title: str) -> SyncDiagnostic:
+    return SyncDiagnostic(
+        phase="metadata_provider",
+        item_ref=title,
+        message="TMDB lookup failed. The item was skipped and existing library state was preserved.",
+    )
 
 
 def _synced_file(  # noqa: PLR0913
@@ -320,6 +386,8 @@ def _synced_file(  # noqa: PLR0913
     info_hash: str | None = None,
     tmdb_id: str | None = None,
     tmdb_poster_path: str | None = None,
+    source_title: str = "",
+    identity: MediaIdentity | None = None,
 ) -> SyncedStrmFile:
     return SyncedStrmFile(
         path=path,
@@ -341,6 +409,12 @@ def _synced_file(  # noqa: PLR0913
         content_hash=hashlib.sha256(entry.resolver_url.encode("utf-8")).hexdigest(),
         tmdb_id=tmdb_id,
         tmdb_poster_path=tmdb_poster_path,
+        source_title=source_title or entry.title,
+        identity_authority=(
+            identity.authority if identity is not None else IdentityAuthority.FALLBACK
+        ),
+        identity_confidence=identity.confidence if identity is not None else None,
+        identity_resolver_version=(identity.resolver_version if identity is not None else None),
     )
 
 
@@ -363,7 +437,7 @@ def _category_from_identity(entry: LibraryEntry, media_type: str) -> LibraryCate
 
 def _entry_with_identity(entry: LibraryEntry, identity: MediaIdentity) -> LibraryEntry:
     return LibraryEntry(
-        category=_category_from_identity(entry, identity.media_type),
+        category=identity.library_category or _category_from_identity(entry, identity.media_type),
         title=identity.title,
         year=identity.year,
         season_number=entry.season_number,

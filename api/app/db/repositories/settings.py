@@ -180,7 +180,7 @@ class AppSettingsRepository:
                 "base_url",
                 update.aiostreams_base_url,
             )
-        await self._session.commit()
+        await self._session.flush()
         return await self.snapshot_with_env()
 
     async def clear_saved_setup(self) -> SettingsSnapshot:
@@ -204,7 +204,7 @@ class AppSettingsRepository:
             )
         )
         _ = await self._session.execute(delete(ResolverToken))
-        await self._session.commit()
+        await self._session.flush()
         return await self.snapshot_with_env()
 
     async def provider_api_key(self, provider: ProviderName) -> str | None:
