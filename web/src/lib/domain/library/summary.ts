@@ -39,6 +39,16 @@ export interface LibrarySummary {
   duplicate_groups: LibraryDuplicateGroup[];
 }
 
+export interface LibraryEntryPage {
+  entries: LibraryEntry[];
+  limit: number;
+  total: number | null;
+  has_more: boolean;
+  next_cursor: string | null;
+  total_files: number | null;
+  category_counts: Record<LibraryCategory, number> | null;
+}
+
 export interface LibraryValidationIssue {
   code: string;
   message: string;
@@ -54,6 +64,11 @@ export interface LibraryValidation {
   category_counts: Record<LibraryCategory, number>;
   warnings: LibraryValidationIssue[];
   errors: LibraryValidationIssue[];
+}
+
+export interface LibraryDiagnostics extends LibraryValidation {
+  duplicate_groups: LibraryDuplicateGroup[];
+  duplicate_file_count: number;
 }
 
 export type SortKey = "title" | "category" | "relative_path";

@@ -290,6 +290,12 @@ class MediaItem(Base):
             name="ck_media_items_year",
         ),
         Index("ix_media_items_kind_title", "content_kind", "title"),
+        Index("ix_media_items_title_lower", text("lower(title)"), "id"),
+        Index(
+            "ix_media_items_title_trgm",
+            text("lower(title) gin_trgm_ops"),
+            postgresql_using="gin",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -461,6 +467,7 @@ class LibraryEntry(Base):
         UniqueConstraint("opaque_id", name="uq_library_entries_opaque_id"),
         UniqueConstraint("torbox_file_id", name="uq_library_entries_torbox_file_id"),
         Index("ix_library_entries_category", "category"),
+        Index("ix_library_entries_media_category", "media_item_id", "category"),
         Index("ix_library_entries_info_hash", "info_hash"),
         CheckConstraint(
             "category IN ('movies', 'shows', 'anime')",
@@ -529,6 +536,11 @@ class GeneratedFile(Base):
     __table_args__ = (
         UniqueConstraint("relative_path", name="uq_generated_files_relative_path"),
         Index("ix_generated_files_library_entry_id", "library_entry_id"),
+        Index(
+            "ix_generated_files_path_trgm",
+            text("lower(relative_path) gin_trgm_ops"),
+            postgresql_using="gin",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

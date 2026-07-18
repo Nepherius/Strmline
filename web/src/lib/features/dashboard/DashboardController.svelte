@@ -6,13 +6,14 @@
   import {
     deleteClassificationOverride,
     loadClassificationOverrides,
-    loadLibrarySummary,
-    loadLibraryValidation,
+    loadLibraryDiagnostics,
+    loadLibraryEntries,
     removeLibraryEntry,
     refreshLibraryEntryMetadata,
     saveClassificationOverride,
     updateLibraryEntryTmdbId,
     type ClassificationOverride,
+    type LibraryPageRequest,
   } from "$lib/api/library";
   import { loadSetupStatus } from "$lib/api/setup";
   import { loadWatchlist, removeTitleFromWatchlist, type WatchlistItem } from "$lib/api/watchlist";
@@ -25,14 +26,13 @@
   } from "$lib/api/sync";
   import {
     categoryLabels,
-    duplicateFileCount,
     filterFiles,
     sortFiles,
     type LibraryCategory,
     type LibraryDisplayCategory,
+    type LibraryDuplicateGroup,
     type LibraryEntry,
     type LibraryFile,
-    type LibrarySummary,
     type LibraryValidation,
     type SortDirection,
     type SortKey,
@@ -56,18 +56,37 @@
     "anime",
     "watchlist",
   ];
+  const pageSize = 50;
 
   let category: LibraryDisplayCategory | "all" = "all";
   let query = "";
   let sortKey: SortKey = "title";
   let sortDirection: SortDirection = "asc";
-  let summary: LibrarySummary | null = null;
+  let libraryEntries: LibraryEntry[] = [];
+  let libraryLoaded = false;
+  let loadingEntries = false;
+  let loadingMoreEntries = false;
+  let totalLibraryMatches = 0;
+  let totalFiles = 0;
+  let categoryCounts: Record<LibraryCategory, number> = {
+    movies: 0,
+    shows: 0,
+    anime: 0,
+  };
+  let hasMoreEntries = false;
+  let nextCursor: string | null = null;
+  let pageKey = "";
+  let requestSequence = 0;
+  let reloadTimer: ReturnType<typeof setTimeout> | undefined;
+  let diagnosticsTimer: ReturnType<typeof setTimeout> | undefined;
   let loading = false;
   let syncing = false;
   let error = "";
   let syncResult: SyncRunResult | null = null;
   let syncStatus: SyncStatus | null = null;
   let validation: LibraryValidation | null = null;
+  let duplicateGroups: LibraryDuplicateGroup[] = [];
+  let duplicateCount = 0;
   let classificationOverrides: ClassificationOverride[] = [];
   let watchlistItems: WatchlistItem[] = [];
   let pendingClassificationKey = "";
@@ -76,16 +95,30 @@
   let updatingTmdbKey = "";
   let dismissingErrorId: number | null = null;
 
-  $: allEntries = summary
-    ? [...summary.entries, ...watchlistItems.map(watchlistEntry)]
-    : watchlistItems.map(watchlistEntry);
-  $: visibleEntries = summary
-    ? sortFiles(filterFiles(allEntries, query, category), sortKey, sortDirection)
-    : [];
-  $: duplicateCount = summary ? duplicateFileCount(summary) : 0;
+  $: watchlistEntries = filterFiles(
+    watchlistItems.map(watchlistEntry),
+    query,
+    category === "watchlist" ? "watchlist" : "all",
+  );
+  $: visibleEntries =
+    category === "watchlist"
+      ? sortFiles(watchlistEntries, sortKey, sortDirection)
+      : category === "all"
+        ? sortFiles([...libraryEntries, ...watchlistEntries], sortKey, sortDirection)
+        : libraryEntries;
+  $: displayedTitleCount =
+    category === "watchlist"
+      ? watchlistEntries.length
+      : totalLibraryMatches + (category === "all" ? watchlistEntries.length : 0);
+  $: pageKey = [query.trim(), category, sortKey, sortDirection].join("\u0000");
 
   onMount(() => {
     void routeToSetupOrLoadDashboard();
+    return () => {
+      if (reloadTimer) clearTimeout(reloadTimer);
+      if (diagnosticsTimer) clearTimeout(diagnosticsTimer);
+      requestSequence += 1;
+    };
   });
 
   async function routeToSetupOrLoadDashboard() {
@@ -110,24 +143,119 @@
     loading = true;
     error = "";
     try {
-      const [nextSummary, nextValidation, nextSyncStatus, nextOverrides, nextWatchlist] =
-        await Promise.all([
-          loadLibrarySummary(),
-          loadLibraryValidation(),
-          loadSyncStatus(),
-          loadClassificationOverrides(),
-          loadWatchlist(),
-        ]);
-      summary = nextSummary;
-      validation = nextValidation;
+      const [nextPage, nextSyncStatus, nextOverrides, nextWatchlist] = await Promise.all([
+        loadLibraryEntries(libraryPageRequest(null)),
+        loadSyncStatus(),
+        loadClassificationOverrides(),
+        loadWatchlist(),
+      ]);
+      applyLibraryPage(nextPage, false);
       syncStatus = nextSyncStatus;
       classificationOverrides = nextOverrides;
       watchlistItems = nextWatchlist;
+      libraryLoaded = true;
+      scheduleDiagnosticsLoad();
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
       error = `Dashboard unavailable. ${message}`;
     } finally {
       loading = false;
+    }
+  }
+
+  function libraryPageRequest(cursor: string | null): LibraryPageRequest {
+    return {
+      ...(cursor === null ? {} : { cursor }),
+      limit: pageSize,
+      ...(category === "movies" || category === "shows" || category === "anime"
+        ? { category }
+        : {}),
+      query: query.trim(),
+      sortKey,
+      direction: sortDirection,
+      includeOverview: cursor === null,
+    };
+  }
+
+  function applyLibraryPage(page: Awaited<ReturnType<typeof loadLibraryEntries>>, append: boolean) {
+    libraryEntries = append ? [...libraryEntries, ...page.entries] : page.entries;
+    if (page.total !== null) totalLibraryMatches = page.total;
+    if (page.total_files !== null) totalFiles = page.total_files;
+    if (page.category_counts !== null) categoryCounts = page.category_counts;
+    hasMoreEntries = page.has_more;
+    nextCursor = page.next_cursor;
+  }
+
+  function scheduleLibraryReload() {
+    if (!libraryLoaded) return;
+    if (reloadTimer) clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(() => {
+      void loadFirstLibraryPage();
+    }, 250);
+  }
+
+  async function loadFirstLibraryPage() {
+    const requestedKey = pageKey;
+    if (category === "watchlist") {
+      libraryEntries = [];
+      totalLibraryMatches = 0;
+      hasMoreEntries = false;
+      nextCursor = null;
+      return;
+    }
+    const requestId = ++requestSequence;
+    loadingEntries = true;
+    try {
+      const page = await loadLibraryEntries(libraryPageRequest(null));
+      if (requestId !== requestSequence || requestedKey !== pageKey) return;
+      applyLibraryPage(page, false);
+    } catch (caughtError) {
+      if (requestId !== requestSequence) return;
+      error = caughtError instanceof Error ? caughtError.message : "Library search failed.";
+    } finally {
+      if (requestId === requestSequence) loadingEntries = false;
+    }
+  }
+
+  async function loadMoreLibraryEntries() {
+    if (
+      loadingEntries ||
+      loadingMoreEntries ||
+      !hasMoreEntries ||
+      nextCursor === null ||
+      category === "watchlist"
+    )
+      return;
+    const requestId = requestSequence;
+    const requestedKey = pageKey;
+    loadingMoreEntries = true;
+    try {
+      const page = await loadLibraryEntries(libraryPageRequest(nextCursor));
+      if (requestId !== requestSequence || requestedKey !== pageKey) return;
+      applyLibraryPage(page, true);
+    } catch (caughtError) {
+      if (requestId !== requestSequence) return;
+      error = caughtError instanceof Error ? caughtError.message : "More titles could not load.";
+    } finally {
+      if (requestId === requestSequence) loadingMoreEntries = false;
+    }
+  }
+
+  function scheduleDiagnosticsLoad() {
+    if (diagnosticsTimer) clearTimeout(diagnosticsTimer);
+    diagnosticsTimer = setTimeout(() => {
+      void loadDiagnostics();
+    }, 300);
+  }
+
+  async function loadDiagnostics() {
+    try {
+      const diagnostics = await loadLibraryDiagnostics();
+      validation = diagnostics;
+      duplicateGroups = diagnostics.duplicate_groups;
+      duplicateCount = diagnostics.duplicate_file_count;
+    } catch {
+      // Diagnostics are supplementary and must not block a large library from rendering.
     }
   }
 
@@ -149,10 +277,17 @@
   function sortBy(nextSortKey: SortKey) {
     if (sortKey === nextSortKey) {
       sortDirection = sortDirection === "asc" ? "desc" : "asc";
-      return;
+    } else {
+      sortKey = nextSortKey;
+      sortDirection = "asc";
     }
-    sortKey = nextSortKey;
-    sortDirection = "asc";
+    scheduleLibraryReload();
+  }
+
+  function selectCategory(nextCategory: LibraryDisplayCategory | "all") {
+    if (category === nextCategory) return;
+    category = nextCategory;
+    scheduleLibraryReload();
   }
 
   async function removeEntry(entry: LibraryEntry) {
@@ -461,12 +596,12 @@
 
   <SyncErrorsPanel errors={recentErrors} {dismissingErrorId} onDismiss={dismissRecentError} />
 
-  {#if summary}
+  {#if libraryLoaded}
     <MetricGrid ariaLabel="Library status" columns={6}>
-      <MetricCard label="Total files" value={summary.total_files} />
-      <MetricCard label="Movies" value={summary.category_counts.movies} />
-      <MetricCard label="Shows" value={summary.category_counts.shows} />
-      <MetricCard label="Anime" value={summary.category_counts.anime} />
+      <MetricCard label="Total files" value={totalFiles} />
+      <MetricCard label="Movies" value={categoryCounts.movies} />
+      <MetricCard label="Shows" value={categoryCounts.shows} />
+      <MetricCard label="Anime" value={categoryCounts.anime} />
       <MetricCard label="Watchlist" value={watchlistItems.length} />
       <MetricCard
         label="Duplicate files"
@@ -477,14 +612,19 @@
 
     <section class="workbench" aria-label="Generated library browser">
       <div class="filters">
-        <TextField bind:value={query} label="Search" placeholder="Title" />
+        <TextField
+          bind:value={query}
+          label="Search"
+          placeholder="Title"
+          onInput={scheduleLibraryReload}
+        />
         <div class="segments" aria-label="Category filter">
           {#each categories as item (item)}
             <button
               type="button"
               class:active={category === item}
               on:click={() => {
-                category = item;
+                selectCategory(item);
               }}
             >
               {item === "all" ? "All" : categoryLabels[item]}
@@ -496,7 +636,8 @@
       <div class="collection-heading">
         <div>
           <span>Collection</span>
-          <strong>{visibleEntries.length} titles</strong>
+          <strong>{displayedTitleCount} titles</strong>
+          <small>{visibleEntries.length} loaded</small>
         </div>
         <button
           type="button"
@@ -523,7 +664,14 @@
         onUpdateTmdb={updateEntryTmdbId}
         onRemoveWatchlist={removeWatchlistEntry}
         onSearchWatchlist={searchWatchlistEntry}
+        hasMore={hasMoreEntries && category !== "watchlist"}
+        loadingMore={loadingMoreEntries}
+        onNeedMore={loadMoreLibraryEntries}
       />
+
+      {#if loadingEntries}
+        <p class="page-loading" aria-live="polite">Loading titles…</p>
+      {/if}
 
       {#if validation && !validation.ok}
         <section class="curation" aria-label="Library checks">
@@ -544,9 +692,9 @@
         </section>
       {/if}
 
-      {#if summary.duplicate_groups.length > 0}
+      {#if duplicateGroups.length > 0}
         <DuplicateGroupsPanel
-          groups={summary.duplicate_groups.slice(0, 6)}
+          groups={duplicateGroups.slice(0, 6)}
           disabled={loading || syncing}
           removingKey={removingEntryKey}
           onHideFile={hideDuplicateFile}
@@ -732,6 +880,17 @@
   .collection-heading strong {
     color: #f8f5ed;
     font-size: 18px;
+  }
+
+  .collection-heading small,
+  .page-loading {
+    color: #aab9af;
+    font-size: 12px;
+  }
+
+  .page-loading {
+    margin: 12px 0;
+    text-align: center;
   }
 
   .collection-heading button {

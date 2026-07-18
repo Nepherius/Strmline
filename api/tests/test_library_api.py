@@ -7,7 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import library as library_api
 from app.db.models import MediaExternalIdentity, MediaItem
-from app.db.repositories.media_metadata import LibraryMediaRecord
+from app.db.repositories.media_metadata import (
+    LibraryMediaPage,
+    LibraryMediaRecord,
+    LibraryPageEntry,
+)
 
 
 def _record(tmdb_id: str | None = None) -> LibraryMediaRecord:
@@ -23,6 +27,58 @@ def _record(tmdb_id: str | None = None) -> LibraryMediaRecord:
             authoritative=True,
         )
     return LibraryMediaRecord(media_item=media_item, tmdb_identity=identity)
+
+
+@pytest.mark.asyncio
+async def test_library_entries_defaults_to_fifty_and_reports_more_pages(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeRepository:
+        def __init__(self, _session: AsyncSession) -> None:
+            pass
+
+        async def library_page(self, options: object) -> LibraryMediaPage:
+            assert options == library_api.LibraryPageOptions(
+                limit=50,
+                category=None,
+                query="",
+                sort_key="title",
+                direction="asc",
+                include_overview=True,
+                cursor=None,
+            )
+            return LibraryMediaPage(
+                entries=(
+                    LibraryPageEntry(
+                        media_item_id=1,
+                        title="First Movie",
+                        category="movies",
+                        relative_prefix="movies/First Movie",
+                        file_count=1,
+                        tmdb_id=None,
+                    ),
+                ),
+                next_cursor="next-page",
+                total_matches=1001,
+                total_files=5000,
+                category_counts={"movies": 501, "shows": 400, "anime": 100},
+            )
+
+    monkeypatch.setattr(library_api, "MediaMetadataRepository", FakeRepository)
+
+    response = await library_api.library_entries(
+        AsyncMock(spec=AsyncSession),
+        tmp_path,
+        library_api.LibraryEntryPageRequest(),
+    )
+
+    assert response.limit == 50
+    assert response.total == 1001
+    assert response.has_more is True
+    assert response.next_cursor == "next-page"
+    assert response.total_files == 5000
+    assert response.entries[0].title == "First Movie"
 
 
 @pytest.mark.asyncio

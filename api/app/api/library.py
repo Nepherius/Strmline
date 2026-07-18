@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from anyio.to_thread import run_sync
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -23,6 +23,8 @@ from app.db.repositories.library_exclusion import LibraryExclusionRepository
 from app.db.repositories.media_identity import AuthoritativeIdentityConflictError
 from app.db.repositories.media_metadata import (
     LibraryMediaRecord,
+    LibraryPageEntry,
+    LibraryPageOptions,
     MediaMetadataRepository,
 )
 from app.library.classification_override import (
@@ -90,6 +92,26 @@ class LibrarySummaryResponse(BaseModel):
     duplicate_groups: list[LibraryDuplicateGroupResponse]
 
 
+class LibraryEntryPageResponse(BaseModel):
+    entries: list[LibraryEntryResponse]
+    limit: int
+    total: int | None
+    has_more: bool
+    next_cursor: str | None
+    total_files: int | None
+    category_counts: dict[str, int] | None
+
+
+class LibraryEntryPageRequest(BaseModel):
+    limit: int = Field(default=50, ge=1, le=100)
+    category: Literal["movies", "shows", "anime"] | None = None
+    query: str = Field(default="", max_length=300)
+    sort_key: Literal["title", "category", "relative_path"] = "title"
+    direction: Literal["asc", "desc"] = "asc"
+    include_overview: bool = True
+    cursor: str | None = Field(default=None, max_length=1000)
+
+
 class LibraryValidationIssueResponse(BaseModel):
     code: str
     message: str
@@ -105,6 +127,11 @@ class LibraryValidationResponse(BaseModel):
     category_counts: dict[str, int]
     warnings: list[LibraryValidationIssueResponse]
     errors: list[LibraryValidationIssueResponse]
+
+
+class LibraryDiagnosticsResponse(LibraryValidationResponse):
+    duplicate_groups: list[LibraryDuplicateGroupResponse]
+    duplicate_file_count: int
 
 
 class LibraryRemoveRequest(BaseModel):
@@ -191,6 +218,38 @@ async def library_summary(
     )
 
 
+@router.get("/entries", response_model=LibraryEntryPageResponse)
+async def library_entries(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    library_root: Annotated[Path, Depends(get_library_root)],
+    request: Annotated[LibraryEntryPageRequest, Depends()],
+) -> LibraryEntryPageResponse:
+    try:
+        page = await MediaMetadataRepository(session).library_page(
+            LibraryPageOptions(
+                limit=request.limit,
+                category=request.category,
+                query=request.query,
+                sort_key=request.sort_key,
+                direction=request.direction,
+                include_overview=request.include_overview,
+                cursor=request.cursor,
+            )
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    entries = [_page_entry_response(entry, library_root) for entry in page.entries]
+    return LibraryEntryPageResponse(
+        entries=entries,
+        limit=request.limit,
+        total=page.total_matches,
+        has_more=page.next_cursor is not None,
+        next_cursor=page.next_cursor,
+        total_files=page.total_files,
+        category_counts=page.category_counts,
+    )
+
+
 @router.get("/validation", response_model=LibraryValidationResponse)
 async def library_validation(
     library_root: Annotated[Path, Depends(get_library_root)],
@@ -205,6 +264,25 @@ async def library_validation(
         category_counts=report.summary.category_counts,
         warnings=[_issue_response(issue) for issue in report.warnings],
         errors=[_issue_response(issue) for issue in report.errors],
+    )
+
+
+@router.get("/diagnostics", response_model=LibraryDiagnosticsResponse)
+async def library_diagnostics(
+    library_root: Annotated[Path, Depends(get_library_root)],
+) -> LibraryDiagnosticsResponse:
+    report = await _validate_library(library_root)
+    return LibraryDiagnosticsResponse(
+        configured=True,
+        root=str(report.summary.root),
+        exists=report.summary.exists,
+        ok=report.ok,
+        total_files=report.summary.total_files,
+        category_counts=report.summary.category_counts,
+        warnings=[_issue_response(issue) for issue in report.warnings],
+        errors=[_issue_response(issue) for issue in report.errors],
+        duplicate_groups=[_duplicate_response(group) for group in report.summary.duplicate_groups],
+        duplicate_file_count=sum(len(group.files) for group in report.summary.duplicate_groups),
     )
 
 
@@ -438,6 +516,23 @@ def _entry_response(
         poster_url=poster_url,
         tmdb_id=int(valid_tmdb_id) if valid_tmdb_id is not None else None,
         media_item_id=record.media_item.id if record is not None else None,
+    )
+
+
+def _page_entry_response(entry: LibraryPageEntry, library_root: Path) -> LibraryEntryResponse:
+    valid_tmdb_id = entry.tmdb_id if entry.tmdb_id and entry.tmdb_id.isdecimal() else None
+    poster_url = None
+    if valid_tmdb_id and poster_for_tmdb_id(library_root, valid_tmdb_id) is not None:
+        poster_url = f"/api/library/poster?media_item_id={entry.media_item_id}"
+    return LibraryEntryResponse(
+        key=entry.relative_prefix,
+        category=entry.category,
+        title=entry.title,
+        relative_path=entry.relative_prefix,
+        file_count=entry.file_count,
+        poster_url=poster_url,
+        tmdb_id=int(valid_tmdb_id) if valid_tmdb_id else None,
+        media_item_id=entry.media_item_id,
     )
 
 

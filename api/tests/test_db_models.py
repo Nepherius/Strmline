@@ -1,4 +1,8 @@
-from sqlalchemy import UniqueConstraint
+from typing import cast
+
+from sqlalchemy import Index, Table, UniqueConstraint
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.schema import CreateIndex
 
 from app.db.base import Base
 from app.db.models import (
@@ -130,6 +134,39 @@ def test_library_entries_reference_normalized_torbox_files() -> None:
     assert {"provider", "provider_item_id", "provider_file_id"}.isdisjoint(columns)
     assert "external_id" in set(TorBoxStoredFile.__table__.columns.keys())
     assert TorBoxStoredFile.library_entries.property.passive_deletes == "all"
+
+
+def test_library_browsing_indexes_cover_join_sort_and_substring_search() -> None:
+    tables = (
+        cast(Table, MediaItem.__table__),
+        cast(Table, LibraryEntry.__table__),
+        cast(Table, GeneratedFile.__table__),
+    )
+    indexes: dict[str, Index] = {}
+    for table in tables:
+        for index in table.indexes:
+            if index.name is not None:
+                indexes[index.name] = index
+
+    assert {
+        "ix_library_entries_media_category",
+        "ix_media_items_title_lower",
+        "ix_media_items_title_trgm",
+        "ix_generated_files_path_trgm",
+    } <= indexes.keys()
+    assert _index_ddl(indexes["ix_media_items_title_lower"]) == (
+        "CREATE INDEX ix_media_items_title_lower ON media_items (lower(title), id)"
+    )
+    assert "USING gin (lower(title) gin_trgm_ops)" in _index_ddl(
+        indexes["ix_media_items_title_trgm"]
+    )
+    assert "USING gin (lower(relative_path) gin_trgm_ops)" in _index_ddl(
+        indexes["ix_generated_files_path_trgm"]
+    )
+
+
+def _index_ddl(index: Index) -> str:
+    return str(CreateIndex(index).compile(dialect=postgresql.dialect()))
 
 
 def test_classification_overrides_are_keyed_by_source_prefix() -> None:

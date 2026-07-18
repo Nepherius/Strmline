@@ -8,6 +8,8 @@ from sqlalchemy.dialects import postgresql
 
 from app.db.models import MediaExternalIdentity, MediaItem
 from app.db.repositories.media_metadata import (
+    LibraryMediaPage,
+    LibraryPageOptions,
     MediaMetadataRepository,
     _path_matches_prefix,  # pyright: ignore[reportPrivateUsage]
     escape_like,
@@ -24,6 +26,10 @@ class FakeResult:
 
     def scalars(self) -> Iterator[object]:
         return (row[0] for row in self._rows)
+
+    def scalar_one(self) -> object:
+        assert len(self._rows) == 1
+        return self._rows[0][0]
 
 
 class FakeSession:
@@ -53,6 +59,121 @@ def _identity(media_item_id: int, external_id: str) -> MediaExternalIdentity:
         authority=IdentityAuthority.SEARCH_CONFIRMED.value,
         authoritative=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_library_page_returns_only_requested_titles_with_full_counts() -> None:
+    repository = MediaMetadataRepository(
+        FakeSession(
+            [
+                FakeResult(
+                    [
+                        ("movies", 1500, 1500),
+                        ("shows", 900, 7200),
+                    ]
+                ),
+                FakeResult([(2400,)]),
+                FakeResult(
+                    [
+                        (
+                            1,
+                            "A Movie",
+                            "movies",
+                            1,
+                            "movies/A Movie/A Movie.strm",
+                            "11",
+                            "a movie",
+                        ),
+                        (
+                            2,
+                            "A Show",
+                            "shows",
+                            8,
+                            "shows/A Show/Season 01/A Show - S01E01.strm",
+                            "22",
+                            "a show",
+                        ),
+                    ]
+                ),
+            ]
+        )  # type: ignore[arg-type]
+    )
+
+    page = await repository.library_page(
+        LibraryPageOptions(
+            limit=50,
+            category=None,
+            query="a",
+            sort_key="title",
+            direction="asc",
+            include_overview=True,
+            cursor=None,
+        )
+    )
+
+    assert isinstance(page, LibraryMediaPage)
+    assert page.total_matches == 2400
+    assert page.total_files == 8700
+    assert page.category_counts == {"movies": 1500, "shows": 900, "anime": 0}
+    assert [entry.relative_prefix for entry in page.entries] == [
+        "movies/A Movie",
+        "shows/A Show",
+    ]
+    assert page.entries[1].file_count == 8
+    assert page.entries[1].tmdb_id == "22"
+    assert page.next_cursor is None
+
+
+@pytest.mark.asyncio
+async def test_library_page_cursor_is_stable_and_bound_to_the_active_filter() -> None:
+    first_row = (1, "A Movie", "movies", 1, "movies/A Movie/A Movie.strm", "11", "a movie")
+    second_row = (2, "A Show", "shows", 8, "shows/A Show/S01E01.strm", "22", "a show")
+    options = LibraryPageOptions(
+        limit=1,
+        category=None,
+        query="a",
+        sort_key="title",
+        direction="asc",
+        include_overview=False,
+        cursor=None,
+    )
+    first_page = await MediaMetadataRepository(
+        FakeSession([FakeResult([first_row, second_row])])  # type: ignore[arg-type]
+    ).library_page(options)
+
+    assert [entry.title for entry in first_page.entries] == ["A Movie"]
+    assert first_page.next_cursor is not None
+    assert first_page.total_matches is None
+
+    second_page = await MediaMetadataRepository(
+        FakeSession([FakeResult([second_row])])  # type: ignore[arg-type]
+    ).library_page(
+        LibraryPageOptions(
+            limit=1,
+            category=None,
+            query="a",
+            sort_key="title",
+            direction="asc",
+            include_overview=False,
+            cursor=first_page.next_cursor,
+        )
+    )
+
+    assert [entry.title for entry in second_page.entries] == ["A Show"]
+    assert second_page.next_cursor is None
+
+    with pytest.raises(ValueError, match="current filters and sort"):
+        await MediaMetadataRepository(FakeSession([])).library_page(  # type: ignore[arg-type]
+            LibraryPageOptions(
+                limit=1,
+                category=None,
+                query="different search",
+                sort_key="title",
+                direction="asc",
+                include_overview=False,
+                cursor=first_page.next_cursor,
+            )
+        )
 
 
 @pytest.mark.asyncio

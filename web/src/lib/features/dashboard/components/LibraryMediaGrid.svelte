@@ -24,6 +24,9 @@
   export let onUpdateTmdb: (entry: LibraryEntry, tmdbId: number) => Promise<void>;
   export let onRemoveWatchlist: (entry: LibraryEntry) => Promise<void>;
   export let onSearchWatchlist: (entry: LibraryEntry) => void;
+  export let hasMore = false;
+  export let loadingMore = false;
+  export let onNeedMore: () => Promise<void>;
 
   let loadedPosters: Record<string, boolean> = {};
   let failedPosters: Record<string, boolean> = {};
@@ -40,6 +43,8 @@
   const maxConcurrentPosterLoads = 4;
   let activePosterLoads = 0;
   let posterObserver: IntersectionObserver | undefined;
+  let loadMoreObserver: IntersectionObserver | undefined;
+  let loadMoreTarget: HTMLElement | undefined;
 
   onMount(() => {
     posterObserver = new IntersectionObserver(
@@ -60,7 +65,19 @@
     for (const target of posterTargets.keys()) {
       posterObserver.observe(target);
     }
-    return () => posterObserver?.disconnect();
+    loadMoreObserver = new IntersectionObserver(
+      (observedEntries) => {
+        if (observedEntries.some((entry) => entry.isIntersecting) && hasMore && !loadingMore) {
+          void onNeedMore();
+        }
+      },
+      { rootMargin: "800px 0px" },
+    );
+    if (loadMoreTarget) loadMoreObserver.observe(loadMoreTarget);
+    return () => {
+      posterObserver?.disconnect();
+      loadMoreObserver?.disconnect();
+    };
   });
 
   function classificationOverride(entry: LibraryEntry): ClassificationOverride | null {
@@ -84,6 +101,17 @@
         posterTargets.delete(node);
         posterObserver?.unobserve(node);
         posterLoadFinished(entry.key);
+      },
+    };
+  }
+
+  function observeLoadMore(node: HTMLElement): { destroy: () => void } {
+    loadMoreTarget = node;
+    loadMoreObserver?.observe(node);
+    return {
+      destroy: () => {
+        loadMoreObserver?.unobserve(node);
+        if (loadMoreTarget === node) loadMoreTarget = undefined;
       },
     };
   }
@@ -193,6 +221,14 @@
   {/each}
 </section>
 
+{#if hasMore}
+  <div class="load-more" use:observeLoadMore>
+    <button type="button" disabled={loadingMore} on:click={onNeedMore}>
+      {loadingMore ? "Loading more titles…" : "Load more titles"}
+    </button>
+  </div>
+{/if}
+
 {#if selectedEntry}
   <LibraryEntryDialog
     entry={selectedEntry}
@@ -224,6 +260,28 @@
 
   article {
     min-width: 0;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 310px;
+  }
+
+  .load-more {
+    display: grid;
+    min-height: 72px;
+    place-items: center;
+  }
+
+  .load-more button {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 16px;
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .load-more button:disabled {
+    cursor: wait;
+    opacity: 0.7;
   }
 
   .entry-select {

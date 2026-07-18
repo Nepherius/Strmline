@@ -8,13 +8,23 @@
   export let type = "text";
   export let autocomplete: "off" | "on" | undefined = undefined;
   export let disabled = false;
+  export let onInput: (value: string) => void = () => undefined;
 </script>
 
 <label>
   <span class="label-row"
     >{label}{#if helpText}<HelpTooltip text={helpText} label={`About ${label}`} />{/if}</span
   >
-  <input bind:value {placeholder} {type} {autocomplete} {disabled} />
+  <input
+    bind:value
+    {placeholder}
+    {type}
+    {autocomplete}
+    {disabled}
+    on:input={() => {
+      onInput(value);
+    }}
+  />
 </label>
 
 <style>

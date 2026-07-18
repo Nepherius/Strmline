@@ -1,9 +1,21 @@
 import { fetchJson, fetchNoContent } from "$lib/api/client";
 import type {
   LibraryCategory,
+  LibraryDiagnostics,
+  LibraryEntryPage,
   LibrarySummary,
   LibraryValidation,
 } from "$lib/domain/library/summary";
+
+export interface LibraryPageRequest {
+  cursor?: string;
+  limit?: number;
+  category?: LibraryCategory;
+  query?: string;
+  sortKey?: "title" | "category" | "relative_path";
+  direction?: "asc" | "desc";
+  includeOverview?: boolean;
+}
 
 export interface ClassificationOverride {
   source_category: LibraryCategory;
@@ -67,8 +79,25 @@ export function loadLibrarySummary(): Promise<LibrarySummary> {
   return fetchJson<LibrarySummary>("/api/library/summary");
 }
 
+export function loadLibraryEntries(request: LibraryPageRequest = {}): Promise<LibraryEntryPage> {
+  const params = new URLSearchParams({
+    limit: String(request.limit ?? 50),
+    query: request.query ?? "",
+    sort_key: request.sortKey ?? "title",
+    direction: request.direction ?? "asc",
+    include_overview: String(request.includeOverview ?? true),
+  });
+  if (request.cursor) params.set("cursor", request.cursor);
+  if (request.category) params.set("category", request.category);
+  return fetchJson<LibraryEntryPage>(`/api/library/entries?${params.toString()}`);
+}
+
 export function loadLibraryValidation(): Promise<LibraryValidation> {
   return fetchJson<LibraryValidation>("/api/library/validation");
+}
+
+export function loadLibraryDiagnostics(): Promise<LibraryDiagnostics> {
+  return fetchJson<LibraryDiagnostics>("/api/library/diagnostics");
 }
 
 export function loadClassificationOverrides(): Promise<ClassificationOverride[]> {

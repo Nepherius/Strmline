@@ -1,0 +1,19 @@
+{
+  "extends": "./api/pyrightconfig.json",
+  "include": ["api/app", "api/tests"],
+  "exclude": [
+    "**/node_modules",
+    "**/.*",
+    "**/__pycache__",
+    "api/.venv",
+    "api/alembic/versions"
+  ],
+  "venvPath": "./api",
+  "venv": ".venv",
+  "executionEnvironments": [
+    {
+      "root": "./api",
+      "extraPaths": ["./api"]
+    }
+  ]
+}

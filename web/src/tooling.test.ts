@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import packageMetadata from "../package.json";
 
 import { fetchJson } from "./lib/api/client";
+import { loadLibraryEntries } from "./lib/api/library";
 import { APP_VERSION } from "./lib/appVersion";
 import { parseEpisodeTarget } from "./lib/domain/search/episodeTarget";
 import {
@@ -104,7 +105,6 @@ describe("library summary helpers", () => {
 
     expect(duplicateFileCount(summary)).toBe(2);
   });
-
 });
 
 describe("api helpers", () => {
@@ -142,6 +142,38 @@ describe("api helpers", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  it("requests only the first fifty library titles by default", async () => {
+    const originalFetch = globalThis.fetch;
+    let requestedPath = "";
+    globalThis.fetch = (input: RequestInfo | URL) => {
+      requestedPath = requestPath(input);
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            entries: [],
+            limit: 50,
+            total: 1000,
+            has_more: true,
+            next_cursor: "next-page",
+            total_files: 5000,
+            category_counts: { movies: 400, shows: 400, anime: 200 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    };
+    try {
+      await loadLibraryEntries();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    const request = new URL(requestedPath, "http://strmline.test");
+    expect(request.pathname).toBe("/api/library/entries");
+    expect(request.searchParams.has("cursor")).toBe(false);
+    expect(request.searchParams.get("limit")).toBe("50");
+    expect(request.searchParams.get("include_overview")).toBe("true");
   });
 
   it("builds TorBox test payloads from typed keys", () => {
