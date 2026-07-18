@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.repositories.media_identity import (
     AliasIdentityBinding,
+    MediaIdentityRepository,
     PersistedMediaIdentity,
     SourceIdentityBinding,
 )
-from app.db.repositories.media_identity_queries import MediaIdentityQueryRepository
 from app.db.repositories.stream_selection import StreamSelectionRecord, StreamSelectionRepository
 from app.domain.media_identity import (
     IdentityAuthority,
@@ -18,6 +18,13 @@ from app.domain.media_identity import (
     parse_library_category,
 )
 from app.sync.media_identity import MediaIdentity, MediaIdentityResolver
+
+
+@dataclass(frozen=True, slots=True)
+class IdentityInputs:
+    by_torrent_id: dict[str, MediaIdentity]
+    by_info_hash: dict[str, MediaIdentity]
+    by_alias: dict[tuple[str, str], MediaIdentity]
 
 
 async def selected_media_identities(
@@ -49,15 +56,13 @@ async def identity_inputs(
     selection_repository: StreamSelectionRepository,
     selected_streams: tuple[StreamSelectionRecord, ...],
     resolver: MediaIdentityResolver,
-) -> tuple[
-    dict[str, MediaIdentity], dict[str, MediaIdentity], dict[tuple[str, str], MediaIdentity]
-]:
+) -> IdentityInputs:
     by_torrent_id, by_info_hash = await selected_media_identities(
         selection_repository,
         selected_streams,
         resolver,
     )
-    identity_repository = MediaIdentityQueryRepository(session)
+    identity_repository = MediaIdentityRepository(session)
     merge_source_bindings(
         by_torrent_id,
         by_info_hash,
@@ -70,10 +75,10 @@ async def identity_inputs(
         by_info_hash,
         by_alias,
     )
-    return (
-        by_torrent_id,
-        by_info_hash,
-        by_alias,
+    return IdentityInputs(
+        by_torrent_id=by_torrent_id,
+        by_info_hash=by_info_hash,
+        by_alias=by_alias,
     )
 
 
@@ -184,8 +189,7 @@ def alias_identities(
     identities: dict[tuple[str, str], MediaIdentity] = {}
     for key, key_candidates in candidates.items():
         highest_priority = max(
-            identity_authority_priority(identity.authority)
-            for _, identity in key_candidates
+            identity_authority_priority(identity.authority) for _, identity in key_candidates
         )
         winners = [
             (owner, identity)

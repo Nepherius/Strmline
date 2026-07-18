@@ -17,7 +17,13 @@
   import { parseEpisodeTarget } from "$lib/domain/search/episodeTarget";
   import { sortStreamResults } from "$lib/domain/search/streamSort";
   import { watchlistCleanupTarget } from "$lib/domain/watchlist";
-  import SearchView from "./SearchView.svelte";
+  import AppShell from "$lib/components/ui/AppShell.svelte";
+  import AppNavigation from "$lib/components/ui/AppNavigation.svelte";
+  import Notice from "$lib/components/ui/Notice.svelte";
+  import PageHeader from "$lib/components/ui/PageHeader.svelte";
+  import UiLink from "$lib/components/ui/UiLink.svelte";
+  import StreamResultsView from "./components/StreamResultsView.svelte";
+  import TitleSearchView from "./components/TitleSearchView.svelte";
 
   let mode: "title" | "streams" = "title";
   let aiostreamsConfigured = false;
@@ -331,32 +337,88 @@
   }
 </script>
 
-<SearchView
-  {mode}
-  {aiostreamsConfigured}
-  {tmdbConfigured}
-  {loadingSettings}
-  bind:query
-  {searchingTitles}
-  {titleResults}
-  {lastSubmittedQuery}
-  {selectedTitle}
-  watchlisted={selectedWatchlistItem !== null}
-  {watchlistPending}
-  {watchlistMessage}
-  {watchlistMessageVariant}
-  {searchingStreams}
-  {searchingEpisodeStreams}
-  {streamResults}
-  {pendingStreamKeys}
-  {streamActionMessage}
-  {error}
-  onSearch={handleTitleSearch}
-  onSelectTitle={handleSelectTitle}
-  onStreamFilterChange={handleStreamFilterChange}
-  onAddStream={handleAddStream}
-  onRemoveStream={handleRemoveStream}
-  onAddToWatchlist={handleAddToWatchlist}
-  onRemoveFromWatchlist={handleRemoveFromWatchlist}
-  onBack={handleBackToSearch}
-/>
+<svelte:head>
+  <title>Search — Strmline</title>
+</svelte:head>
+
+<AppShell>
+  <PageHeader ariaLabel="Search navigation" title="Discover content">
+    <svelte:fragment slot="actions">
+      <AppNavigation />
+    </svelte:fragment>
+  </PageHeader>
+
+  {#if loadingSettings}
+    <div class="loading-state">
+      <div class="spinner"></div>
+      <p>Loading configuration...</p>
+    </div>
+  {:else if !aiostreamsConfigured}
+    <Notice variant="error">
+      AIOStreams is not configured. Please go to the
+      <UiLink href="/setup">Setup page</UiLink>
+      to configure AIOStreams before searching.
+    </Notice>
+  {:else if mode === "title"}
+    <TitleSearchView
+      bind:query
+      {searchingTitles}
+      {titleResults}
+      {lastSubmittedQuery}
+      {tmdbConfigured}
+      {error}
+      onSearch={handleTitleSearch}
+      onSelectTitle={handleSelectTitle}
+    />
+  {:else if mode === "streams" && selectedTitle}
+    <StreamResultsView
+      {selectedTitle}
+      watchlisted={selectedWatchlistItem !== null}
+      {watchlistPending}
+      {watchlistMessage}
+      {watchlistMessageVariant}
+      {searchingStreams}
+      {searchingEpisodeStreams}
+      {streamResults}
+      {pendingStreamKeys}
+      {streamActionMessage}
+      {error}
+      onStreamFilterChange={handleStreamFilterChange}
+      onAddStream={handleAddStream}
+      onRemoveStream={handleRemoveStream}
+      onAddToWatchlist={handleAddToWatchlist}
+      onRemoveFromWatchlist={handleRemoveFromWatchlist}
+      onBack={handleBackToSearch}
+    />
+  {/if}
+</AppShell>
+
+<style>
+  .loading-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 64px 0;
+    color: var(--text-muted);
+  }
+
+  .spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--border);
+    border-top: 3px solid var(--accent-strong);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 16px;
+  }
+
+  @keyframes spin {
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
+  }
+</style>

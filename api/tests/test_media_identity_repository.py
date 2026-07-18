@@ -8,8 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import MediaExternalIdentity, MediaItem, SourceMediaBinding
 from app.db.repositories import media_identity as identity_module
-from app.db.repositories.media_identity import MediaIdentityWrite
-from app.db.repositories.media_identity_queries import MediaIdentityQueryRepository
+from app.db.repositories.media_identity import MediaIdentityRepository, MediaIdentityWrite
 from app.domain.media_identity import (
     ContentKind,
     IdentityAuthority,
@@ -268,7 +267,7 @@ async def test_repository_reads_source_and_alias_bindings() -> None:
             FakeResult(rows=[(alias, media_item, external_identity)]),
         ]
     )
-    repository = MediaIdentityQueryRepository(cast(AsyncSession, session))
+    repository = MediaIdentityRepository(cast(AsyncSession, session))
 
     source_records = await repository.source_bindings()
     alias_records = await repository.alias_bindings()

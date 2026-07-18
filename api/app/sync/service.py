@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,7 +33,7 @@ from app.sync.torbox_strm import ResolverUrlConfig, TorBoxStrmSync, TorBoxStrmSy
 
 
 class SyncAlreadyRunningError(RuntimeError):
-    """Raised when a sync run is already active in this process."""
+    """Raised when a sync run is already active."""
 
 
 class SyncConfigurationError(RuntimeError):
@@ -68,7 +67,6 @@ class _GeneratedSync:
     tmdb_api_key: str | None
 
 
-_SYNC_LOCK = asyncio.Lock()
 logger = logging.getLogger(__name__)
 
 
@@ -79,32 +77,12 @@ async def run_torbox_account_sync(
     source: SyncRunSource = "manual",
     client_factory: TorBoxClientFactory = TorBoxClient,
 ) -> SyncRunSummary:
-    if _SYNC_LOCK.locked():
-        msg = "A sync run is already in progress."
-        raise SyncAlreadyRunningError(msg)
-
-    async with _SYNC_LOCK:
-        return await _run_torbox_account_sync(
-            session,
-            settings,
-            source=source,
-            client_factory=client_factory,
-        )
-
-
-async def _run_torbox_account_sync(
-    session: AsyncSession,
-    settings: Settings,
-    *,
-    source: SyncRunSource,
-    client_factory: TorBoxClientFactory,
-) -> SyncRunSummary:
     logger.debug("Starting TorBox account sync from %s.", source)
     coordination = SyncCoordinationRepository(session)
     if not await coordination.try_lock():
         raise SyncAlreadyRunningError("A sync run is already in progress.")
     try:
-        return await _run_locked_torbox_account_sync(
+        return await _execute_sync(
             session,
             settings,
             source=source,
@@ -114,7 +92,7 @@ async def _run_torbox_account_sync(
         await coordination.release()
 
 
-async def _run_locked_torbox_account_sync(
+async def _execute_sync(
     session: AsyncSession,
     settings: Settings,
     *,
@@ -191,7 +169,9 @@ async def _run_locked_torbox_account_sync(
             skipped_count=result.skipped_files,
         )
         await session.commit()
-        raise SyncExecutionError("Sync persistence failed; generated files were restored.") from error
+        raise SyncExecutionError(
+            "Sync persistence failed; generated files were restored."
+        ) from error
     _remove_stale_sync_files(library_root, result, retained_paths)
     await _cache_missing_sync_posters(settings, library_root, result, generated.tmdb_api_key)
     logger.debug(
@@ -255,7 +235,7 @@ async def _generate_sync_files(  # noqa: PLR0913
         tmdb_api_key = await settings_repository.provider_api_key("tmdb")
         tmdb_service = _tmdb_service(session, settings, tmdb_api_key)
         identity_resolver = MediaIdentityResolver(tmdb_service)
-        selected_by_id, selected_by_hash, identity_by_alias = await _identity_inputs(
+        identities = await _identity_inputs(
             session,
             selections,
             selected_streams,
@@ -276,9 +256,7 @@ async def _generate_sync_files(  # noqa: PLR0913
             excluded_prefixes=excluded_prefixes,
             media_identity_resolver=identity_resolver,
             torrent_hashes=torrent_hashes,
-            selected_media_by_torrent_id=selected_by_id,
-            selected_media_by_info_hash=selected_by_hash,
-            media_identity_by_alias=identity_by_alias,
+            identity_inputs=identities,
         ).run()
     return _GeneratedSync(
         result=result,
@@ -302,6 +280,8 @@ def _tmdb_service(
             timeout_seconds=settings.outbound_timeout_seconds,
         ),
     )
+
+
 async def _cache_missing_sync_posters(
     settings: Settings,
     library_root: Path,

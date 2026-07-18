@@ -18,7 +18,6 @@ from app.db.repositories.media_identity import (
     MediaIdentityWrite,
     SourceBindingWrite,
 )
-from app.db.repositories.media_identity_queries import MediaIdentityQueryRepository
 from app.db.repositories.sync_coordination import SyncCoordinationRepository
 from app.db.repositories.sync_runs import SyncRunRepository
 from app.db.repositories.sync_state import SyncLibraryStateRepository
@@ -64,7 +63,7 @@ async def test_search_confirmed_identity_and_general_alias_survive_repeat_sync()
     try:
         async with factory() as session:
             repository = MediaIdentityRepository(session)
-            queries = MediaIdentityQueryRepository(session)
+            queries = MediaIdentityRepository(session)
             media_item = await repository.ensure_media(_write("900000001", title="Kaiju No. 8"))
             await repository.bind_sources(
                 media_item,
@@ -116,7 +115,7 @@ async def test_manual_tmdb_correction_survives_repeat_sync() -> None:
     try:
         async with factory() as session:
             repository = MediaIdentityRepository(session)
-            queries = MediaIdentityQueryRepository(session)
+            queries = MediaIdentityRepository(session)
             media_item = await repository.ensure_media(
                 _write(
                     "900000003",
@@ -298,9 +297,7 @@ async def test_repeat_sync_keeps_one_media_and_library_hierarchy(tmp_path: Path)
                 counts.append(count)
             assert tuple(counts) == (1, 1, 1, 2, 2)
             _ = await session.execute(
-                text(
-                    "TRUNCATE TABLE sync_runs, media_items, torbox_items RESTART IDENTITY CASCADE"
-                )
+                text("TRUNCATE TABLE sync_runs, media_items, torbox_items RESTART IDENTITY CASCADE")
             )
             await session.commit()
     finally:

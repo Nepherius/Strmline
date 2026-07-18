@@ -69,6 +69,7 @@ class FakeSettingsRepository:
                 "anime_enabled": True,
                 "playback_mode": "resolver",
                 "sync_interval_minutes": 360,
+                "debug_logging": False,
                 "torbox_configured": True,
                 "tmdb_configured": False,
                 "resolver_configured": True,

@@ -297,13 +297,10 @@ def _relative_generated_path(library_root: Path, path: Path) -> str:
     return safe_path.relative_to(library_root.resolve(strict=False)).as_posix()
 
 
-SyncStateRepository = SyncLibraryStateRepository
-
 __all__ = [
     "SyncErrorRecord",
     "SyncLibraryStateRepository",
     "SyncRunRecord",
     "SyncRunSource",
-    "SyncStateRepository",
     "SyncStatusSnapshot",
 ]

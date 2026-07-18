@@ -5,7 +5,7 @@ import pytest
 
 from app.providers.torbox.files import DownloadKind
 from app.sync.media_identity import MediaIdentity
-from app.sync.torbox_strm import DirectTorBoxStrmSync
+from app.sync.torbox_strm import TorBoxStrmSync
 
 
 class IdentityTorBoxClient:
@@ -71,7 +71,7 @@ class NoIdIdentityResolver:
 
 @pytest.mark.asyncio
 async def test_torbox_sync_uses_tmdb_tv_identity_for_episode_category(tmp_path: Path) -> None:
-    sync = DirectTorBoxStrmSync(
+    sync = TorBoxStrmSync(
         client=IdentityTorBoxClient(),
         api_key="test-token",
         torbox_base_url="https://api.torbox.app/v1/api",
@@ -88,7 +88,7 @@ async def test_torbox_sync_uses_tmdb_tv_identity_for_episode_category(tmp_path: 
 
 @pytest.mark.asyncio
 async def test_torbox_sync_uses_clean_fallback_identity_title_for_aliases(tmp_path: Path) -> None:
-    sync = DirectTorBoxStrmSync(
+    sync = TorBoxStrmSync(
         client=DuplicateAliasTorBoxClient(),
         api_key="test-token",
         torbox_base_url="https://api.torbox.app/v1/api",

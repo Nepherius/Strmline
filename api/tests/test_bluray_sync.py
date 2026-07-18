@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 
 from app.providers.torbox.files import DownloadKind
-from app.sync.torbox_strm import DirectTorBoxStrmSync
+from app.sync.torbox_strm import TorBoxStrmSync
 
 
 class BlurayTorBoxClient:
@@ -43,7 +43,7 @@ class BlurayTorBoxClient:
 
 @pytest.mark.asyncio
 async def test_bluray_sync_writes_one_feature_using_release_title(tmp_path: Path) -> None:
-    sync = DirectTorBoxStrmSync(
+    sync = TorBoxStrmSync(
         client=BlurayTorBoxClient(),
         api_key="test-token",
         torbox_base_url="https://api.torbox.app/v1/api",

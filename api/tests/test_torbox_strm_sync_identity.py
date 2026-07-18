@@ -3,8 +3,9 @@ from pathlib import Path
 import pytest
 
 from app.domain.media_identity import IdentityAuthority, ResolutionStatus
+from app.sync.identity_inputs import IdentityInputs
 from app.sync.media_identity import MediaIdentity
-from app.sync.torbox_strm import DirectTorBoxStrmSync
+from app.sync.torbox_strm import TorBoxStrmSync
 from tests.test_torbox_strm_sync import (
     AmbiguousShowTorBoxClient,
     BookwormAnimeCandidateTorBoxClient,
@@ -35,7 +36,7 @@ async def test_unmatched_titles_create_one_diagnostic_per_title(tmp_path: Path) 
                 status=ResolutionStatus.NO_MATCH,
             )
 
-    result = await DirectTorBoxStrmSync(
+    result = await TorBoxStrmSync(
         client=DuplicatePathTorBoxClient(),
         api_key="test-token",
         torbox_base_url="https://api.torbox.app/v1/api",
@@ -67,21 +68,25 @@ async def test_migrated_identity_without_external_id_is_retried_and_can_resolve(
                 media_type="movie",
             )
 
-    result = await DirectTorBoxStrmSync(
+    result = await TorBoxStrmSync(
         client=FakeTorBoxClient(),
         api_key="test-token",
         torbox_base_url="https://api.torbox.app/v1/api",
         library_root=tmp_path,
         media_identity_resolver=ResolvedIdentity(),
-        media_identity_by_alias={
-            ("movie", "movie name"): MediaIdentity(
-                tmdb_id=None,
-                title="Movie Name",
-                year=2024,
-                media_type="movie",
-                authority=IdentityAuthority.MIGRATED,
-            )
-        },
+        identity_inputs=IdentityInputs(
+            by_torrent_id={},
+            by_info_hash={},
+            by_alias={
+                ("movie", "movie name"): MediaIdentity(
+                    tmdb_id=None,
+                    title="Movie Name",
+                    year=2024,
+                    media_type="movie",
+                    authority=IdentityAuthority.MIGRATED,
+                )
+            },
+        ),
     ).run(kinds=("torrents",))
 
     assert result.synced_files[0].tmdb_id == "1234"
@@ -93,7 +98,7 @@ async def test_torbox_strm_sync_uses_pack_folder_title_for_bracketed_anime_relea
     tmp_path: Path,
 ) -> None:
     classifier = FakeAnimeClassifier(is_anime=True)
-    sync = DirectTorBoxStrmSync(
+    sync = TorBoxStrmSync(
         client=BookwormAnimeCandidateTorBoxClient(),
         api_key="test-token",
         torbox_base_url="https://api.torbox.app/v1/api",
@@ -120,21 +125,25 @@ async def test_persisted_classification_is_not_reclassified_during_sync(
     tmp_path: Path,
 ) -> None:
     classifier = FakeAnimeClassifier(is_anime=True)
-    sync = DirectTorBoxStrmSync(
+    sync = TorBoxStrmSync(
         client=AmbiguousShowTorBoxClient(),
         api_key="test-token",
         torbox_base_url="https://api.torbox.app/v1/api",
         library_root=tmp_path,
         anime_classifier=classifier,
-        selected_media_by_torrent_id={
-            "1": MediaIdentity(
-                tmdb_id="999001",
-                title="Vagabond",
-                year=2019,
-                media_type="tv",
-                library_category="shows",
-            )
-        },
+        identity_inputs=IdentityInputs(
+            by_torrent_id={
+                "1": MediaIdentity(
+                    tmdb_id="999001",
+                    title="Vagabond",
+                    year=2019,
+                    media_type="tv",
+                    library_category="shows",
+                )
+            },
+            by_info_hash={},
+            by_alias={},
+        ),
     )
 
     result = await sync.run(kinds=("torrents",))
@@ -170,21 +179,25 @@ async def test_torbox_strm_sync_groups_kaiju_alias_and_selected_season_under_one
             )
 
     resolver = KaijuAliasResolver()
-    sync = DirectTorBoxStrmSync(
+    sync = TorBoxStrmSync(
         client=SxxFolderAnimeCandidateTorBoxClient(),
         api_key="test-token",
         torbox_base_url="https://api.torbox.app/v1/api",
         library_root=tmp_path,
         anime_classifier=classifier,
-        selected_media_by_torrent_id={
-            "9": MediaIdentity(
-                tmdb_id="207468",
-                title="Kaiju No. 8",
-                year=2024,
-                media_type="tv",
-                poster_path="/kaiju.jpg",
-            )
-        },
+        identity_inputs=IdentityInputs(
+            by_torrent_id={
+                "9": MediaIdentity(
+                    tmdb_id="207468",
+                    title="Kaiju No. 8",
+                    year=2024,
+                    media_type="tv",
+                    poster_path="/kaiju.jpg",
+                )
+            },
+            by_info_hash={},
+            by_alias={},
+        ),
         media_identity_resolver=resolver,
     )
 
@@ -212,7 +225,7 @@ async def test_torbox_strm_sync_uses_folder_year_for_anime_classification(
     tmp_path: Path,
 ) -> None:
     classifier = FakeAnimeClassifier(is_anime=True)
-    sync = DirectTorBoxStrmSync(
+    sync = TorBoxStrmSync(
         client=FolderYearAnimeCandidateTorBoxClient(),
         api_key="test-token",
         torbox_base_url="https://api.torbox.app/v1/api",
@@ -236,7 +249,7 @@ async def test_torbox_strm_sync_defers_stale_deletion_until_database_commit(
     stale_path = tmp_path / "movies" / "Vagabond S01 E01 (2019)" / "Vagabond.strm"
     stale_path.parent.mkdir(parents=True)
     _ = stale_path.write_text("https://old.example/video\n", encoding="utf-8")
-    sync = DirectTorBoxStrmSync(
+    sync = TorBoxStrmSync(
         client=AmbiguousShowTorBoxClient(),
         api_key="test-token",
         torbox_base_url="https://api.torbox.app/v1/api",
@@ -252,7 +265,7 @@ async def test_torbox_strm_sync_defers_stale_deletion_until_database_commit(
 
 @pytest.mark.asyncio
 async def test_torbox_strm_sync_captures_hash_for_imported_torrent(tmp_path: Path) -> None:
-    sync = DirectTorBoxStrmSync(
+    sync = TorBoxStrmSync(
         client=HashedTorrentClient(),
         api_key="test-token",
         torbox_base_url="https://api.torbox.app/v1/api",

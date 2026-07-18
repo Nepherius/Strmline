@@ -6,6 +6,8 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 
 import pytest
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 
 from app.core.config import Settings
 from app.db.repositories.settings import SettingsSnapshot
@@ -15,7 +17,6 @@ from app.sync.scheduler import (
     SEASON_COMPLETION_JOB_ID,
     AsyncSessionFactory,
     AutoSyncScheduler,
-    SchedulerBackend,
     SyncRunner,
 )
 
@@ -33,7 +34,7 @@ class FakeSessionFactory:
         return FakeSessionContext()
 
 
-class FakeSchedulerBackend:
+class FakeScheduler:
     def __init__(self) -> None:
         self.running = False
         self.jobs: dict[str, dict[str, object]] = {}
@@ -42,63 +43,57 @@ class FakeSchedulerBackend:
     def start(self) -> None:
         self.running = True
 
-    def shutdown(self) -> None:
+    def shutdown(self, *, wait: bool = True) -> None:
+        _ = wait
         self.running = False
 
-    def schedule_auto_sync(
+    def add_job(
         self,
         job: Callable[[], Awaitable[None]],
         *,
-        interval_minutes: int,
+        trigger: IntervalTrigger,
         next_run_time: datetime,
-    ) -> None:
-        self.jobs[AUTO_SYNC_JOB_ID] = {
+        **options: object,
+    ) -> object:
+        job_id = options["id"]
+        assert isinstance(job_id, str)
+        self.jobs[job_id] = {
             "job": job,
-            "interval_minutes": interval_minutes,
+            "trigger": trigger,
             "next_run_time": next_run_time,
+            **options,
         }
+        return object()
 
-    def remove_auto_sync(self) -> None:
-        self.removed.append(AUTO_SYNC_JOB_ID)
-        _ = self.jobs.pop(AUTO_SYNC_JOB_ID, None)
+    def get_job(self, job_id: str) -> object | None:
+        return self.jobs.get(job_id)
 
-    def schedule_season_completion(
-        self,
-        job: Callable[[], Awaitable[None]],
-        *,
-        interval_days: int,
-        next_run_time: datetime,
-    ) -> None:
-        self.jobs[SEASON_COMPLETION_JOB_ID] = {
-            "job": job,
-            "interval_days": interval_days,
-            "next_run_time": next_run_time,
-        }
-
-    def remove_season_completion(self) -> None:
-        self.removed.append(SEASON_COMPLETION_JOB_ID)
-        _ = self.jobs.pop(SEASON_COMPLETION_JOB_ID, None)
+    def remove_job(self, job_id: str) -> None:
+        self.removed.append(job_id)
+        _ = self.jobs.pop(job_id, None)
 
 
 @pytest.mark.asyncio
 async def test_auto_sync_scheduler_uses_saved_interval(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    backend = FakeSchedulerBackend()
+    scheduler = FakeScheduler()
     snapshot = _settings_snapshot(sync_interval_minutes=5, torbox_configured=True)
     monkeypatch.setattr(scheduler_module, "AppSettingsRepository", _repository(snapshot))
 
     auto_sync = AutoSyncScheduler(
         session_factory=cast(AsyncSessionFactory, FakeSessionFactory()),
-        backend=cast(SchedulerBackend, backend),
+        scheduler=cast(AsyncIOScheduler, scheduler),
         settings_provider=Settings,
     )
 
     await auto_sync.start()
 
-    job = backend.jobs[AUTO_SYNC_JOB_ID]
-    assert backend.running is True
-    assert job["interval_minutes"] == 5
+    job = scheduler.jobs[AUTO_SYNC_JOB_ID]
+    assert scheduler.running is True
+    trigger = job["trigger"]
+    assert isinstance(trigger, IntervalTrigger)
+    assert trigger.interval == timedelta(minutes=5)  # pyright: ignore[reportUnknownMemberType]
     assert isinstance(job["next_run_time"], datetime)
 
 
@@ -106,21 +101,21 @@ async def test_auto_sync_scheduler_uses_saved_interval(
 async def test_auto_sync_scheduler_removes_job_without_torbox(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    backend = FakeSchedulerBackend()
-    backend.jobs[AUTO_SYNC_JOB_ID] = {"args": (), "kwargs": {}}
+    scheduler = FakeScheduler()
+    scheduler.jobs[AUTO_SYNC_JOB_ID] = {"args": (), "kwargs": {}}
     snapshot = _settings_snapshot(torbox_configured=False)
     monkeypatch.setattr(scheduler_module, "AppSettingsRepository", _repository(snapshot))
 
     auto_sync = AutoSyncScheduler(
         session_factory=cast(AsyncSessionFactory, FakeSessionFactory()),
-        backend=cast(SchedulerBackend, backend),
+        scheduler=cast(AsyncIOScheduler, scheduler),
         settings_provider=Settings,
     )
 
     await auto_sync.reschedule_from_settings()
 
-    assert AUTO_SYNC_JOB_ID not in backend.jobs
-    assert backend.removed == [AUTO_SYNC_JOB_ID, SEASON_COMPLETION_JOB_ID]
+    assert AUTO_SYNC_JOB_ID not in scheduler.jobs
+    assert scheduler.removed == [AUTO_SYNC_JOB_ID]
 
 
 @pytest.mark.asyncio
@@ -134,7 +129,7 @@ async def test_auto_sync_scheduler_runs_sync_with_auto_source() -> None:
 
     auto_sync = AutoSyncScheduler(
         session_factory=cast(AsyncSessionFactory, FakeSessionFactory()),
-        backend=cast(SchedulerBackend, FakeSchedulerBackend()),
+        scheduler=cast(AsyncIOScheduler, FakeScheduler()),
         settings_provider=Settings,
         sync_runner=cast(SyncRunner, fake_sync_runner),
     )
@@ -148,7 +143,7 @@ async def test_auto_sync_scheduler_runs_sync_with_auto_source() -> None:
 async def test_season_completion_runs_immediately_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    backend = FakeSchedulerBackend()
+    backend = FakeScheduler()
     snapshot = _settings_snapshot(
         season_auto_complete_enabled=True,
         season_auto_complete_interval_days=3,
@@ -158,13 +153,15 @@ async def test_season_completion_runs_immediately_when_enabled(
 
     scheduler = AutoSyncScheduler(
         session_factory=cast(AsyncSessionFactory, FakeSessionFactory()),
-        backend=cast(SchedulerBackend, backend),
+        scheduler=cast(AsyncIOScheduler, backend),
         settings_provider=Settings,
     )
     await scheduler.start()
 
     job = backend.jobs[SEASON_COMPLETION_JOB_ID]
-    assert job["interval_days"] == 3
+    trigger = job["trigger"]
+    assert isinstance(trigger, IntervalTrigger)
+    assert trigger.interval == timedelta(days=3)  # pyright: ignore[reportUnknownMemberType]
     next_run_time = job["next_run_time"]
     assert isinstance(next_run_time, datetime)
     assert next_run_time >= before
@@ -175,7 +172,7 @@ async def test_season_completion_runs_immediately_when_enabled(
 async def test_season_completion_remains_disabled_by_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    backend = FakeSchedulerBackend()
+    backend = FakeScheduler()
     monkeypatch.setattr(
         scheduler_module,
         "AppSettingsRepository",
@@ -183,7 +180,7 @@ async def test_season_completion_remains_disabled_by_default(
     )
     scheduler = AutoSyncScheduler(
         session_factory=cast(AsyncSessionFactory, FakeSessionFactory()),
-        backend=cast(SchedulerBackend, backend),
+        scheduler=cast(AsyncIOScheduler, backend),
         settings_provider=Settings,
     )
 

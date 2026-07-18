@@ -5,6 +5,7 @@ import secrets
 from dataclasses import dataclass
 from typing import Literal
 
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -50,23 +51,22 @@ class SettingsSnapshot:
     aiostreams_source: SettingSource | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class AppSettingsUpdate:
-    base_url: str | None = None
+class AppSettingsUpdate(BaseModel):
+    base_url: str | None = Field(default=None, min_length=1)
     movies_enabled: bool | None = None
     shows_enabled: bool | None = None
     anime_enabled: bool | None = None
     playback_mode: PlaybackMode | None = None
-    sync_interval_minutes: int | None = None
+    sync_interval_minutes: int | None = Field(default=None, ge=1)
     debug_logging: bool | None = None
     season_auto_complete_enabled: bool | None = None
-    season_auto_complete_interval_days: int | None = None
+    season_auto_complete_interval_days: int | None = Field(default=None, ge=1)
     season_auto_complete_allow_uncached: bool | None = None
-    season_auto_complete_shows_per_minute: int | None = None
-    torbox_api_key: str | None = None
-    tmdb_api_key: str | None = None
-    resolver_token: str | None = None
-    aiostreams_base_url: str | None = None
+    season_auto_complete_shows_per_minute: int | None = Field(default=None, ge=1, le=60)
+    torbox_api_key: str | None = Field(default=None, min_length=1)
+    tmdb_api_key: str | None = Field(default=None, min_length=1)
+    resolver_token: str | None = Field(default=None, min_length=1)
+    aiostreams_base_url: str | None = Field(default=None, min_length=1)
 
 
 class AppSettingsRepository:
@@ -106,47 +106,36 @@ class AppSettingsRepository:
                 if self._settings.playback_mode is not None
                 else _database_playback_mode(database_settings)
             ),
-            sync_interval_minutes=self._settings.sync_interval_minutes
-            if self._settings.sync_interval_minutes is not None
-            else _database_value(
+            sync_interval_minutes=_env_or_db(
+                self._settings.sync_interval_minutes,
                 database_settings,
                 "sync_interval_minutes",
                 default=DEFAULT_SYNC_INTERVAL_MINUTES,
             ),
             debug_logging=_database_value(database_settings, "debug_logging", default=False),
-            season_auto_complete_enabled=(
-                self._settings.season_auto_complete_enabled
-                if self._settings.season_auto_complete_enabled is not None
-                else _database_value(
-                    database_settings, "season_auto_complete_enabled", default=False
-                )
+            season_auto_complete_enabled=_env_or_db(
+                self._settings.season_auto_complete_enabled,
+                database_settings,
+                "season_auto_complete_enabled",
+                default=False,
             ),
-            season_auto_complete_interval_days=(
-                self._settings.season_auto_complete_interval_days
-                if self._settings.season_auto_complete_interval_days is not None
-                else _database_value(
-                    database_settings,
-                    "season_auto_complete_interval_days",
-                    default=DEFAULT_SEASON_AUTO_COMPLETE_INTERVAL_DAYS,
-                )
+            season_auto_complete_interval_days=_env_or_db(
+                self._settings.season_auto_complete_interval_days,
+                database_settings,
+                "season_auto_complete_interval_days",
+                default=DEFAULT_SEASON_AUTO_COMPLETE_INTERVAL_DAYS,
             ),
-            season_auto_complete_allow_uncached=(
-                self._settings.season_auto_complete_allow_uncached
-                if self._settings.season_auto_complete_allow_uncached is not None
-                else _database_value(
-                    database_settings,
-                    "season_auto_complete_allow_uncached",
-                    default=False,
-                )
+            season_auto_complete_allow_uncached=_env_or_db(
+                self._settings.season_auto_complete_allow_uncached,
+                database_settings,
+                "season_auto_complete_allow_uncached",
+                default=False,
             ),
-            season_auto_complete_shows_per_minute=(
-                self._settings.season_auto_complete_shows_per_minute
-                if self._settings.season_auto_complete_shows_per_minute is not None
-                else _database_value(
-                    database_settings,
-                    "season_auto_complete_shows_per_minute",
-                    default=DEFAULT_SEASON_AUTO_COMPLETE_SHOWS_PER_MINUTE,
-                )
+            season_auto_complete_shows_per_minute=_env_or_db(
+                self._settings.season_auto_complete_shows_per_minute,
+                database_settings,
+                "season_auto_complete_shows_per_minute",
+                default=DEFAULT_SEASON_AUTO_COMPLETE_SHOWS_PER_MINUTE,
             ),
             torbox_configured=torbox_source is not None,
             tmdb_configured=tmdb_source is not None,
@@ -367,6 +356,18 @@ def _database_value[SettingValue: (bool, int)](
         return default
     value = getattr(settings, field)
     return value if isinstance(value, type(default)) else default
+
+
+def _env_or_db[SettingValue: (bool, int)](
+    env_value: SettingValue | None,
+    settings: ApplicationSettings | None,
+    field: str,
+    *,
+    default: SettingValue,
+) -> SettingValue:
+    if env_value is not None:
+        return env_value
+    return _database_value(settings, field, default=default)
 
 
 def _database_playback_mode(settings: ApplicationSettings | None) -> PlaybackMode:

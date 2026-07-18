@@ -26,7 +26,7 @@ from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
 from app.providers.torbox.files import DOWNLOAD_KINDS, DownloadKind
 from app.sync.anime_classification import build_anilist_anime_classifier
 from app.sync.media_identity import MediaIdentityResolver
-from app.sync.torbox_strm import DirectTorBoxStrmSync, ResolverUrlConfig, TorBoxStrmSyncResult
+from app.sync.torbox_strm import ResolverUrlConfig, TorBoxStrmSync, TorBoxStrmSyncResult
 
 
 @dataclass(frozen=True, slots=True)
@@ -282,7 +282,7 @@ async def _run_sync(
                         )
                     identity_resolver = MediaIdentityResolver(tmdb_service)
 
-                    sync = DirectTorBoxStrmSync(
+                    sync = TorBoxStrmSync(
                         client=client,
                         api_key=context.api_key,
                         torbox_base_url=settings.torbox_base_url,
@@ -293,7 +293,7 @@ async def _run_sync(
                         media_identity_resolver=identity_resolver,
                     )
                     return await sync.run(kinds=options.kinds, max_files=options.max_files)
-            sync = DirectTorBoxStrmSync(
+            sync = TorBoxStrmSync(
                 client=client,
                 api_key=context.api_key,
                 torbox_base_url=settings.torbox_base_url,

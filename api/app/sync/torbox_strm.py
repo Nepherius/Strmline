@@ -30,6 +30,7 @@ from app.resolver.manifest import (
     resolver_playback_url,
     write_manifest_entries,
 )
+from app.sync.identity_inputs import IdentityInputs
 from app.sync.media_identity import MediaIdentity
 
 
@@ -124,9 +125,7 @@ class TorBoxStrmSync:
         excluded_prefixes: tuple[str, ...] = (),
         media_identity_resolver: MediaIdentityLookup | None = None,
         torrent_hashes: dict[str, str] | None = None,
-        selected_media_by_torrent_id: dict[str, MediaIdentity] | None = None,
-        selected_media_by_info_hash: dict[str, MediaIdentity] | None = None,
-        media_identity_by_alias: dict[tuple[str, str], MediaIdentity] | None = None,
+        identity_inputs: IdentityInputs | None = None,
     ) -> None:
         self._client = client
         self._api_key = api_key
@@ -140,12 +139,13 @@ class TorBoxStrmSync:
         self._excluded_prefixes = excluded_prefixes
         self._media_identity_resolver = media_identity_resolver
         self._torrent_hashes = torrent_hashes or {}
-        self._selected_media_by_torrent_id = selected_media_by_torrent_id or {}
+        identities = identity_inputs or IdentityInputs({}, {}, {})
+        self._selected_media_by_torrent_id = identities.by_torrent_id
         self._selected_media_by_info_hash = {
             info_hash.casefold(): identity
-            for info_hash, identity in (selected_media_by_info_hash or {}).items()
+            for info_hash, identity in identities.by_info_hash.items()
         }
-        self._media_identity_by_alias = media_identity_by_alias or {}
+        self._media_identity_by_alias = identities.by_alias
 
     async def run(
         self,
@@ -416,9 +416,6 @@ def _synced_file(  # noqa: PLR0913
         identity_confidence=identity.confidence if identity is not None else None,
         identity_resolver_version=(identity.resolver_version if identity is not None else None),
     )
-
-
-DirectTorBoxStrmSync = TorBoxStrmSync
 
 
 def _should_check_anilist(entry: LibraryEntry) -> bool:

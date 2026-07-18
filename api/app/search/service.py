@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, cast
+
+from pydantic import BaseModel
 
 from app.providers.aiostreams.client import AioStreamsClient, AioStreamsStream
 from app.search.stream_identity import stream_identity
@@ -12,8 +13,7 @@ from app.search.stream_parser import ParsedStream, parse_stream
 MIN_YEAR_LENGTH = 4
 
 
-@dataclass(frozen=True, slots=True)
-class TitleResult:
+class TitleResult(BaseModel):
     """A single TMDB title search result."""
 
     tmdb_id: int
@@ -21,21 +21,24 @@ class TitleResult:
     title: str
     year: str | None
     overview: str
+    poster_url: str | None
     poster_path: str | None
     media_type: str
 
 
-@dataclass(frozen=True, slots=True)
-class StreamResult:
+class StreamResult(BaseModel):
     """A single stream result with parsed metadata and cache status."""
 
     stream_key: str
     title: str
+    season: int | None = None
+    episode: int | None = None
     parsed: ParsedStream
     cached: bool | None
     has_url: bool
     has_info_hash: bool
     addable: bool
+    selected: bool = False
     provider_label: str | None
     seeders: int | None
 
@@ -131,6 +134,9 @@ def _title_from_tmdb(
     )
     overview = _str_or_none(raw.get("overview")) or ""
     poster_path = _str_or_none(raw.get("poster_path"))
+    poster_url = (
+        f"https://image.tmdb.org/t/p/w342{poster_path}" if poster_path is not None else None
+    )
 
     return TitleResult(
         tmdb_id=tmdb_id,
@@ -138,6 +144,7 @@ def _title_from_tmdb(
         title=title,
         year=year,
         overview=overview,
+        poster_url=poster_url,
         poster_path=poster_path,
         media_type=media_type,
     )

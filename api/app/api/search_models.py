@@ -2,26 +2,17 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from app.search.service import StreamResult, TitleResult
+
 
 class TitleSearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=200)
 
 
-class TitleSearchResult(BaseModel):
-    tmdb_id: int
-    imdb_id: str | None
-    title: str
-    year: str | None
-    overview: str
-    poster_url: str | None
-    poster_path: str | None
-    media_type: str
-
-
 class TitleSearchResponse(BaseModel):
     ok: bool
     message: str
-    results: list[TitleSearchResult] = []
+    results: list[TitleResult] = []
 
 
 class StreamSearchRequest(BaseModel):
@@ -32,37 +23,11 @@ class StreamSearchRequest(BaseModel):
     episode: int | None = Field(default=None, ge=1)
 
 
-class ParsedStreamResponse(BaseModel):
-    quality: str | None
-    codec: str | None
-    hdr: str | None
-    audio: str | None
-    size_bytes: int | None
-    size_label: str | None
-    source: str | None
-    language: str | None
-
-
-class StreamSearchResult(BaseModel):
-    stream_key: str
-    title: str
-    season: int | None
-    episode: int | None
-    parsed: ParsedStreamResponse
-    cached: bool | None
-    has_url: bool
-    has_info_hash: bool
-    addable: bool
-    selected: bool
-    provider_label: str | None
-    seeders: int | None
-
-
 class StreamSearchResponse(BaseModel):
     ok: bool
     message: str
     stream_count: int = 0
-    streams: list[StreamSearchResult] = []
+    streams: list[StreamResult] = []
 
 
 class StreamActionRequest(StreamSearchRequest):

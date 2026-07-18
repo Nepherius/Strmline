@@ -14,16 +14,13 @@ from app.api.provider_config import (
     effective_torbox_key,
 )
 from app.api.search_models import (
-    ParsedStreamResponse,
     StreamActionRequest,
     StreamActionResponse,
     StreamRemoveRequest,
     StreamSearchRequest,
     StreamSearchResponse,
-    StreamSearchResult,
     TitleSearchRequest,
     TitleSearchResponse,
-    TitleSearchResult,
 )
 from app.core.config import Settings, get_settings
 from app.db.dependencies import get_optional_db_session
@@ -42,7 +39,6 @@ from app.search.actions import (
 )
 from app.search.auto_sync import auto_sync_after_stream_add
 from app.search.service import (
-    StreamResult,
     TitleResult,
     fetch_imdb_id_from_tmdb,
     search_streams,
@@ -69,7 +65,7 @@ async def search_titles(
             ok=True,
             message="IMDB ID detected. Use stream search directly.",
             results=[
-                TitleSearchResult(
+                TitleResult(
                     tmdb_id=0,
                     imdb_id=query,
                     title=query,
@@ -116,7 +112,7 @@ async def search_titles(
     return TitleSearchResponse(
         ok=True,
         message=f"Found {len(results)} result(s).",
-        results=[_title_to_response(r) for r in results],
+        results=results,
     )
 
 
@@ -231,11 +227,12 @@ async def search_streams_endpoint(
         message=f"Found {len(results)} stream(s).",
         stream_count=len(results),
         streams=[
-            _stream_to_response(
-                result,
-                selected=result.stream_key in selected_keys,
-                season=request.season,
-                episode=request.episode,
+            result.model_copy(
+                update={
+                    "selected": result.stream_key in selected_keys,
+                    "season": request.season,
+                    "episode": request.episode,
+                }
             )
             for result in results
         ],
@@ -400,22 +397,6 @@ def _build_stremio_id(imdb_id: str, season: int | None, episode: int | None) -> 
     return imdb_id
 
 
-def _title_to_response(result: TitleResult) -> TitleSearchResult:
-    poster_url: str | None = None
-    if result.poster_path:
-        poster_url = f"https://image.tmdb.org/t/p/w342{result.poster_path}"
-    return TitleSearchResult(
-        tmdb_id=result.tmdb_id,
-        imdb_id=result.imdb_id,
-        title=result.title,
-        year=result.year,
-        overview=result.overview,
-        poster_url=poster_url,
-        poster_path=result.poster_path,
-        media_type=result.media_type,
-    )
-
-
 async def _action_media_id(
     request: StreamActionRequest,
     session: AsyncSession,
@@ -431,38 +412,6 @@ async def _action_media_id(
     if imdb_id is None:
         return None
     return _build_stremio_id(imdb_id, request.season, request.episode)
-
-
-def _stream_to_response(
-    result: StreamResult,
-    *,
-    selected: bool,
-    season: int | None,
-    episode: int | None,
-) -> StreamSearchResult:
-    return StreamSearchResult(
-        stream_key=result.stream_key,
-        title=result.title,
-        season=season,
-        episode=episode,
-        parsed=ParsedStreamResponse(
-            quality=result.parsed.quality,
-            codec=result.parsed.codec,
-            hdr=result.parsed.hdr,
-            audio=result.parsed.audio,
-            size_bytes=result.parsed.size_bytes,
-            size_label=result.parsed.size_label,
-            source=result.parsed.source,
-            language=result.parsed.language,
-        ),
-        cached=result.cached,
-        has_url=result.has_url,
-        has_info_hash=result.has_info_hash,
-        addable=result.addable,
-        selected=selected,
-        provider_label=result.provider_label,
-        seeders=result.seeders,
-    )
 
 
 def _action_response(

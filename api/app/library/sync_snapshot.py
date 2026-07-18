@@ -24,17 +24,11 @@ class LibrarySyncSnapshot:
             paths.add(manifest)
         return cls(
             root=root,
-            files={
-                path.relative_to(root): path.read_bytes()
-                for path in paths
-                if path.is_file()
-            },
+            files={path.relative_to(root): path.read_bytes() for path in paths if path.is_file()},
         )
 
     def restore(self) -> None:
-        current: set[Path] = (
-            set(self.root.rglob("*.strm")) if self.root.exists() else set()
-        )
+        current: set[Path] = set(self.root.rglob("*.strm")) if self.root.exists() else set()
         manifest = ensure_within_root(self.root, self.root / MANIFEST_RELATIVE_PATH)
         if manifest.is_file():
             current.add(manifest)

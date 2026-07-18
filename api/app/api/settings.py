@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -41,24 +41,6 @@ class SettingsResponse(BaseModel):
     aiostreams_source: str | None
 
 
-class SettingsUpdateRequest(BaseModel):
-    base_url: str | None = Field(default=None, min_length=1)
-    movies_enabled: bool | None = None
-    shows_enabled: bool | None = None
-    anime_enabled: bool | None = None
-    playback_mode: PlaybackMode | None = None
-    sync_interval_minutes: int | None = Field(default=None, ge=1)
-    debug_logging: bool | None = None
-    season_auto_complete_enabled: bool | None = None
-    season_auto_complete_interval_days: int | None = Field(default=None, ge=1)
-    season_auto_complete_allow_uncached: bool | None = None
-    season_auto_complete_shows_per_minute: int | None = Field(default=None, ge=1, le=60)
-    torbox_api_key: str | None = Field(default=None, min_length=1)
-    tmdb_api_key: str | None = Field(default=None, min_length=1)
-    resolver_token: str | None = Field(default=None, min_length=1)
-    aiostreams_base_url: str | None = Field(default=None, min_length=1)
-
-
 async def get_settings_repository(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> AsyncIterator[AppSettingsRepository]:
@@ -83,33 +65,15 @@ async def read_settings(
 
 @router.put("", response_model=SettingsResponse)
 async def update_settings(
-    request: SettingsUpdateRequest,
+    request: AppSettingsUpdate,
     http_request: Request,
     repository: Annotated[AppSettingsRepository, Depends(get_settings_repository)],
 ) -> SettingsResponse:
     try:
-        snapshot = await repository.save(
-            AppSettingsUpdate(
-                base_url=request.base_url,
-                movies_enabled=request.movies_enabled,
-                shows_enabled=request.shows_enabled,
-                anime_enabled=request.anime_enabled,
-                playback_mode=request.playback_mode,
-                sync_interval_minutes=request.sync_interval_minutes,
-                debug_logging=request.debug_logging,
-                season_auto_complete_enabled=request.season_auto_complete_enabled,
-                season_auto_complete_interval_days=request.season_auto_complete_interval_days,
-                season_auto_complete_allow_uncached=request.season_auto_complete_allow_uncached,
-                season_auto_complete_shows_per_minute=request.season_auto_complete_shows_per_minute,
-                torbox_api_key=request.torbox_api_key,
-                tmdb_api_key=request.tmdb_api_key,
-                resolver_token=request.resolver_token,
-                aiostreams_base_url=request.aiostreams_base_url,
-            )
-        )
+        snapshot = await repository.save(request)
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
-    configure_debug_logging(enabled=getattr(snapshot, "debug_logging", False))
+    configure_debug_logging(enabled=snapshot.debug_logging)
     await reschedule_auto_sync_scheduler(http_request.app)
     return SettingsResponse.model_validate(snapshot, from_attributes=True)
 
@@ -120,6 +84,6 @@ async def clear_saved_settings(
     repository: Annotated[AppSettingsRepository, Depends(get_settings_repository)],
 ) -> SettingsResponse:
     snapshot = await repository.clear_saved_setup()
-    configure_debug_logging(enabled=getattr(snapshot, "debug_logging", False))
+    configure_debug_logging(enabled=snapshot.debug_logging)
     await reschedule_auto_sync_scheduler(http_request.app)
     return SettingsResponse.model_validate(snapshot, from_attributes=True)

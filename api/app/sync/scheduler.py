@@ -4,8 +4,6 @@ import logging
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
-from operator import attrgetter
-from typing import Protocol, cast
 
 from apscheduler.jobstores.base import JobLookupError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -33,106 +31,9 @@ SEASON_COMPLETION_JOB_ID = "season-auto-complete"
 logger = logging.getLogger(__name__)
 
 
-class SchedulerBackend(Protocol):
-    running: bool
-
-    def start(self) -> None: ...
-
-    def shutdown(self) -> None: ...
-
-    def schedule_auto_sync(
-        self,
-        job: Callable[[], Awaitable[None]],
-        *,
-        interval_minutes: int,
-        next_run_time: datetime,
-    ) -> None: ...
-
-    def remove_auto_sync(self) -> None: ...
-
-    def schedule_season_completion(
-        self,
-        job: Callable[[], Awaitable[None]],
-        *,
-        interval_days: int,
-        next_run_time: datetime,
-    ) -> None: ...
-
-    def remove_season_completion(self) -> None: ...
-
-
 SyncRunner = Callable[..., Awaitable[object]]
 SeasonCompletionRunner = Callable[..., Awaitable[object]]
 AsyncSessionFactory = Callable[[], AsyncSession]
-
-
-class ApschedulerBackend:
-    def __init__(self) -> None:
-        self._scheduler = AsyncIOScheduler(timezone=UTC)
-
-    @property
-    def running(self) -> bool:
-        return self._scheduler.running
-
-    def start(self) -> None:
-        self._scheduler.start()
-
-    def shutdown(self) -> None:
-        self._scheduler.shutdown(wait=False)
-
-    def schedule_auto_sync(
-        self,
-        job: Callable[[], Awaitable[None]],
-        *,
-        interval_minutes: int,
-        next_run_time: datetime,
-    ) -> None:
-        add_job = cast(Callable[..., object], attrgetter("add_job")(self._scheduler))
-        _ = add_job(
-            job,
-            trigger=IntervalTrigger(minutes=interval_minutes, timezone=UTC),
-            id=AUTO_SYNC_JOB_ID,
-            name="TorBox account auto-sync",
-            replace_existing=True,
-            coalesce=True,
-            max_instances=1,
-            next_run_time=next_run_time,
-        )
-
-    def remove_auto_sync(self) -> None:
-        get_job = cast(Callable[[str], object | None], attrgetter("get_job")(self._scheduler))
-        if get_job(AUTO_SYNC_JOB_ID) is None:
-            return
-        remove_job = cast(Callable[[str], None], attrgetter("remove_job")(self._scheduler))
-        with suppress(JobLookupError):
-            remove_job(AUTO_SYNC_JOB_ID)
-
-    def schedule_season_completion(
-        self,
-        job: Callable[[], Awaitable[None]],
-        *,
-        interval_days: int,
-        next_run_time: datetime,
-    ) -> None:
-        add_job = cast(Callable[..., object], attrgetter("add_job")(self._scheduler))
-        _ = add_job(
-            job,
-            trigger=IntervalTrigger(days=interval_days, timezone=UTC),
-            id=SEASON_COMPLETION_JOB_ID,
-            name="Season auto-complete",
-            replace_existing=True,
-            coalesce=True,
-            max_instances=1,
-            next_run_time=next_run_time,
-        )
-
-    def remove_season_completion(self) -> None:
-        get_job = cast(Callable[[str], object | None], attrgetter("get_job")(self._scheduler))
-        if get_job(SEASON_COMPLETION_JOB_ID) is None:
-            return
-        remove_job = cast(Callable[[str], None], attrgetter("remove_job")(self._scheduler))
-        with suppress(JobLookupError):
-            remove_job(SEASON_COMPLETION_JOB_ID)
 
 
 class AutoSyncScheduler:
@@ -141,25 +42,25 @@ class AutoSyncScheduler:
         *,
         session_factory: AsyncSessionFactory,
         settings_provider: Callable[[], Settings] = get_settings,
-        backend: SchedulerBackend | None = None,
+        scheduler: AsyncIOScheduler | None = None,
         sync_runner: SyncRunner = run_torbox_account_sync,
         season_completion_runner: SeasonCompletionRunner = run_season_completion,
     ) -> None:
         self._session_factory = session_factory
         self._settings_provider = settings_provider
-        self._backend = backend or ApschedulerBackend()
+        self._scheduler = scheduler or AsyncIOScheduler(timezone=UTC)
         self._sync_runner = sync_runner
         self._season_completion_runner = season_completion_runner
         self._season_completion_enabled: bool | None = None
 
     async def start(self) -> None:
-        if not self._backend.running:
-            self._backend.start()
+        if not self._scheduler.running:  # pyright: ignore[reportUnknownMemberType]
+            self._scheduler.start()  # pyright: ignore[reportUnknownMemberType]
         await self.reschedule_from_settings()
 
     async def shutdown(self) -> None:
-        if self._backend.running:
-            self._backend.shutdown()
+        if self._scheduler.running:  # pyright: ignore[reportUnknownMemberType]
+            self._scheduler.shutdown(wait=False)  # pyright: ignore[reportUnknownMemberType]
 
     async def reschedule_from_settings(self) -> None:
         snapshot = await self._settings_snapshot()
@@ -172,9 +73,11 @@ class AutoSyncScheduler:
                 "Scheduling automatic TorBox sync every %d minute(s).",
                 interval_minutes,
             )
-            self._backend.schedule_auto_sync(
+            self._schedule_job(
+                AUTO_SYNC_JOB_ID,
+                "TorBox account auto-sync",
                 self.run_once,
-                interval_minutes=interval_minutes,
+                IntervalTrigger(minutes=interval_minutes, timezone=UTC),
                 next_run_time=datetime.now(UTC) + timedelta(minutes=interval_minutes),
             )
         self._reschedule_season_completion(snapshot)
@@ -209,14 +112,14 @@ class AutoSyncScheduler:
             return await AppSettingsRepository(session, settings).snapshot_with_env()
 
     def _remove_job(self) -> None:
-        self._backend.remove_auto_sync()
+        self._remove_scheduled_job(AUTO_SYNC_JOB_ID)
 
     def _reschedule_season_completion(self, snapshot: SettingsSnapshot) -> None:
         was_enabled = self._season_completion_enabled
         self._season_completion_enabled = snapshot.season_auto_complete_enabled
         if not snapshot.season_auto_complete_enabled:
             logger.debug("Season auto-complete scheduling is disabled.")
-            self._backend.remove_season_completion()
+            self._remove_scheduled_job(SEASON_COMPLETION_JOB_ID)
             return
         next_run_time = datetime.now(UTC)
         if was_enabled is True:
@@ -226,11 +129,42 @@ class AutoSyncScheduler:
             snapshot.season_auto_complete_interval_days,
             snapshot.season_auto_complete_shows_per_minute,
         )
-        self._backend.schedule_season_completion(
+        self._schedule_job(
+            SEASON_COMPLETION_JOB_ID,
+            "Season auto-complete",
             self.run_season_completion_once,
-            interval_days=snapshot.season_auto_complete_interval_days,
+            IntervalTrigger(
+                days=snapshot.season_auto_complete_interval_days,
+                timezone=UTC,
+            ),
             next_run_time=next_run_time,
         )
+
+    def _schedule_job(
+        self,
+        job_id: str,
+        name: str,
+        job: Callable[[], Awaitable[None]],
+        trigger: IntervalTrigger,
+        *,
+        next_run_time: datetime,
+    ) -> None:
+        _ = self._scheduler.add_job(  # pyright: ignore[reportUnknownMemberType]
+            job,
+            trigger=trigger,
+            id=job_id,
+            name=name,
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+            next_run_time=next_run_time,
+        )
+
+    def _remove_scheduled_job(self, job_id: str) -> None:
+        if self._scheduler.get_job(job_id) is None:  # pyright: ignore[reportUnknownMemberType]
+            return
+        with suppress(JobLookupError):
+            self._scheduler.remove_job(job_id)  # pyright: ignore[reportUnknownMemberType]
 
 
 async def start_auto_sync_scheduler(app: FastAPI) -> None:

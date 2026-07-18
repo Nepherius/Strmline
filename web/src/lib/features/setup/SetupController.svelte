@@ -10,14 +10,23 @@
     testTorboxConnection,
   } from "$lib/api/setup";
   import type { AioStreamsTestResult, ConnectionTestResult } from "$lib/api/setup";
+  import AppShell from "$lib/components/ui/AppShell.svelte";
+  import AppNavigation from "$lib/components/ui/AppNavigation.svelte";
+  import CheckboxField from "$lib/components/ui/CheckboxField.svelte";
+  import HelpTooltip from "$lib/components/ui/HelpTooltip.svelte";
+  import NumberField from "$lib/components/ui/NumberField.svelte";
+  import Notice from "$lib/components/ui/Notice.svelte";
+  import PageHeader from "$lib/components/ui/PageHeader.svelte";
+  import SegmentedControl from "$lib/components/ui/SegmentedControl.svelte";
+  import TextField from "$lib/components/ui/TextField.svelte";
+  import UiButton from "$lib/components/ui/UiButton.svelte";
   import {
+    missingLabels,
     settingsToFormValues,
     type AppSettings,
     type SettingsFormValues,
     type SetupStatus,
   } from "$lib/domain/settings";
-
-  import SetupView from "./SetupView.svelte";
 
   let settings: AppSettings | null = null;
   let setupStatus: SetupStatus | null = null;
@@ -176,25 +185,353 @@
       baseUrl: window.location.origin,
     };
   }
+
+  $: requiredLabels = setupStatus ? missingLabels(setupStatus.missing) : [];
+  $: showLogout = setupStatus !== null && !setupStatus.missing.includes("admin_user");
+  const playbackOptions = [
+    { label: "Resolver", value: "resolver" },
+    { label: "Direct URLs", value: "direct" },
+  ];
 </script>
 
-<SetupView
-  bind:values
-  {error}
-  {saved}
-  {saving}
-  {setupRequired}
-  {settings}
-  {setupStatus}
-  {testingTmdb}
-  {testingTorbox}
-  {testingAioStreams}
-  {aiostreamsTestResult}
-  {tmdbTestResult}
-  {torboxTestResult}
-  onClear={clearSavedSetup}
-  onSave={saveSetup}
-  onTestTmdb={testTmdbSetup}
-  onTestTorbox={testTorboxSetup}
-  onTestAioStreams={testAioStreamsSetup}
-/>
+<svelte:head>
+  <title>Setup - Strmline</title>
+</svelte:head>
+
+<AppShell>
+  <PageHeader ariaLabel="Setup controls" title="Setup">
+    <svelte:fragment slot="actions">
+      <AppNavigation {showLogout} />
+    </svelte:fragment>
+  </PageHeader>
+
+  {#if error}
+    <Notice variant="error" resetKey={error}>{error}</Notice>
+  {/if}
+
+  {#if saved}
+    <Notice variant="success">Settings saved.</Notice>
+  {/if}
+
+  {#if setupRequired && !setupStatus?.configured}
+    <section class="setup-dialog" aria-label="Setup required" aria-live="polite">
+      <h2>Setup required</h2>
+      <p>Complete the missing items before opening the dashboard.</p>
+      {#if requiredLabels.length > 0}
+        <div class="dialog-missing" aria-label="Missing setup items">
+          {#each requiredLabels as label (label)}
+            <span>{label}</span>
+          {/each}
+        </div>
+      {/if}
+    </section>
+  {/if}
+
+  {#if requiredLabels.length > 0 && !(setupRequired && !setupStatus?.configured)}
+    <section class="missing" aria-label="Missing setup values">
+      {#each requiredLabels as label (label)}
+        <span>{label}</span>
+      {/each}
+    </section>
+  {/if}
+
+  <form class="settings-form" on:submit|preventDefault={saveSetup}>
+    {#if setupStatus?.missing.includes("admin_user")}
+      <div class="wide-field">
+        <Notice variant="default">Define your administrator account credentials.</Notice>
+      </div>
+      <TextField
+        bind:value={values.adminUsername}
+        autocomplete="off"
+        helpText="The name used to sign in to the Strmline web interface."
+        label="Admin Username"
+        placeholder="e.g. admin"
+      />
+      <TextField
+        bind:value={values.adminPassword}
+        autocomplete="off"
+        helpText="The password for the administrator account. It must be at least eight characters."
+        label="Admin Password"
+        placeholder="At least 8 characters"
+        type="password"
+      />
+    {/if}
+    <SegmentedControl
+      bind:value={values.playbackMode}
+      helpText="Resolver keeps TorBox media URLs out of STRM files. Direct URLs writes tokenized TorBox URLs into them."
+      label="Playback mode"
+      options={playbackOptions}
+    />
+    {#if values.playbackMode === "direct"}
+      <div class="wide-field">
+        <Notice variant="warning">Direct mode writes tokenized TorBox URLs into STRM files.</Notice>
+      </div>
+    {/if}
+    <NumberField
+      bind:value={values.syncIntervalMinutes}
+      helpText="How often Strmline automatically refreshes the TorBox library. Manual sync is always available."
+      label="Sync interval minutes"
+      min="1"
+      placeholder="360"
+    />
+    <fieldset class="category-options">
+      <legend
+        >Season auto-complete <HelpTooltip
+          text="Searches for missing released episodes in shows already present in your TorBox library."
+        /></legend
+      >
+      <CheckboxField
+        bind:checked={values.seasonAutoCompleteEnabled}
+        helpText="Enable automatic searches for missing regular episodes. The first check runs when this is saved."
+        label="Complete missing regular episodes"
+      />
+      {#if values.seasonAutoCompleteEnabled}
+        <NumberField
+          bind:value={values.seasonAutoCompleteIntervalDays}
+          helpText="The number of days between season completion checks."
+          label="Check interval days"
+          min="1"
+          placeholder="1"
+        />
+        <NumberField
+          bind:value={values.seasonAutoCompleteShowsPerMinute}
+          helpText="Limits provider requests by spacing show checks across each minute."
+          label="Shows checked per minute"
+          min="1"
+          max="60"
+          placeholder="1"
+        />
+        <CheckboxField
+          bind:checked={values.seasonAutoCompleteAllowUncached}
+          helpText="Also consider torrents that are not already cached by your debrid provider."
+          label="Allow uncached torrents"
+        />
+      {/if}
+    </fieldset>
+    <fieldset class="category-options">
+      <legend
+        >Diagnostics <HelpTooltip
+          text="Operational logging controls for troubleshooting."
+        /></legend
+      >
+      <CheckboxField
+        bind:checked={values.debugLogging}
+        helpText="This is the only debug logging control. Detailed logs appear in container output; retained errors are stored in /config/logs."
+        label="Enable debug logging"
+      />
+    </fieldset>
+    <TextField
+      bind:value={values.torboxApiKey}
+      autocomplete="off"
+      helpText="Required for listing your TorBox downloads and generating playable library entries."
+      label="TorBox API key"
+      placeholder={settings?.torbox_configured ? "******" : ""}
+      type="password"
+    />
+    <TextField
+      bind:value={values.tmdbApiKey}
+      autocomplete="off"
+      helpText="Optional. Enables metadata-based titles, categories, and duplicate prevention."
+      label="TMDB API key (optional)"
+      placeholder={settings?.tmdb_configured ? "******" : ""}
+      type="password"
+    />
+    <TextField
+      bind:value={values.resolverToken}
+      autocomplete="off"
+      helpText="Optional custom token for resolver playback URLs. Leave blank to generate one automatically."
+      label="Resolver token (optional)"
+      placeholder={settings?.resolver_configured ? "******" : "Generated automatically"}
+      type="password"
+    />
+    <TextField
+      bind:value={values.aiostreamsBaseUrl}
+      autocomplete="off"
+      helpText="Optional Stremio-compatible AIOStreams manifest URL used for search and season auto-complete."
+      label="AIOStreams URL (optional)"
+      placeholder={settings?.aiostreams_configured ? "******" : "https://.../manifest.json"}
+      type="password"
+    />
+    <fieldset class="category-options">
+      <legend
+        >Categories <HelpTooltip
+          text="Choose which generated media-library folders Strmline maintains."
+        /></legend
+      >
+      <CheckboxField bind:checked={values.moviesEnabled} label="Movies" />
+      <CheckboxField bind:checked={values.showsEnabled} label="Shows" />
+      <CheckboxField bind:checked={values.animeEnabled} label="Anime" />
+    </fieldset>
+    <div class="actions">
+      <UiButton type="submit" disabled={saving}>{saving ? "Saving" : "Save settings"}</UiButton>
+      <UiButton
+        type="button"
+        variant="secondary"
+        disabled={saving || testingTorbox}
+        on:click={testTorboxSetup}
+      >
+        {testingTorbox ? "Testing TorBox" : "Test TorBox"}
+      </UiButton>
+      <UiButton
+        type="button"
+        variant="secondary"
+        disabled={saving || testingTmdb}
+        on:click={testTmdbSetup}
+      >
+        {testingTmdb ? "Testing TMDB" : "Test TMDB"}
+      </UiButton>
+      <UiButton
+        type="button"
+        variant="secondary"
+        disabled={saving || testingAioStreams}
+        on:click={testAioStreamsSetup}
+      >
+        {testingAioStreams ? "Testing AIOStreams" : "Test AIOStreams"}
+      </UiButton>
+      <UiButton type="button" variant="secondary" disabled={saving} on:click={clearSavedSetup}>
+        Clear saved setup
+      </UiButton>
+      {#if torboxTestResult}
+        <Notice
+          variant={torboxTestResult.ok ? "success" : "error"}
+          resetKey={torboxTestResult.message}>{torboxTestResult.message}</Notice
+        >
+      {/if}
+      {#if tmdbTestResult}
+        <Notice variant={tmdbTestResult.ok ? "success" : "error"} resetKey={tmdbTestResult.message}
+          >{tmdbTestResult.message}</Notice
+        >
+      {/if}
+      {#if aiostreamsTestResult}
+        <Notice
+          variant={aiostreamsTestResult.ok ? "success" : "error"}
+          resetKey={aiostreamsTestResult.message}>{aiostreamsTestResult.message}</Notice
+        >
+      {/if}
+    </div>
+  </form>
+</AppShell>
+
+<style>
+  .settings-form,
+  .category-options,
+  .missing,
+  .setup-dialog {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+  }
+
+  .setup-dialog {
+    display: grid;
+    gap: 8px;
+    max-width: 760px;
+    margin-top: 12px;
+    padding: 14px;
+    border-color: var(--warning-border);
+    background: var(--warning-surface);
+  }
+
+  .setup-dialog h2,
+  .setup-dialog p {
+    margin: 0;
+  }
+
+  .setup-dialog h2 {
+    color: var(--warning-text);
+    font-size: 16px;
+  }
+
+  .setup-dialog p {
+    color: var(--warning-text);
+    font-size: 14px;
+  }
+
+  .dialog-missing {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .dialog-missing span {
+    border: 1px solid var(--warning-border);
+    border-radius: 999px;
+    padding: 5px 10px;
+    background: var(--surface-raised);
+    color: var(--warning-text);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .missing {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 12px;
+  }
+
+  .missing span {
+    border: 1px solid var(--warning-border);
+    border-radius: 999px;
+    padding: 5px 10px;
+    background: var(--warning-surface);
+    color: var(--warning-text);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .settings-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+    gap: 14px;
+    margin-top: 18px;
+    padding: 14px;
+  }
+
+  .category-options {
+    display: flex;
+    align-items: center;
+    align-self: end;
+    flex-wrap: wrap;
+    gap: 12px;
+    min-height: 38px;
+    margin: 0;
+    padding: 10px 12px;
+  }
+
+  .category-options legend {
+    padding: 0 4px;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  .wide-field {
+    grid-column: 1 / -1;
+  }
+
+  .wide-field :global(.notice) {
+    margin: 0;
+  }
+
+  .actions {
+    grid-column: 1 / -1;
+    display: flex;
+    align-self: end;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .actions :global(.notice) {
+    margin: 0;
+  }
+
+  @media (max-width: 760px) {
+    .settings-form {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

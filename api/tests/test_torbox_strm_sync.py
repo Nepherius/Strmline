@@ -6,7 +6,7 @@ import pytest
 from app.library.classification_override import LibraryClassificationOverride
 from app.providers.torbox.files import DownloadKind
 from app.resolver.manifest import resolve_manifest_target
-from app.sync.torbox_strm import DirectTorBoxStrmSync, ResolverUrlConfig
+from app.sync.torbox_strm import ResolverUrlConfig, TorBoxStrmSync
 
 
 class FakeTorBoxClient:
@@ -259,7 +259,7 @@ class FakeAnimeClassifier:
 
 @pytest.mark.asyncio
 async def test_direct_torbox_strm_sync_writes_playable_strm_files(tmp_path: Path) -> None:
-    sync = DirectTorBoxStrmSync(
+    sync = TorBoxStrmSync(
         client=FakeTorBoxClient(),
         api_key="test-token",
         torbox_base_url="https://api.torbox.app/v1/api",
@@ -287,7 +287,7 @@ async def test_direct_torbox_strm_sync_writes_playable_strm_files(tmp_path: Path
 
 @pytest.mark.asyncio
 async def test_direct_torbox_strm_sync_can_limit_written_files(tmp_path: Path) -> None:
-    sync = DirectTorBoxStrmSync(
+    sync = TorBoxStrmSync(
         client=MultiFileTorBoxClient(),
         api_key="test-token",
         torbox_base_url="https://api.torbox.app/v1/api",
@@ -303,7 +303,7 @@ async def test_direct_torbox_strm_sync_can_limit_written_files(tmp_path: Path) -
 
 @pytest.mark.asyncio
 async def test_direct_torbox_strm_sync_counts_unique_output_paths(tmp_path: Path) -> None:
-    sync = DirectTorBoxStrmSync(
+    sync = TorBoxStrmSync(
         client=DuplicatePathTorBoxClient(),
         api_key="test-token",
         torbox_base_url="https://api.torbox.app/v1/api",
@@ -320,7 +320,7 @@ async def test_direct_torbox_strm_sync_counts_unique_output_paths(tmp_path: Path
 @pytest.mark.asyncio
 async def test_torbox_strm_sync_writes_resolver_urls_and_manifest(tmp_path: Path) -> None:
     resolver_token = "resolver-secret"  # noqa: S105
-    sync = DirectTorBoxStrmSync(
+    sync = TorBoxStrmSync(
         client=FakeTorBoxClient(),
         api_key="test-token",
         torbox_base_url="https://api.torbox.app/v1/api",
@@ -347,7 +347,7 @@ async def test_torbox_strm_sync_uses_anilist_classifier_for_anime(
     tmp_path: Path,
 ) -> None:
     classifier = FakeAnimeClassifier(is_anime=True)
-    sync = DirectTorBoxStrmSync(
+    sync = TorBoxStrmSync(
         client=AnimeCandidateTorBoxClient(),
         api_key="test-token",
         torbox_base_url="https://api.torbox.app/v1/api",
@@ -368,7 +368,7 @@ async def test_torbox_strm_sync_keeps_show_when_anilist_does_not_confirm(
     tmp_path: Path,
 ) -> None:
     classifier = FakeAnimeClassifier(is_anime=False)
-    sync = DirectTorBoxStrmSync(
+    sync = TorBoxStrmSync(
         client=AnimeCandidateTorBoxClient(),
         api_key="test-token",
         torbox_base_url="https://api.torbox.app/v1/api",
@@ -387,7 +387,7 @@ async def test_torbox_strm_sync_keeps_show_when_anilist_does_not_confirm(
 async def test_torbox_strm_sync_applies_manual_classification_override(
     tmp_path: Path,
 ) -> None:
-    sync = DirectTorBoxStrmSync(
+    sync = TorBoxStrmSync(
         client=AnimeCandidateTorBoxClient(),
         api_key="test-token",
         torbox_base_url="https://api.torbox.app/v1/api",
@@ -414,7 +414,7 @@ async def test_torbox_strm_sync_uses_anilist_classifier_for_anime_movie(
     tmp_path: Path,
 ) -> None:
     classifier = FakeAnimeClassifier(is_anime=True)
-    sync = DirectTorBoxStrmSync(
+    sync = TorBoxStrmSync(
         client=AnimeMovieCandidateTorBoxClient(),
         api_key="test-token",
         torbox_base_url="https://api.torbox.app/v1/api",
@@ -437,7 +437,7 @@ async def test_torbox_strm_sync_keeps_non_anime_show_when_anilist_rejects(
     tmp_path: Path,
 ) -> None:
     classifier = FakeAnimeClassifier(is_anime=False)
-    sync = DirectTorBoxStrmSync(
+    sync = TorBoxStrmSync(
         client=AmbiguousShowTorBoxClient(),
         api_key="test-token",
         torbox_base_url="https://api.torbox.app/v1/api",

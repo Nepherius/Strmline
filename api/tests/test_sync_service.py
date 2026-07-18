@@ -39,6 +39,7 @@ class FakeSyncLibraryStateRepository:
         _ = info_hashes
         return set()
 
+
 class FakeSyncRunRepository:
     def __init__(self, session: object) -> None:
         _ = session
@@ -95,7 +96,7 @@ class FakeClassificationOverrideRepository:
         return ()
 
 
-class FakeMediaIdentityQueryRepository:
+class FakeMediaIdentityRepository:
     def __init__(self, session: object) -> None:
         _ = session
 
@@ -149,8 +150,8 @@ async def test_sync_service_uses_saved_resolver_token(
     monkeypatch.setattr(sync_service, "LibraryExclusionRepository", FakeLibraryExclusionRepository)
     monkeypatch.setattr(
         sync_identity_inputs,
-        "MediaIdentityQueryRepository",
-        FakeMediaIdentityQueryRepository,
+        "MediaIdentityRepository",
+        FakeMediaIdentityRepository,
     )
     monkeypatch.setattr(
         sync_service,
@@ -222,8 +223,8 @@ async def test_sync_service_records_provider_failures(
     monkeypatch.setattr(sync_service, "LibraryExclusionRepository", FakeLibraryExclusionRepository)
     monkeypatch.setattr(
         sync_identity_inputs,
-        "MediaIdentityQueryRepository",
-        FakeMediaIdentityQueryRepository,
+        "MediaIdentityRepository",
+        FakeMediaIdentityRepository,
     )
     monkeypatch.setattr(
         sync_service,
@@ -313,8 +314,8 @@ async def test_sync_service_restores_files_when_database_persistence_fails(
     monkeypatch.setattr(sync_service, "LibraryExclusionRepository", FakeLibraryExclusionRepository)
     monkeypatch.setattr(
         sync_identity_inputs,
-        "MediaIdentityQueryRepository",
-        FakeMediaIdentityQueryRepository,
+        "MediaIdentityRepository",
+        FakeMediaIdentityRepository,
     )
     monkeypatch.setattr(sync_service, "SyncCoordinationRepository", FakeSyncCoordinationRepository)
     monkeypatch.setattr(

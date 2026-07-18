@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import GeneratedFile, LibraryEntry, MediaExternalIdentity, MediaItem
 from app.db.repositories.media_identity import MediaIdentityRepository
-from app.db.repositories.media_identity_queries import MediaIdentityQueryRepository
 
 ENTRY_PATH_PARTS = 2
 LIKE_ESCAPE = "\\"
@@ -114,13 +113,12 @@ class MediaMetadataRepository:
         record = await self.find_for_media_item(media_item_id)
         if record is None:
             return None
-        media_item = await MediaIdentityRepository(self._session).set_manual_tmdb_identity(
+        identity_repository = MediaIdentityRepository(self._session)
+        media_item = await identity_repository.set_manual_tmdb_identity(
             record.media_item,
             tmdb_id,
         )
-        identity = await MediaIdentityQueryRepository(self._session).tmdb_identity_for_media(
-            media_item.id
-        )
+        identity = await identity_repository.tmdb_identity_for_media(media_item.id)
         return LibraryMediaRecord(media_item=media_item, tmdb_identity=identity)
 
     async def set_tmdb_id_for_library_prefix(
