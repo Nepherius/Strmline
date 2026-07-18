@@ -9,10 +9,12 @@
   } from "$lib/domain/library/summary";
 
   import LibraryEntryDialog from "./LibraryEntryDialog.svelte";
+  import LibraryHealthChip from "./LibraryHealthChip.svelte";
 
   export let entries: LibraryEntry[];
   export let overrides: ClassificationOverride[];
   export let disabled = false;
+  export let checkingHealth = false;
   export let pendingClassificationKey = "";
   export let removingEntryKey = "";
   export let refreshingMetadataKey = "";
@@ -195,6 +197,9 @@
             />
           {/if}
           <span class="category">{categoryLabels[entry.category]}</span>
+          {#if entry.category !== "watchlist"}
+            <LibraryHealthChip health={entry.health} checking={checkingHealth} />
+          {/if}
           <span class="cover-title" aria-hidden="true">
             {#each coverWords(entry.title) as word, index (index)}
               <span>{word}</span>

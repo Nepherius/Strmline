@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Literal
 
+import httpx
 from anyio.to_thread import run_sync
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -20,6 +23,11 @@ from app.core.config import get_settings
 from app.db.dependencies import get_db_session, get_optional_db_session
 from app.db.repositories.classification_override import ClassificationOverrideRepository
 from app.db.repositories.library_exclusion import LibraryExclusionRepository
+from app.db.repositories.library_health import (
+    LibraryHealthAggregate,
+    LibraryHealthRepository,
+    LibraryHealthStatus,
+)
 from app.db.repositories.media_identity import AuthoritativeIdentityConflictError
 from app.db.repositories.media_metadata import (
     LibraryMediaRecord,
@@ -31,6 +39,7 @@ from app.library.classification_override import (
     LibraryClassificationOverride,
     target_prefix_for_override,
 )
+from app.library.health import LibraryHealthCheckResult, check_library_health
 from app.library.metadata_refresh import MetadataRefreshError
 from app.library.metadata_update import refresh_tmdb_metadata
 from app.library.posters import poster_for_tmdb_id
@@ -53,10 +62,11 @@ from app.library.validation import (
 )
 from app.providers.tmdb.client import TmdbClientError
 from app.providers.tmdb.posters import TmdbPosterError
-from app.providers.torbox.client import TorBoxClient
+from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
 
 router = APIRouter(prefix="/api/library", tags=["library"])
 logger = logging.getLogger(__name__)
+_health_check_lock = asyncio.Lock()
 
 
 class LibraryFileResponse(BaseModel):
@@ -70,6 +80,16 @@ class LibraryDuplicateGroupResponse(BaseModel):
     files: list[LibraryFileResponse]
 
 
+class LibraryHealthSummaryResponse(BaseModel):
+    status: LibraryHealthStatus
+    total: int
+    ready: int
+    recoverable: int
+    unavailable: int
+    unknown: int
+    checked_at: datetime | None
+
+
 class LibraryEntryResponse(BaseModel):
     key: str
     category: str
@@ -79,6 +99,17 @@ class LibraryEntryResponse(BaseModel):
     poster_url: str | None
     tmdb_id: int | None
     media_item_id: int | None
+    health: LibraryHealthSummaryResponse
+
+
+class LibraryHealthCheckResponse(BaseModel):
+    checked_at: datetime
+    checked_entries: int
+    distinct_hashes: int
+    ready: int
+    recoverable: int
+    unavailable: int
+    unknown: int
 
 
 class LibrarySummaryResponse(BaseModel):
@@ -238,7 +269,17 @@ async def library_entries(
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-    entries = [_page_entry_response(entry, library_root) for entry in page.entries]
+    health = await LibraryHealthRepository(session).aggregates_for_media(
+        {(entry.media_item_id, entry.category) for entry in page.entries}
+    )
+    entries = [
+        _page_entry_response(
+            entry,
+            library_root,
+            health.get((entry.media_item_id, entry.category)),
+        )
+        for entry in page.entries
+    ]
     return LibraryEntryPageResponse(
         entries=entries,
         limit=request.limit,
@@ -248,6 +289,38 @@ async def library_entries(
         total_files=page.total_files,
         category_counts=page.category_counts,
     )
+
+
+@router.post("/health/check", response_model=LibraryHealthCheckResponse)
+async def run_library_health_check(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> LibraryHealthCheckResponse:
+    if _health_check_lock.locked():
+        raise HTTPException(status_code=409, detail="A library health check is already running.")
+    settings = get_settings()
+    api_key = await effective_torbox_key(session, settings)
+    if api_key is None:
+        raise HTTPException(status_code=400, detail="TorBox API key is not configured.")
+    try:
+        async with _health_check_lock:
+            async with TorBoxClient(
+                api_key=api_key,
+                base_url=settings.torbox_base_url,
+                timeout=settings.outbound_timeout_seconds,
+            ) as torbox_client:
+                result = await check_library_health(
+                    LibraryHealthRepository(session),
+                    torbox_client,
+                )
+            await session.commit()
+    except (OSError, ValueError, httpx.HTTPError, TorBoxAPIError) as error:
+        await session.rollback()
+        logger.warning("TorBox library health check failed: %s", error.__class__.__name__)
+        raise HTTPException(
+            status_code=503,
+            detail="TorBox availability check failed; existing health statuses were preserved.",
+        ) from error
+    return _health_check_response(result)
 
 
 @router.get("/validation", response_model=LibraryValidationResponse)
@@ -516,10 +589,15 @@ def _entry_response(
         poster_url=poster_url,
         tmdb_id=int(valid_tmdb_id) if valid_tmdb_id is not None else None,
         media_item_id=record.media_item.id if record is not None else None,
+        health=_unknown_health(entry.file_count),
     )
 
 
-def _page_entry_response(entry: LibraryPageEntry, library_root: Path) -> LibraryEntryResponse:
+def _page_entry_response(
+    entry: LibraryPageEntry,
+    library_root: Path,
+    health: LibraryHealthAggregate | None,
+) -> LibraryEntryResponse:
     valid_tmdb_id = entry.tmdb_id if entry.tmdb_id and entry.tmdb_id.isdecimal() else None
     poster_url = None
     if valid_tmdb_id and poster_for_tmdb_id(library_root, valid_tmdb_id) is not None:
@@ -533,6 +611,48 @@ def _page_entry_response(entry: LibraryPageEntry, library_root: Path) -> Library
         poster_url=poster_url,
         tmdb_id=int(valid_tmdb_id) if valid_tmdb_id else None,
         media_item_id=entry.media_item_id,
+        health=_health_response(health, entry.file_count),
+    )
+
+
+def _health_response(
+    health: LibraryHealthAggregate | None,
+    file_count: int,
+) -> LibraryHealthSummaryResponse:
+    if health is None:
+        return _unknown_health(file_count)
+    return LibraryHealthSummaryResponse(
+        status=health.status,
+        total=health.total,
+        ready=health.ready,
+        recoverable=health.recoverable,
+        unavailable=health.unavailable,
+        unknown=health.unknown,
+        checked_at=health.checked_at,
+    )
+
+
+def _unknown_health(file_count: int) -> LibraryHealthSummaryResponse:
+    return LibraryHealthSummaryResponse(
+        status="unknown",
+        total=file_count,
+        ready=0,
+        recoverable=0,
+        unavailable=0,
+        unknown=file_count,
+        checked_at=None,
+    )
+
+
+def _health_check_response(result: LibraryHealthCheckResult) -> LibraryHealthCheckResponse:
+    return LibraryHealthCheckResponse(
+        checked_at=result.checked_at,
+        checked_entries=result.checked_entries,
+        distinct_hashes=result.distinct_hashes,
+        ready=result.ready,
+        recoverable=result.recoverable,
+        unavailable=result.unavailable,
+        unknown=result.unknown,
     )
 
 

@@ -15,8 +15,21 @@ from app.db.repositories.resolver import PlaybackResolverRepository, ResolverLoo
 from app.db.repositories.settings import AppSettingsRepository
 from app.providers.torbox.client import TorBoxClient
 from app.resolver.manifest import ResolverManifestError, resolve_manifest_target
+from app.resolver.target_cache import ResolvedTargetCache
 
 router = APIRouter(tags=["resolver"])
+
+RESOLVED_TARGET_CACHE_TTL_SECONDS = 30.0
+RESOLVED_TARGET_CACHE_MAX_ENTRIES = 1_024
+
+_resolved_target_cache = ResolvedTargetCache(
+    ttl_seconds=RESOLVED_TARGET_CACHE_TTL_SECONDS,
+    max_entries=RESOLVED_TARGET_CACHE_MAX_ENTRIES,
+)
+
+
+def clear_resolved_target_cache() -> None:
+    _resolved_target_cache.clear()
 
 
 @router.get("/play/{entry_id}", operation_id="play")
@@ -46,11 +59,27 @@ async def _play(
     if not await _resolver_token_is_valid(settings, token, session):
         raise HTTPException(status_code=403, detail="Invalid resolver token.")
 
-    database_target = await _database_resolver_target(settings, entry_id, session)
+    database_target = await _cached_database_resolver_target(settings, entry_id, session)
     if database_target is not None:
-        return RedirectResponse(database_target)
+        return _redirect(database_target)
 
-    return RedirectResponse(_manifest_resolver_target(settings, entry_id))
+    return _redirect(_manifest_resolver_target(settings, entry_id))
+
+
+async def _cached_database_resolver_target(
+    settings: Settings,
+    entry_id: str,
+    session: AsyncSession | None,
+) -> str | None:
+    if session is None:
+        return None
+    cached_target = _resolved_target_cache.get(entry_id)
+    if cached_target is not None:
+        return cached_target
+    target = await _database_resolver_target(settings, entry_id, session)
+    if target is not None:
+        _resolved_target_cache.put(entry_id, target)
+    return target
 
 
 async def _resolver_token_is_valid(
@@ -117,3 +146,7 @@ def _manifest_resolver_target(settings: Settings, entry_id: str) -> str:
         return resolve_manifest_target(settings.library_root, entry_id)
     except ResolverManifestError as error:
         raise HTTPException(status_code=404, detail="Resolver entry was not found.") from error
+
+
+def _redirect(target_url: str) -> RedirectResponse:
+    return RedirectResponse(target_url, headers={"Cache-Control": "no-store"})

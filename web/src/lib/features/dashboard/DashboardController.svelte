@@ -4,6 +4,7 @@
   import { onMount } from "svelte";
 
   import {
+    checkLibraryHealth,
     deleteClassificationOverride,
     loadClassificationOverrides,
     loadLibraryDiagnostics,
@@ -13,6 +14,7 @@
     saveClassificationOverride,
     updateLibraryEntryTmdbId,
     type ClassificationOverride,
+    type LibraryHealthCheckResult,
     type LibraryPageRequest,
   } from "$lib/api/library";
   import { loadSetupStatus } from "$lib/api/setup";
@@ -81,8 +83,10 @@
   let diagnosticsTimer: ReturnType<typeof setTimeout> | undefined;
   let loading = false;
   let syncing = false;
+  let checkingHealth = false;
   let error = "";
   let syncResult: SyncRunResult | null = null;
+  let healthResult: LibraryHealthCheckResult | null = null;
   let syncStatus: SyncStatus | null = null;
   let validation: LibraryValidation | null = null;
   let duplicateGroups: LibraryDuplicateGroup[] = [];
@@ -271,6 +275,22 @@
       error = `Sync failed. ${message}`;
     } finally {
       syncing = false;
+    }
+  }
+
+  async function runHealthCheck() {
+    if (checkingHealth) return;
+    checkingHealth = true;
+    error = "";
+    healthResult = null;
+    try {
+      healthResult = await checkLibraryHealth();
+      await loadFirstLibraryPage();
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
+      error = `Health check failed. ${message}`;
+    } finally {
+      checkingHealth = false;
     }
   }
 
@@ -570,8 +590,13 @@
 <AppShell>
   <PageHeader ariaLabel="Strmline controls" title="Library dashboard">
     <svelte:fragment slot="actions">
+      <form on:submit|preventDefault={runHealthCheck}>
+        <UiButton type="submit" disabled={loading || syncing || checkingHealth}>
+          {checkingHealth ? "Checking health" : "Check health"}
+        </UiButton>
+      </form>
       <form on:submit|preventDefault={runManualSync}>
-        <UiButton type="submit" disabled={loading || syncing}>
+        <UiButton type="submit" disabled={loading || syncing || checkingHealth}>
           {syncing ? "Syncing" : "Run sync"}
         </UiButton>
       </form>
@@ -586,6 +611,14 @@
   {#if syncResult}
     <Notice variant="success" resetKey={String(syncResult.sync_run_id)}
       >Sync #{syncResult.sync_run_id} completed. Library refreshed.</Notice
+    >
+  {/if}
+
+  {#if healthResult}
+    <Notice variant="success" resetKey={healthResult.checked_at}
+      >Health checked for {healthResult.checked_entries} files: {healthResult.ready} ready,
+      {healthResult.recoverable} recoverable, {healthResult.unavailable} unavailable, and
+      {healthResult.unknown} unknown.</Notice
     >
   {/if}
 
@@ -652,7 +685,8 @@
       <LibraryMediaGrid
         entries={visibleEntries}
         overrides={classificationOverrides}
-        disabled={loading || syncing}
+        disabled={loading || syncing || checkingHealth}
+        {checkingHealth}
         {pendingClassificationKey}
         {removingEntryKey}
         {refreshingMetadataKey}

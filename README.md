@@ -31,6 +31,7 @@
 - **Organized output** — generate predictable movie, show, and anime folders that media servers can scan directly.
 - **Metadata-aware matching** — use TMDB identities, titles, years, and artwork instead of relying only on filenames.
 - **Library maintenance** — run manual or scheduled synchronization, classification overrides, metadata refreshes, and explicit removals.
+- **TorBox availability health** — check the library in one batch and see Ready, Recoverable, Unavailable, or Unknown directly on each title.
 - **Season completion** — optionally find released missing episodes through AIOStreams, preferring cached sources and respecting rate limits.
 - **Safer `.strm` files** — resolver mode keeps final tokenized TorBox download URLs out of the generated library.
 - **Self-hosted operations** — includes health checks, retained error logs, automatic database migrations, and an administrator password-reset command.
@@ -63,6 +64,17 @@ Removing a torrent directly in TorBox therefore leaves the virtual library entry
 
 > [!NOTE]
 > Playback recovery requires resolver mode, a stored torrent info hash, and content still available in the TorBox cache. Direct-play `.strm` files and older entries without a captured hash cannot use this fallback.
+
+### Library Health
+
+Use **Check health** on the library dashboard to compare active library entries with the current TorBox account and cache. Each title receives a small status chip:
+
+- **Ready** — every file is present in the TorBox account.
+- **Recoverable** — at least one file is absent from the account but remains cached and can be restored.
+- **Unavailable** — at least one file is absent from both the account and the TorBox cache.
+- **Unknown** — availability has not been checked, or a file does not have a torrent hash.
+
+Hover over a chip for its explanation. Strmline compares each distinct info hash with the account list once per run, then asks the cache API only about hashes that are absent. It persists only the resulting status metadata, hash, and timestamp in PostgreSQL. It does not download, proxy, or cache media content.
 
 ## Requirements
 
@@ -172,6 +184,8 @@ Do not manually modify generated `.strm` files while a sync is running. Use the 
 ## Playback Modes
 
 Strmline defaults to resolver playback. Generated `.strm` files contain a stable Strmline URL, which keeps final tokenized TorBox URLs out of the library and enables playback recovery.
+
+To avoid resolving the same target twice when a player sends adjacent `HEAD` and `GET` requests, Strmline reuses successful database-backed redirect targets for up to 30 seconds. This bounded cache exists only in process memory and is cleared on shutdown; Strmline never fetches, proxies, stores, or caches media content.
 
 Direct playback is available as an explicit setup option for clients that cannot reach the resolver. It writes the final media URL into the `.strm` file, does not support recovery after TorBox removal, and should be treated as sensitive.
 

@@ -160,6 +160,18 @@ class TorBoxClient:
         Batches hashes in groups of 100 per TorBox API recommendation.
         Returns a dict mapping each hash to its cached status.
         """
+        return await self._check_cached(hashes, suppress_errors=True)
+
+    async def check_cached_strict(self, hashes: list[str]) -> dict[str, bool]:
+        """Check cached availability without converting provider failures to misses."""
+        return await self._check_cached(hashes, suppress_errors=False)
+
+    async def _check_cached(
+        self,
+        hashes: list[str],
+        *,
+        suppress_errors: bool,
+    ) -> dict[str, bool]:
         if not hashes:
             return {}
 
@@ -175,19 +187,11 @@ class TorBoxClient:
                     params={"hash": hash_param},
                 )
             except TorBoxAPIError:
-                for h in batch:
-                    result[h] = False
+                if not suppress_errors:
+                    raise
+                result.update(dict.fromkeys(batch, False))
                 continue
-
-            data = payload.get("data")
-            if isinstance(data, dict):
-                typed_data = cast(dict[str, Any], data)
-                for h in batch:
-                    entry = typed_data.get(h)
-                    result[h] = entry is not None and entry is not False
-            else:
-                for h in batch:
-                    result[h] = False
+            result.update(_cached_batch_result(batch, payload))
 
         return result
 
@@ -307,6 +311,17 @@ class TorBoxClient:
 
 def _bool_field(*, value: bool) -> str:
     return "true" if value else "false"
+
+
+def _cached_batch_result(hashes: list[str], payload: dict[str, Any]) -> dict[str, bool]:
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return dict.fromkeys(hashes, False)
+    typed_data = cast(dict[str, Any], data)
+    return {
+        info_hash: typed_data.get(info_hash) is not None and typed_data.get(info_hash) is not False
+        for info_hash in hashes
+    }
 
 
 def _delete_control(kind: DownloadKind) -> tuple[str, str]:

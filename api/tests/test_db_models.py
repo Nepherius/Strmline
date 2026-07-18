@@ -11,6 +11,7 @@ from app.db.models import (
     ClassificationOverride,
     GeneratedFile,
     LibraryEntry,
+    LibraryEntryHealth,
     LibraryExclusion,
     MediaAlias,
     MediaExternalIdentity,
@@ -36,6 +37,7 @@ def test_initial_schema_tables_are_registered() -> None:
         "classification_overrides",
         "generated_files",
         "library_entries",
+        "library_entry_health",
         "library_exclusions",
         "media_items",
         "media_aliases",
@@ -73,6 +75,7 @@ def test_resolver_tokens_store_hash_not_plain_token() -> None:
 def test_sync_and_playback_tables_do_not_store_final_media_urls() -> None:
     for model in (
         LibraryEntry,
+        LibraryEntryHealth,
         PlaybackAttempt,
         SyncError,
         SyncRun,

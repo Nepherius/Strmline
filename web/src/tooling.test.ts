@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 import packageMetadata from "../package.json";
 
 import { fetchJson } from "./lib/api/client";
-import { loadLibraryEntries } from "./lib/api/library";
+import { checkLibraryHealth, loadLibraryEntries } from "./lib/api/library";
 import { APP_VERSION } from "./lib/appVersion";
 import { parseEpisodeTarget } from "./lib/domain/search/episodeTarget";
 import {
   duplicateFileCount,
   filterFiles,
+  libraryHealthTooltip,
   sortFiles,
   type LibrarySummary,
 } from "./lib/domain/library/summary";
@@ -105,6 +106,24 @@ describe("library summary helpers", () => {
 
     expect(duplicateFileCount(summary)).toBe(2);
   });
+
+  it("explains health status names in hover text", () => {
+    expect(
+      libraryHealthTooltip({
+        status: "recoverable",
+        total: 4,
+        ready: 3,
+        recoverable: 1,
+        unavailable: 0,
+        unknown: 0,
+        checked_at: "2026-07-18T12:00:00Z",
+      }),
+    ).toBe(
+      "Recoverable — 1 of 4 files are absent from your TorBox account but remain cached and can be restored.",
+    );
+    expect(libraryHealthTooltip(undefined)).toMatch(/^Unknown —/);
+    expect(libraryHealthTooltip(undefined, true)).toMatch(/^Checking —/);
+  });
 });
 
 describe("api helpers", () => {
@@ -174,6 +193,34 @@ describe("api helpers", () => {
     expect(request.searchParams.has("cursor")).toBe(false);
     expect(request.searchParams.get("limit")).toBe("50");
     expect(request.searchParams.get("include_overview")).toBe("true");
+  });
+
+  it("starts library health checks with POST", async () => {
+    const originalFetch = globalThis.fetch;
+    let requestedMethod = "";
+    globalThis.fetch = (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestedMethod = init?.method ?? "GET";
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            checked_at: "2026-07-18T12:00:00Z",
+            checked_entries: 0,
+            distinct_hashes: 0,
+            ready: 0,
+            recoverable: 0,
+            unavailable: 0,
+            unknown: 0,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    };
+    try {
+      await checkLibraryHealth();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    expect(requestedMethod).toBe("POST");
   });
 
   it("builds TorBox test payloads from typed keys", () => {

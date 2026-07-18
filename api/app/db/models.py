@@ -529,6 +529,37 @@ class LibraryEntry(Base):
         back_populates="library_entry", cascade="all, delete-orphan"
     )
     playback_attempts: Mapped[list[PlaybackAttempt]] = relationship(back_populates="library_entry")
+    health: Mapped[LibraryEntryHealth | None] = relationship(
+        back_populates="library_entry",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+
+
+class LibraryEntryHealth(Base):
+    __tablename__ = "library_entry_health"
+    __table_args__ = (
+        Index("ix_library_entry_health_status", "status"),
+        Index("ix_library_entry_health_checked_at", "checked_at"),
+        CheckConstraint(
+            "status IN ('ready', 'recoverable', 'unavailable', 'unknown')",
+            name="ck_library_entry_health_status",
+        ),
+    )
+
+    library_entry_id: Mapped[int] = mapped_column(
+        ForeignKey("library_entries.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    info_hash: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    checked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+
+    library_entry: Mapped[LibraryEntry] = relationship(back_populates="health")
 
 
 class GeneratedFile(Base):

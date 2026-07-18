@@ -1,4 +1,6 @@
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Self
 from unittest.mock import AsyncMock
 
 import pytest
@@ -7,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import library as library_api
 from app.db.models import MediaExternalIdentity, MediaItem
+from app.db.repositories.library_health import LibraryHealthAggregate
 from app.db.repositories.media_metadata import (
     LibraryMediaPage,
     LibraryMediaRecord,
@@ -65,7 +68,29 @@ async def test_library_entries_defaults_to_fifty_and_reports_more_pages(
                 category_counts={"movies": 501, "shows": 400, "anime": 100},
             )
 
+    class FakeHealthRepository:
+        def __init__(self, _session: AsyncSession) -> None:
+            pass
+
+        async def aggregates_for_media(
+            self,
+            media_keys: set[tuple[int, str]],
+        ) -> dict[tuple[int, str], LibraryHealthAggregate]:
+            assert media_keys == {(1, "movies")}
+            return {
+                (1, "movies"): LibraryHealthAggregate(
+                    status="recoverable",
+                    total=1,
+                    ready=0,
+                    recoverable=1,
+                    unavailable=0,
+                    unknown=0,
+                    checked_at=None,
+                )
+            }
+
     monkeypatch.setattr(library_api, "MediaMetadataRepository", FakeRepository)
+    monkeypatch.setattr(library_api, "LibraryHealthRepository", FakeHealthRepository)
 
     response = await library_api.library_entries(
         AsyncMock(spec=AsyncSession),
@@ -79,6 +104,78 @@ async def test_library_entries_defaults_to_fifty_and_reports_more_pages(
     assert response.next_cursor == "next-page"
     assert response.total_files == 5000
     assert response.entries[0].title == "First Movie"
+    assert response.entries[0].health.status == "recoverable"
+
+
+@pytest.mark.asyncio
+async def test_library_health_check_persists_provider_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = AsyncMock(spec=AsyncSession)
+    checked_at = datetime(2026, 7, 18, tzinfo=UTC)
+    result = library_api.LibraryHealthCheckResult(
+        checked_at=checked_at,
+        checked_entries=4,
+        distinct_hashes=3,
+        ready=1,
+        recoverable=1,
+        unavailable=1,
+        unknown=1,
+    )
+
+    class FakeTorBoxClient:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            pass
+
+    check = AsyncMock(return_value=result)
+    monkeypatch.setattr(library_api, "effective_torbox_key", AsyncMock(return_value="key"))
+    monkeypatch.setattr(library_api, "TorBoxClient", FakeTorBoxClient)
+    monkeypatch.setattr(library_api, "check_library_health", check)
+
+    response = await library_api.run_library_health_check(session)
+
+    assert response.unavailable == 1
+    assert response.recoverable == 1
+    session.commit.assert_awaited_once()
+    session.rollback.assert_not_awaited()
+    check.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_library_health_check_preserves_statuses_on_provider_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = AsyncMock(spec=AsyncSession)
+
+    class FakeTorBoxClient:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            pass
+
+    monkeypatch.setattr(library_api, "effective_torbox_key", AsyncMock(return_value="key"))
+    monkeypatch.setattr(library_api, "TorBoxClient", FakeTorBoxClient)
+    monkeypatch.setattr(
+        library_api,
+        "check_library_health",
+        AsyncMock(side_effect=library_api.TorBoxAPIError("provider failed")),
+    )
+
+    with pytest.raises(HTTPException, match="existing health statuses were preserved"):
+        _ = await library_api.run_library_health_check(session)
+
+    session.rollback.assert_awaited_once()
+    session.commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -75,6 +75,16 @@ export interface UpdateLibraryEntryTmdbIdResult {
   refreshed_posters: number;
 }
 
+export interface LibraryHealthCheckResult {
+  checked_at: string;
+  checked_entries: number;
+  distinct_hashes: number;
+  ready: number;
+  recoverable: number;
+  unavailable: number;
+  unknown: number;
+}
+
 export function loadLibrarySummary(): Promise<LibrarySummary> {
   return fetchJson<LibrarySummary>("/api/library/summary");
 }
@@ -98,6 +108,12 @@ export function loadLibraryValidation(): Promise<LibraryValidation> {
 
 export function loadLibraryDiagnostics(): Promise<LibraryDiagnostics> {
   return fetchJson<LibraryDiagnostics>("/api/library/diagnostics");
+}
+
+export function checkLibraryHealth(): Promise<LibraryHealthCheckResult> {
+  return fetchJson<LibraryHealthCheckResult>("/api/library/health/check", {
+    method: "POST",
+  });
 }
 
 export function loadClassificationOverrides(): Promise<ClassificationOverride[]> {

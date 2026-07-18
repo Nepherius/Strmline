@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 import pytest
 
-from app.providers.torbox.client import TorBoxClient
+from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
 
 
 def _mock_transport(
@@ -117,6 +117,17 @@ class TestCheckCached:
         async with TorBoxClient(api_key="test", transport=transport) as client:
             result = await client.check_cached(["hash1", "hash2"])
         assert result == {"hash1": False, "hash2": False}
+
+    @pytest.mark.asyncio
+    async def test_strict_api_error_is_not_reported_as_uncached(self) -> None:
+        transport = _mock_transport(
+            [
+                httpx.Response(500, json={"success": False, "error": "Server error"}),
+            ]
+        )
+        async with TorBoxClient(api_key="test", transport=transport) as client:
+            with pytest.raises(TorBoxAPIError, match="Server error"):
+                _ = await client.check_cached_strict(["hash1"])
 
     @pytest.mark.asyncio
     async def test_non_dict_data_marks_uncached(self) -> None:

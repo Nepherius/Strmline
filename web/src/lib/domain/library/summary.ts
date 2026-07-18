@@ -1,5 +1,16 @@
 export type LibraryCategory = "movies" | "shows" | "anime";
 export type LibraryDisplayCategory = LibraryCategory | "watchlist";
+export type LibraryHealthStatus = "ready" | "recoverable" | "unavailable" | "unknown";
+
+export interface LibraryHealthSummary {
+  status: LibraryHealthStatus;
+  total: number;
+  ready: number;
+  recoverable: number;
+  unavailable: number;
+  unknown: number;
+  checked_at: string | null;
+}
 
 export interface LibraryFile {
   category: LibraryCategory;
@@ -26,6 +37,7 @@ export interface LibraryEntry {
   imdb_id?: string | null;
   year?: string | null;
   overview?: string;
+  health?: LibraryHealthSummary;
 }
 
 export interface LibrarySummary {
@@ -80,6 +92,30 @@ export const categoryLabels: Record<LibraryDisplayCategory, string> = {
   anime: "Anime",
   watchlist: "Watchlist",
 };
+
+export const healthLabels: Record<LibraryHealthStatus, string> = {
+  ready: "Ready",
+  recoverable: "Recoverable",
+  unavailable: "Unavailable",
+  unknown: "Unknown",
+};
+
+export function libraryHealthTooltip(
+  health: LibraryHealthSummary | undefined,
+  checking = false,
+): string {
+  if (checking) return "Checking — Strmline is checking this title against TorBox.";
+  if (!health || health.status === "unknown") {
+    return "Unknown — Availability has not been checked, or a file has no torrent hash to check.";
+  }
+  if (health.status === "unavailable") {
+    return `Unavailable — ${String(health.unavailable)} of ${String(health.total)} files are absent from your TorBox account and its cache.`;
+  }
+  if (health.status === "recoverable") {
+    return `Recoverable — ${String(health.recoverable)} of ${String(health.total)} files are absent from your TorBox account but remain cached and can be restored.`;
+  }
+  return `Ready — All ${String(health.total)} files are present in your TorBox account.`;
+}
 
 export function filterFiles(
   files: LibraryEntry[],

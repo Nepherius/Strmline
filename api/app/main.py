@@ -17,7 +17,7 @@ from app.api.dependencies import (
 from app.api.health import router as health_router
 from app.api.library import router as library_router
 from app.api.logs import router as logs_router
-from app.api.resolver import router as resolver_router
+from app.api.resolver import clear_resolved_target_cache, router as resolver_router
 from app.api.search import router as search_router
 from app.api.settings import router as settings_router
 from app.api.setup import router as setup_router
@@ -49,6 +49,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         await start_auto_sync_scheduler(app)
         yield
     finally:
+        clear_resolved_target_cache()
         await shutdown_auto_sync_scheduler(app)
         await error_log_writer.shutdown()
 
