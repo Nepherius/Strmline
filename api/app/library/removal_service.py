@@ -10,12 +10,10 @@ from app.db.repositories.library_exclusion import (
     BackingProviderItem,
     LibraryExclusionRepository,
 )
-from app.library.removal import StagedLibraryRemoval, stage_library_prefix_removal
-from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
-
-
-class LibraryRemovalProviderError(RuntimeError):
-    """Raised after a provider failure has been compensated locally."""
+from app.db.repositories.stream_selection import StreamSelectionRepository
+from app.library.removal import stage_library_prefix_removal
+from app.providers.torbox.client import TorBoxClient
+from app.providers.torbox.removal import remove_torbox_items
 
 
 class TorBoxRemovalClientFactory(Protocol):
@@ -33,6 +31,7 @@ class TorBoxRemovalConfig:
 class LibraryRemovalOutcome:
     removed_files: int
     removed_torbox_items: int
+    torbox_removal_failed: bool = False
 
 
 async def remove_library_media(  # noqa: PLR0913
@@ -55,6 +54,10 @@ async def remove_library_media(  # noqa: PLR0913
             title=title,
             relative_prefix=relative_prefix,
         )
+        _ = await repository.remove_generated_files(relative_prefix)
+        _ = await StreamSelectionRepository(session).delete_for_torbox_items(
+            {item.item_id for item in backing_items if item.kind == "torrents"}
+        )
         await session.commit()
     except Exception:
         await session.rollback()
@@ -62,36 +65,20 @@ async def remove_library_media(  # noqa: PLR0913
         raise
 
     removed_torbox_items = 0
+    torbox_removal_failed = False
     if torbox is not None:
-        try:
-            async with client_factory(
-                api_key=torbox.api_key,
-                base_url=torbox.base_url,
-                timeout=torbox.timeout,
-            ) as client:
-                for item in backing_items:
-                    await client.delete_download(item.kind, item.item_id)
-                    removed_torbox_items += 1
-        except TorBoxAPIError as error:
-            await _compensate_local_removal(session, repository, relative_prefix, staged)
-            raise LibraryRemovalProviderError("TorBox operation failed.") from error
+        async with client_factory(
+            api_key=torbox.api_key,
+            base_url=torbox.base_url,
+            timeout=torbox.timeout,
+        ) as client:
+            provider_removal = await remove_torbox_items(client, backing_items)
+        removed_torbox_items = provider_removal.removed
+        torbox_removal_failed = not provider_removal.complete
 
     removal = staged.finalize()
     return LibraryRemovalOutcome(
         removed_files=removal.removed_files,
         removed_torbox_items=removed_torbox_items,
+        torbox_removal_failed=torbox_removal_failed,
     )
-
-
-async def _compensate_local_removal(
-    session: AsyncSession,
-    repository: LibraryExclusionRepository,
-    relative_prefix: str,
-    staged: StagedLibraryRemoval,
-) -> None:
-    await session.rollback()
-    try:
-        _ = await repository.remove(relative_prefix)
-        await session.commit()
-    finally:
-        staged.restore()

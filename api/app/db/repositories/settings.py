@@ -11,6 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.db.models import ApplicationSettings, ProviderCredential, ResolverToken
+from app.operations.defaults import (
+    RESOLVER_CIRCUIT_BREAKER_COOLDOWN_SECONDS,
+    RESOLVER_CIRCUIT_BREAKER_FAILURES,
+    RESOLVER_CIRCUIT_BREAKER_WINDOW_SECONDS,
+    RESOLVER_NEGATIVE_CACHE_SECONDS,
+    TORBOX_REQUESTS_PER_MINUTE,
+)
 from app.security.secrets import SecretBox
 
 SECRET_HINT_SUFFIX_LENGTH = 4
@@ -43,6 +50,11 @@ class SettingsSnapshot:
     season_auto_complete_interval_days: int = DEFAULT_SEASON_AUTO_COMPLETE_INTERVAL_DAYS
     season_auto_complete_allow_uncached: bool = False
     season_auto_complete_shows_per_minute: int = DEFAULT_SEASON_AUTO_COMPLETE_SHOWS_PER_MINUTE
+    torbox_requests_per_minute: int = TORBOX_REQUESTS_PER_MINUTE
+    resolver_negative_cache_seconds: int = RESOLVER_NEGATIVE_CACHE_SECONDS
+    resolver_circuit_breaker_failures: int = RESOLVER_CIRCUIT_BREAKER_FAILURES
+    resolver_circuit_breaker_window_seconds: int = RESOLVER_CIRCUIT_BREAKER_WINDOW_SECONDS
+    resolver_circuit_breaker_cooldown_seconds: int = RESOLVER_CIRCUIT_BREAKER_COOLDOWN_SECONDS
     base_url_source: SettingSource | None = None
     library_root_source: SettingSource | None = None
     torbox_source: SettingSource | None = None
@@ -63,6 +75,11 @@ class AppSettingsUpdate(BaseModel):
     season_auto_complete_interval_days: int | None = Field(default=None, ge=1)
     season_auto_complete_allow_uncached: bool | None = None
     season_auto_complete_shows_per_minute: int | None = Field(default=None, ge=1, le=60)
+    torbox_requests_per_minute: int | None = Field(default=None, ge=1, le=1000)
+    resolver_negative_cache_seconds: int | None = Field(default=None, ge=1, le=300)
+    resolver_circuit_breaker_failures: int | None = Field(default=None, ge=1, le=20)
+    resolver_circuit_breaker_window_seconds: int | None = Field(default=None, ge=1, le=3600)
+    resolver_circuit_breaker_cooldown_seconds: int | None = Field(default=None, ge=1, le=3600)
     torbox_api_key: str | None = Field(default=None, min_length=1)
     tmdb_api_key: str | None = Field(default=None, min_length=1)
     resolver_token: str | None = Field(default=None, min_length=1)
@@ -136,6 +153,31 @@ class AppSettingsRepository:
                 database_settings,
                 "season_auto_complete_shows_per_minute",
                 default=DEFAULT_SEASON_AUTO_COMPLETE_SHOWS_PER_MINUTE,
+            ),
+            torbox_requests_per_minute=_database_value(
+                database_settings,
+                "torbox_requests_per_minute",
+                default=TORBOX_REQUESTS_PER_MINUTE,
+            ),
+            resolver_negative_cache_seconds=_database_value(
+                database_settings,
+                "resolver_negative_cache_seconds",
+                default=RESOLVER_NEGATIVE_CACHE_SECONDS,
+            ),
+            resolver_circuit_breaker_failures=_database_value(
+                database_settings,
+                "resolver_circuit_breaker_failures",
+                default=RESOLVER_CIRCUIT_BREAKER_FAILURES,
+            ),
+            resolver_circuit_breaker_window_seconds=_database_value(
+                database_settings,
+                "resolver_circuit_breaker_window_seconds",
+                default=RESOLVER_CIRCUIT_BREAKER_WINDOW_SECONDS,
+            ),
+            resolver_circuit_breaker_cooldown_seconds=_database_value(
+                database_settings,
+                "resolver_circuit_breaker_cooldown_seconds",
+                default=RESOLVER_CIRCUIT_BREAKER_COOLDOWN_SECONDS,
             ),
             torbox_configured=torbox_source is not None,
             tmdb_configured=tmdb_source is not None,
@@ -232,6 +274,11 @@ class AppSettingsRepository:
             "season_auto_complete_interval_days": update.season_auto_complete_interval_days,
             "season_auto_complete_allow_uncached": update.season_auto_complete_allow_uncached,
             "season_auto_complete_shows_per_minute": update.season_auto_complete_shows_per_minute,
+            "torbox_requests_per_minute": update.torbox_requests_per_minute,
+            "resolver_negative_cache_seconds": update.resolver_negative_cache_seconds,
+            "resolver_circuit_breaker_failures": update.resolver_circuit_breaker_failures,
+            "resolver_circuit_breaker_window_seconds": update.resolver_circuit_breaker_window_seconds,
+            "resolver_circuit_breaker_cooldown_seconds": update.resolver_circuit_breaker_cooldown_seconds,
         }
         if not any(value is not None for value in values.values()):
             return

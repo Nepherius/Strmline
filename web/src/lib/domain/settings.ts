@@ -14,6 +14,11 @@ export interface AppSettings {
   season_auto_complete_interval_days: number;
   season_auto_complete_allow_uncached: boolean;
   season_auto_complete_shows_per_minute: number;
+  torbox_requests_per_minute: number;
+  resolver_negative_cache_seconds: number;
+  resolver_circuit_breaker_failures: number;
+  resolver_circuit_breaker_window_seconds: number;
+  resolver_circuit_breaker_cooldown_seconds: number;
   torbox_configured: boolean;
   tmdb_configured: boolean;
   resolver_configured: boolean;
@@ -43,6 +48,11 @@ export interface SettingsFormValues {
   seasonAutoCompleteIntervalDays: string;
   seasonAutoCompleteAllowUncached: boolean;
   seasonAutoCompleteShowsPerMinute: string;
+  torboxRequestsPerMinute: string;
+  resolverNegativeCacheSeconds: string;
+  resolverCircuitBreakerFailures: string;
+  resolverCircuitBreakerWindowSeconds: string;
+  resolverCircuitBreakerCooldownSeconds: string;
   torboxApiKey: string;
   tmdbApiKey: string;
   resolverToken: string;
@@ -74,6 +84,27 @@ export function buildSettingsPayload(values: SettingsFormValues): SettingsPayloa
     "season_auto_complete_shows_per_minute",
     values.seasonAutoCompleteShowsPerMinute,
   );
+  setIntegerIfPresent(payload, "torbox_requests_per_minute", values.torboxRequestsPerMinute);
+  setIntegerIfPresent(
+    payload,
+    "resolver_negative_cache_seconds",
+    values.resolverNegativeCacheSeconds,
+  );
+  setIntegerIfPresent(
+    payload,
+    "resolver_circuit_breaker_failures",
+    values.resolverCircuitBreakerFailures,
+  );
+  setIntegerIfPresent(
+    payload,
+    "resolver_circuit_breaker_window_seconds",
+    values.resolverCircuitBreakerWindowSeconds,
+  );
+  setIntegerIfPresent(
+    payload,
+    "resolver_circuit_breaker_cooldown_seconds",
+    values.resolverCircuitBreakerCooldownSeconds,
+  );
   setIfPresent(payload, "torbox_api_key", values.torboxApiKey);
   setIfPresent(payload, "tmdb_api_key", values.tmdbApiKey);
   setIfPresent(payload, "resolver_token", values.resolverToken);
@@ -94,6 +125,15 @@ export function settingsToFormValues(settings: AppSettings | null): SettingsForm
     seasonAutoCompleteIntervalDays: String(settings?.season_auto_complete_interval_days ?? 1),
     seasonAutoCompleteAllowUncached: settings?.season_auto_complete_allow_uncached ?? false,
     seasonAutoCompleteShowsPerMinute: String(settings?.season_auto_complete_shows_per_minute ?? 1),
+    torboxRequestsPerMinute: String(settings?.torbox_requests_per_minute ?? 250),
+    resolverNegativeCacheSeconds: String(settings?.resolver_negative_cache_seconds ?? 30),
+    resolverCircuitBreakerFailures: String(settings?.resolver_circuit_breaker_failures ?? 3),
+    resolverCircuitBreakerWindowSeconds: String(
+      settings?.resolver_circuit_breaker_window_seconds ?? 120,
+    ),
+    resolverCircuitBreakerCooldownSeconds: String(
+      settings?.resolver_circuit_breaker_cooldown_seconds ?? 60,
+    ),
     torboxApiKey: "",
     tmdbApiKey: "",
     resolverToken: "",

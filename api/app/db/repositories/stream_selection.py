@@ -150,6 +150,21 @@ class StreamSelectionRepository:
         selection = await self._selection(stream_key)
         if selection is None:
             return False
+        await self._delete_selection(selection)
+        return True
+
+    async def delete_for_torbox_items(self, torrent_ids: set[str]) -> int:
+        if not torrent_ids:
+            return 0
+        result = await self._session.execute(
+            select(StreamSelection).where(StreamSelection.torbox_torrent_id.in_(torrent_ids))
+        )
+        selections = tuple(result.scalars())
+        for selection in selections:
+            await self._delete_selection(selection)
+        return len(selections)
+
+    async def _delete_selection(self, selection: StreamSelection) -> None:
         if selection.info_hash is not None:
             _ = await self._session.execute(
                 update(LibraryEntry)
@@ -158,7 +173,6 @@ class StreamSelectionRepository:
             )
         await self._session.delete(selection)
         await self._session.flush()
-        return True
 
     async def _selection(self, stream_key: str) -> StreamSelection | None:
         result = await self._session.execute(

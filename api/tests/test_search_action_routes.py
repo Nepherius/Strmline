@@ -15,7 +15,7 @@ from app.db.repositories.stream_selection import StreamSelectionRecord, StreamSe
 from app.main import create_app
 from app.providers.aiostreams.client import AioStreamsClient
 from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
-from app.search.auto_sync import AutoSyncOutcome
+from app.sync.auto import AutoSyncOutcome
 from tests.conftest import override_auth
 
 
@@ -200,7 +200,7 @@ async def test_add_stream_adds_torrent_and_marks_selection(
 
     monkeypatch.setattr(AioStreamsClient, "_get_json", mock_aiostreams_get_json)
     monkeypatch.setattr(TorBoxClient, "create_torrent", mock_create_torrent)
-    monkeypatch.setattr(search_api, "auto_sync_after_stream_add", mock_sync_success)
+    monkeypatch.setattr(search_api, "auto_sync_after_action", mock_sync_success)
 
     async with _client_with_fake_session() as client:
         stream = (
@@ -289,7 +289,7 @@ async def test_add_stream_triggers_aiostreams_torbox_url(
     monkeypatch.setattr(AioStreamsClient, "_get_json", mock_aiostreams_get_json)
     monkeypatch.setattr(AioStreamsClient, "trigger_stream_url", mock_trigger_stream_url)
     monkeypatch.setattr(TorBoxClient, "list_downloads", mock_list_downloads)
-    monkeypatch.setattr(search_api, "auto_sync_after_stream_add", mock_sync_success)
+    monkeypatch.setattr(search_api, "auto_sync_after_action", mock_sync_success)
 
     async with _client_with_fake_session() as client:
         stream = (
@@ -350,7 +350,7 @@ async def test_add_stream_keeps_selection_when_auto_sync_fails(
 
     monkeypatch.setattr(AioStreamsClient, "_get_json", mock_aiostreams_get_json)
     monkeypatch.setattr(TorBoxClient, "create_torrent", mock_create_torrent)
-    monkeypatch.setattr(search_api, "auto_sync_after_stream_add", mock_sync_failure)
+    monkeypatch.setattr(search_api, "auto_sync_after_action", mock_sync_failure)
 
     async with _client_with_fake_session() as client:
         stream = (
@@ -397,13 +397,13 @@ async def test_remove_stream_deletes_torbox_item_and_local_selection(
     monkeypatch.setenv("STRMLINE_TORBOX_API_KEY", "test_torbox_key")
     get_settings.cache_clear()
 
-    seen_delete: list[str] = []
+    seen_delete: list[tuple[str, str]] = []
 
-    async def mock_delete_torrent(self: object, torrent_id: str) -> None:
+    async def mock_delete_download(self: object, kind: str, item_id: str) -> None:
         _ = self
-        seen_delete.append(torrent_id)
+        seen_delete.append((kind, item_id))
 
-    monkeypatch.setattr(TorBoxClient, "delete_torrent", mock_delete_torrent)
+    monkeypatch.setattr(TorBoxClient, "delete_download", mock_delete_download)
 
     async with _client_with_fake_session() as client:
         response = await client.post(
@@ -412,27 +412,31 @@ async def test_remove_stream_deletes_torbox_item_and_local_selection(
         )
 
     assert response.json()["selected"] is False
-    assert seen_delete == ["777"]
+    assert seen_delete == [("torrents", "777")]
     assert stream_key not in FakeStreamSelectionRepository.records
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("error_code", "expected_message"),
+    ("provider_error", "expected_message"),
     [
         (
-            "ITEM_NOT_FOUND",
+            TorBoxAPIError("provider detail", error_code="ITEM_NOT_FOUND"),
             "Removed from Strmline; torrent was already absent from TorBox.",
         ),
         (
-            "AUTH_ERROR",
+            TorBoxAPIError("provider detail", error_code="AUTH_ERROR"),
+            "Removed from Strmline, but TorBox removal could not be confirmed.",
+        ),
+        (
+            httpx.ConnectError("provider unavailable"),
             "Removed from Strmline, but TorBox removal could not be confirmed.",
         ),
     ],
 )
 async def test_remove_stream_is_not_blocked_by_torbox_failure(
     monkeypatch: pytest.MonkeyPatch,
-    error_code: str,
+    provider_error: Exception,
     expected_message: str,
 ) -> None:
     stream_key = "stale-selected-stream-key"
@@ -452,11 +456,11 @@ async def test_remove_stream_is_not_blocked_by_torbox_failure(
     monkeypatch.setenv("STRMLINE_TORBOX_API_KEY", "test_torbox_key")
     get_settings.cache_clear()
 
-    async def mock_delete_torrent(self: object, torrent_id: str) -> None:
-        _ = (self, torrent_id)
-        raise TorBoxAPIError("provider detail", error_code=error_code)
+    async def mock_delete_download(self: object, kind: str, item_id: str) -> None:
+        _ = (self, kind, item_id)
+        raise provider_error
 
-    monkeypatch.setattr(TorBoxClient, "delete_torrent", mock_delete_torrent)
+    monkeypatch.setattr(TorBoxClient, "delete_download", mock_delete_download)
 
     async with _client_with_fake_session() as client:
         response = await client.post(

@@ -320,6 +320,53 @@
         label="Enable debug logging"
       />
     </fieldset>
+    <fieldset class="category-options operational-settings wide-field">
+      <legend
+        >TorBox resilience <HelpTooltip
+          text="Process-wide traffic and failed playback-recovery controls. Saved Setup values are the single source of truth."
+        /></legend
+      >
+      <NumberField
+        bind:value={values.torboxRequestsPerMinute}
+        helpText="Maximum TorBox API calls admitted across this Strmline process each minute."
+        label="Requests per minute"
+        min="1"
+        max="1000"
+        placeholder="250"
+      />
+      <NumberField
+        bind:value={values.resolverNegativeCacheSeconds}
+        helpText="Delay before retrying a playback entry after its recovery call fails."
+        label="Failure retry delay (seconds)"
+        min="1"
+        max="300"
+        placeholder="30"
+      />
+      <NumberField
+        bind:value={values.resolverCircuitBreakerFailures}
+        helpText="Failures for one playback entry that open its recovery circuit."
+        label="Circuit failure threshold"
+        min="1"
+        max="20"
+        placeholder="3"
+      />
+      <NumberField
+        bind:value={values.resolverCircuitBreakerWindowSeconds}
+        helpText="Time window used to count failures toward the circuit threshold."
+        label="Circuit window (seconds)"
+        min="1"
+        max="3600"
+        placeholder="120"
+      />
+      <NumberField
+        bind:value={values.resolverCircuitBreakerCooldownSeconds}
+        helpText="How long recovery remains paused after the circuit opens."
+        label="Circuit cooldown (seconds)"
+        min="1"
+        max="3600"
+        placeholder="60"
+      />
+    </fieldset>
     <TextField
       bind:value={values.torboxApiKey}
       autocomplete="off"
@@ -508,6 +555,12 @@
     text-transform: uppercase;
   }
 
+  .operational-settings {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(150px, 1fr));
+    align-items: end;
+  }
+
   .wide-field {
     grid-column: 1 / -1;
   }
@@ -531,6 +584,10 @@
 
   @media (max-width: 760px) {
     .settings-form {
+      grid-template-columns: 1fr;
+    }
+
+    .operational-settings {
       grid-template-columns: 1fr;
     }
   }

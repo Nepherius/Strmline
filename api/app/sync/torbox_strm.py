@@ -69,6 +69,7 @@ class TorBoxStrmSyncResult:
     manifest_path: Path | None = None
     partial: bool = False
     diagnostics: tuple[SyncDiagnostic, ...] = ()
+    observed_excluded_prefixes: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +110,12 @@ class SyncedStrmFile:
 class ResolverUrlConfig:
     base_url: str
     token: str
+
+
+@dataclass(slots=True)
+class _SyncObservations:
+    diagnostics: set[SyncDiagnostic]
+    excluded_prefixes: set[str]
 
 
 class TorBoxStrmSync:
@@ -160,7 +167,7 @@ class TorBoxStrmSync:
         written_paths: list[Path] = []
         synced_files: list[SyncedStrmFile] = []
         manifest_entries: list[ResolverManifestEntry] = []
-        diagnostics: set[SyncDiagnostic] = set()
+        observations = _SyncObservations(set(), set())
         scanned_files = 0
         skipped_files = 0
 
@@ -177,7 +184,7 @@ class TorBoxStrmSync:
                         written_paths,
                         synced_files,
                         manifest_entries,
-                        diagnostics,
+                        observations,
                         partial=True,
                     )
                 scanned_files += 1
@@ -199,20 +206,25 @@ class TorBoxStrmSync:
                     resolved_identity is not None
                     and resolved_identity.status == ResolutionStatus.PROVIDER_ERROR
                 ):
-                    diagnostics.add(_provider_error_diagnostic(source_title))
+                    observations.diagnostics.add(_provider_error_diagnostic(source_title))
                     skipped_files += 1
                     continue
                 if (
                     resolved_identity is not None
                     and resolved_identity.status == ResolutionStatus.NO_MATCH
                 ):
-                    diagnostics.add(_no_match_diagnostic(source_title))
+                    observations.diagnostics.add(_no_match_diagnostic(source_title))
                 tmdb_id = resolved_identity.tmdb_id if resolved_identity is not None else None
                 tmdb_poster_path = (
                     resolved_identity.poster_path if resolved_identity is not None else None
                 )
 
-                if _is_excluded(entry, self._excluded_prefixes):
+                matching_exclusions = _matching_excluded_prefixes(
+                    entry,
+                    self._excluded_prefixes,
+                )
+                if matching_exclusions:
+                    observations.excluded_prefixes.update(matching_exclusions)
                     skipped_files += 1
                     continue
                 written_path = write_strm_file(self._library_root, entry)
@@ -236,7 +248,7 @@ class TorBoxStrmSync:
             written_paths,
             synced_files,
             manifest_entries,
-            diagnostics,
+            observations,
         )
 
     def _with_classification_override(self, entry: LibraryEntry) -> LibraryEntry:
@@ -329,7 +341,7 @@ class TorBoxStrmSync:
         written_paths: list[Path],
         synced_files: list[SyncedStrmFile],
         manifest_entries: list[ResolverManifestEntry],
-        diagnostics: set[SyncDiagnostic],
+        observations: _SyncObservations,
         *,
         partial: bool = False,
     ) -> TorBoxStrmSyncResult:
@@ -348,7 +360,7 @@ class TorBoxStrmSync:
             partial=partial,
             diagnostics=tuple(
                 sorted(
-                    diagnostics,
+                    observations.diagnostics,
                     key=lambda diagnostic: (
                         diagnostic.phase,
                         diagnostic.item_ref or "",
@@ -356,6 +368,7 @@ class TorBoxStrmSync:
                     ),
                 )
             ),
+            observed_excluded_prefixes=frozenset(observations.excluded_prefixes),
         )
 
 
@@ -443,13 +456,17 @@ def _entry_with_identity(entry: LibraryEntry, identity: MediaIdentity) -> Librar
     )
 
 
-def _is_excluded(entry: LibraryEntry, excluded_prefixes: tuple[str, ...]) -> bool:
+def _matching_excluded_prefixes(
+    entry: LibraryEntry,
+    excluded_prefixes: tuple[str, ...],
+) -> tuple[str, ...]:
     if not excluded_prefixes:
-        return False
+        return ()
     relative_path = library_entry_relative_path(entry).as_posix()
-    return any(
-        relative_path == prefix or relative_path.startswith(f"{prefix}/")
+    return tuple(
+        prefix
         for prefix in excluded_prefixes
+        if relative_path == prefix or relative_path.startswith(f"{prefix}/")
     )
 
 

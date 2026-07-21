@@ -20,6 +20,13 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.operations.defaults import (
+    RESOLVER_CIRCUIT_BREAKER_COOLDOWN_SECONDS,
+    RESOLVER_CIRCUIT_BREAKER_FAILURES,
+    RESOLVER_CIRCUIT_BREAKER_WINDOW_SECONDS,
+    RESOLVER_NEGATIVE_CACHE_SECONDS,
+    TORBOX_REQUESTS_PER_MINUTE,
+)
 
 
 def utc_now() -> datetime:
@@ -37,6 +44,26 @@ class ApplicationSettings(Base):
         CheckConstraint(
             "sync_interval_minutes > 0",
             name="ck_application_settings_sync_interval_positive",
+        ),
+        CheckConstraint(
+            "torbox_requests_per_minute BETWEEN 1 AND 1000",
+            name="ck_application_settings_torbox_requests_per_minute",
+        ),
+        CheckConstraint(
+            "resolver_negative_cache_seconds BETWEEN 1 AND 300",
+            name="ck_application_settings_resolver_negative_cache_seconds",
+        ),
+        CheckConstraint(
+            "resolver_circuit_breaker_failures BETWEEN 1 AND 20",
+            name="ck_application_settings_resolver_circuit_breaker_failures",
+        ),
+        CheckConstraint(
+            "resolver_circuit_breaker_window_seconds BETWEEN 1 AND 3600",
+            name="ck_application_settings_resolver_circuit_breaker_window_seconds",
+        ),
+        CheckConstraint(
+            "resolver_circuit_breaker_cooldown_seconds BETWEEN 1 AND 3600",
+            name="ck_application_settings_resolver_circuit_breaker_cooldown_seconds",
         ),
     )
 
@@ -59,6 +86,21 @@ class ApplicationSettings(Base):
     )
     season_auto_complete_shows_per_minute: Mapped[int] = mapped_column(
         Integer, default=1, nullable=False
+    )
+    torbox_requests_per_minute: Mapped[int] = mapped_column(
+        Integer, default=TORBOX_REQUESTS_PER_MINUTE, nullable=False
+    )
+    resolver_negative_cache_seconds: Mapped[int] = mapped_column(
+        Integer, default=RESOLVER_NEGATIVE_CACHE_SECONDS, nullable=False
+    )
+    resolver_circuit_breaker_failures: Mapped[int] = mapped_column(
+        Integer, default=RESOLVER_CIRCUIT_BREAKER_FAILURES, nullable=False
+    )
+    resolver_circuit_breaker_window_seconds: Mapped[int] = mapped_column(
+        Integer, default=RESOLVER_CIRCUIT_BREAKER_WINDOW_SECONDS, nullable=False
+    )
+    resolver_circuit_breaker_cooldown_seconds: Mapped[int] = mapped_column(
+        Integer, default=RESOLVER_CIRCUIT_BREAKER_COOLDOWN_SECONDS, nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False

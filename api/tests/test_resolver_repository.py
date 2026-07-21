@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import LibraryEntry, PlaybackAttempt, TorBoxItem, TorBoxStoredFile
 from app.db.repositories.resolver import PlaybackResolverRepository, ResolverLookupError
+from app.operations.metrics import get_operational_metrics
 from app.providers.torbox.client import TorBoxAPIError
 from app.providers.torbox.files import TorBoxFile
 from app.resolver.manifest import resolver_entry_id
@@ -110,6 +111,7 @@ async def test_resolver_repository_records_missing_entry_without_final_url() -> 
 async def test_resolver_repository_readds_missing_virtual_torrent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    get_operational_metrics().reset()
     monkeypatch.setattr(
         "app.db.repositories.resolver.PLAYBACK_RECOVERY_INTERVAL_SECONDS",
         0,
@@ -145,6 +147,11 @@ async def test_resolver_repository_readds_missing_virtual_torrent(
     assert client.created_magnets == ["magnet:?xt=urn:btih:abc123"]
     assert client.requested_ids == [("old-item", "old-file"), ("99", "7")]
     assert _playback_attempt(session).status == "redirect"
+    metrics = get_operational_metrics().snapshot()
+    assert metrics.resolver_recovery_attempts == 1
+    assert metrics.resolver_recovery_succeeded == 1
+    assert metrics.resolver_recovery_failed == 0
+    get_operational_metrics().reset()
 
 
 def _repository(session: FakeSession) -> PlaybackResolverRepository:

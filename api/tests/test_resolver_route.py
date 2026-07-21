@@ -7,6 +7,7 @@ import pytest
 from app.api import resolver as resolver_api
 from app.core.config import get_settings
 from app.main import create_app
+from app.operations.metrics import get_operational_metrics
 from app.resolver.manifest import ResolverManifestEntry, write_manifest_entries
 
 
@@ -122,6 +123,7 @@ async def test_play_reuses_short_lived_database_target_for_head_then_get(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     resolver_api.clear_resolved_target_cache()
+    get_operational_metrics().reset()
     resolution_calls = 0
 
     async def fake_token_is_valid(settings: object, token: str, session: object) -> bool:
@@ -156,7 +158,11 @@ async def test_play_reuses_short_lived_database_target_for_head_then_get(
     assert head_response.headers["location"] == "https://cdn.example.test/temporary"
     assert get_response.headers["location"] == "https://cdn.example.test/temporary"
     assert resolution_calls == 1
+    metrics = get_operational_metrics().snapshot()
+    assert metrics.resolver_cache_misses == 1
+    assert metrics.resolver_cache_hits == 1
     resolver_api.clear_resolved_target_cache()
+    get_operational_metrics().reset()
 
 
 async def _fake_database_session() -> AsyncIterator[object]:

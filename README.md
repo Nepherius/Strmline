@@ -35,6 +35,7 @@
 - **Season completion** — optionally find released missing episodes through AIOStreams, preferring cached sources and respecting rate limits.
 - **Safer `.strm` files** — resolver mode keeps final tokenized TorBox download URLs out of the generated library.
 - **Self-hosted operations** — includes health checks, retained error logs, automatic database migrations, and an administrator password-reset command.
+- **TorBox traffic protection** — coordinates outbound TorBox calls against one process-wide request budget, suppresses repeated resolver failures, and reports live operational counters.
 
 ## How It Works
 
@@ -193,17 +194,24 @@ Direct playback is available as an explicit setup option for clients that cannot
 
 Most operational settings are available after login in the setup interface. Docker and database settings are configured in `docker-compose.yml` or through `STRMLINE_` environment variables.
 
-| Setting                   | Purpose                                                                                                            |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `STRMLINE_APP_SECRET_KEY` | Required secret used to protect application state. Keep it stable after deployment.                                |
-| `STRMLINE_DATABASE_URL`   | Full PostgreSQL connection URL. The compose configuration constructs this from the PostgreSQL settings by default. |
-| `STRMLINE_LIBRARY_ROOT`   | Container path where the generated library is written. Defaults to `/library`.                                     |
-| `STRMLINE_LOG_DIR`        | Container directory for rotated error logs. Defaults to `/config/logs`.                                             |
+| Setting                     | Purpose                                                                                                            |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `STRMLINE_APP_SECRET_KEY`   | Required secret used to protect application state. Keep it stable after deployment.                                |
+| `STRMLINE_DATABASE_URL`     | Full PostgreSQL connection URL. The compose configuration constructs this from the PostgreSQL settings by default. |
+| `STRMLINE_LIBRARY_ROOT`     | Container path where the generated library is written. Defaults to `/library`.                                     |
+| `STRMLINE_LOG_DIR`          | Container directory for rotated error logs. Defaults to `/config/logs`.                                             |
 | `STRMLINE_API_DOCS_ENABLED` | Exposes `/docs`, `/redoc`, and `/openapi.json`. Intended for development only.                                    |
-| `STRMLINE_BASE_URL`       | Public Strmline URL used when resolver playback is selected.                                                       |
-| `STRMLINE_SECURE_COOKIES` | Enable for HTTPS deployments.                                                                                      |
+| `STRMLINE_BASE_URL`         | Public Strmline URL used when resolver playback is selected.                                                       |
+| `STRMLINE_SECURE_COOKIES`   | Enable for HTTPS deployments.                                                                                      |
 
-The setup interface also manages TorBox, TMDB, resolver, synchronization, category, and season auto-completion settings.
+The setup interface is the sole source of truth for the TorBox request budget, resolver
+negative-cache duration, and resolver circuit-breaker thresholds. Changes apply immediately
+without a restart. Setup also manages TorBox, TMDB, resolver, synchronization, category, and
+season auto-completion settings.
+
+The library dashboard reports TorBox calls since process start, calls used in the current
+rolling minute, HTTP 429 responses, resolver target-cache hits, and playback recovery outcomes.
+These counters are intentionally held in process memory and reset whenever Strmline restarts.
 
 ## Routine Operations
 

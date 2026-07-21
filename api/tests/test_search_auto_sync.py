@@ -6,8 +6,8 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.search import auto_sync
-from app.search.auto_sync import auto_sync_after_stream_add
+from app.sync import auto as auto_sync
+from app.sync.auto import auto_sync_after_action
 from app.sync.service import SyncAlreadyRunningError, SyncConfigurationError, SyncRunSummary
 
 
@@ -29,7 +29,7 @@ async def test_auto_sync_reports_success(monkeypatch: pytest.MonkeyPatch) -> Non
 
     monkeypatch.setattr(auto_sync, "run_torbox_account_sync", fake_run_sync)
 
-    outcome = await auto_sync_after_stream_add(
+    outcome = await auto_sync_after_action(
         session=cast(AsyncSession, object()),
         settings=cast(Settings, object()),
         action_message="Added.",
@@ -49,7 +49,7 @@ async def test_auto_sync_reports_already_running(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr(auto_sync, "run_torbox_account_sync", fake_run_sync)
 
-    outcome = await auto_sync_after_stream_add(
+    outcome = await auto_sync_after_action(
         session=cast(AsyncSession, object()),
         settings=cast(Settings, object()),
         action_message="Added.",
@@ -68,7 +68,7 @@ async def test_auto_sync_reports_configuration_failure(monkeypatch: pytest.Monke
 
     monkeypatch.setattr(auto_sync, "run_torbox_account_sync", fake_run_sync)
 
-    outcome = await auto_sync_after_stream_add(
+    outcome = await auto_sync_after_action(
         session=cast(AsyncSession, object()),
         settings=cast(Settings, object()),
         action_message="Added.",

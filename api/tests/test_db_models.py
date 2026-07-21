@@ -103,6 +103,18 @@ def test_core_models_have_expected_primary_keys() -> None:
     assert {column.name for column in WatchlistItem.__table__.primary_key} == {"id"}
 
 
+def test_application_settings_store_operational_protection_values() -> None:
+    columns = set(ApplicationSettings.__table__.columns.keys())
+
+    assert {
+        "torbox_requests_per_minute",
+        "resolver_negative_cache_seconds",
+        "resolver_circuit_breaker_failures",
+        "resolver_circuit_breaker_window_seconds",
+        "resolver_circuit_breaker_cooldown_seconds",
+    } <= columns
+
+
 def test_watchlist_identity_includes_media_type() -> None:
     constraint = WatchlistItem.__table_args__[0]
 

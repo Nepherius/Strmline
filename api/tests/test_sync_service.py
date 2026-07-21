@@ -1,6 +1,6 @@
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast, override
+from typing import ClassVar, cast, override
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -81,11 +81,17 @@ class FakeClient:
 
 
 class FakeLibraryExclusionRepository:
+    cleared: ClassVar[list[frozenset[str]]] = []
+
     def __init__(self, session: object) -> None:
         _ = session
 
     async def prefixes(self) -> tuple[str, ...]:
         return ("shows/Removed Show",)
+
+    async def clear_unobserved(self, observed_prefixes: frozenset[str]) -> int:
+        self.cleared.append(observed_prefixes)
+        return 1
 
 
 class FakeClassificationOverrideRepository:
@@ -123,6 +129,7 @@ async def test_sync_service_uses_saved_resolver_token(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    FakeLibraryExclusionRepository.cleared = []
     captured: dict[str, object] = {}
     retained_hash_requests: list[frozenset[str]] = []
 
@@ -186,6 +193,7 @@ async def test_sync_service_uses_saved_resolver_token(
     assert captured["classification_overrides"] == ()
     assert captured["excluded_prefixes"] == ("shows/Removed Show",)
     assert retained_hash_requests == [frozenset()]
+    assert FakeLibraryExclusionRepository.cleared == [frozenset()]
     assert summary.sync_run_id == 12
     assert session.committed is True
 

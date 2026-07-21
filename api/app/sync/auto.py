@@ -21,7 +21,7 @@ class AutoSyncOutcome:
     message: str
 
 
-async def auto_sync_after_stream_add(
+async def auto_sync_after_action(
     *,
     session: AsyncSession,
     settings: Settings,

@@ -47,6 +47,9 @@ export interface RemoveLibraryEntryResult {
   message: string;
   removed_files: number;
   removed_torbox_items: number;
+  torbox_removal_failed: boolean;
+  auto_sync_status: string;
+  auto_sync_run_id: number | null;
 }
 
 export interface RefreshLibraryEntryMetadataPayload {

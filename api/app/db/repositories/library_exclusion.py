@@ -47,6 +47,30 @@ class LibraryExclusionRepository:
         )
         return result.scalar_one_or_none() is not None
 
+    async def remove_generated_files(self, relative_prefix: str) -> int:
+        escaped_prefix = escape_like(relative_prefix)
+        result = await self._session.execute(
+            delete(GeneratedFile)
+            .where(
+                or_(
+                    GeneratedFile.relative_path == relative_prefix,
+                    GeneratedFile.relative_path.like(
+                        f"{escaped_prefix}/%",
+                        escape=LIKE_ESCAPE,
+                    ),
+                )
+            )
+            .returning(GeneratedFile.id)
+        )
+        return len(tuple(result.scalars()))
+
+    async def clear_unobserved(self, observed_prefixes: frozenset[str]) -> int:
+        statement = delete(LibraryExclusion)
+        if observed_prefixes:
+            statement = statement.where(LibraryExclusion.relative_prefix.not_in(observed_prefixes))
+        result = await self._session.execute(statement.returning(LibraryExclusion.id))
+        return len(tuple(result.scalars()))
+
     async def clear_for_selected_media(
         self,
         *,

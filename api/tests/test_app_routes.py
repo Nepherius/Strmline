@@ -15,6 +15,7 @@ from app.library.removal_service import (
 )
 from app.library.summary import LibraryEntrySummary, LibrarySummary
 from app.main import create_app
+from app.sync.auto import AutoSyncOutcome
 from tests.conftest import override_auth
 
 
@@ -30,6 +31,22 @@ async def test_health_endpoint_returns_service_status() -> None:
         "status": "ok",
         "version": "0.1.0",
     }
+
+
+@pytest.mark.asyncio
+async def test_operations_metrics_endpoint_reports_process_counters() -> None:
+    app = create_app()
+    override_auth(app)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.get("/api/operations/metrics")
+
+    assert response.status_code == httpx.codes.OK
+    payload = response.json()
+    assert payload["torbox"]["request_budget_per_minute"] == 250
+    assert isinstance(payload["torbox"]["requests_total"], int)
+    assert isinstance(payload["resolver"]["cache_hits"], int)
+    assert isinstance(payload["resolver"]["recovery_succeeded"], int)
 
 
 @pytest.mark.asyncio
@@ -224,6 +241,7 @@ async def test_library_remove_entry_deletes_torbox_item_and_generated_files(
     monkeypatch.setattr(library_api, "LibraryExclusionRepository", fake_exclusion_repository)
     monkeypatch.setattr(library_api, "remove_library_media", fake_remove_library_media)
     monkeypatch.setattr(library_api, "require_media_location", fake_media_location)
+    monkeypatch.setattr(library_api, "auto_sync_after_action", fake_library_auto_sync)
 
     app = create_app()
     override_auth(app)
@@ -245,11 +263,68 @@ async def test_library_remove_entry_deletes_torbox_item_and_generated_files(
     assert response.status_code == httpx.codes.OK
     assert response.json() == {
         "ok": True,
-        "message": "Library entry removed.",
+        "message": "Library entry removed. Synced library: 0 written, 0 skipped.",
         "removed_files": 2,
         "removed_torbox_items": 1,
+        "torbox_removal_failed": False,
+        "auto_sync_status": "success",
+        "auto_sync_run_id": 12,
     }
     assert removed_items == [("torrents", "123")]
+
+
+@pytest.mark.asyncio
+async def test_library_remove_entry_succeeds_when_torbox_deletion_is_unconfirmed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("STRMLINE_LIBRARY_ROOT", str(tmp_path))
+    monkeypatch.setenv("STRMLINE_TORBOX_API_KEY", "torbox")
+    get_settings.cache_clear()
+
+    async def unconfirmed_removal(*args: object, **kwargs: object) -> LibraryRemovalOutcome:
+        _ = (args, kwargs)
+        return LibraryRemovalOutcome(
+            removed_files=1,
+            removed_torbox_items=0,
+            torbox_removal_failed=True,
+        )
+
+    monkeypatch.setattr(library_api, "LibraryExclusionRepository", fake_exclusion_repository)
+    monkeypatch.setattr(library_api, "remove_library_media", unconfirmed_removal)
+    monkeypatch.setattr(library_api, "require_media_location", fake_media_location)
+    monkeypatch.setattr(library_api, "auto_sync_after_action", fake_library_auto_sync)
+
+    app = create_app()
+    override_auth(app)
+    app.dependency_overrides[get_db_session] = fake_db_session
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.request(
+            "DELETE",
+            "/api/library/entries",
+            json={
+                "category": "shows",
+                "title": "Show One",
+                "relative_path": "shows/Show One",
+                "media_item_id": 1,
+            },
+        )
+
+    get_settings.cache_clear()
+    assert response.status_code == httpx.codes.OK
+    assert response.json() == {
+        "ok": True,
+        "message": (
+            "Library entry removed. One or more TorBox deletions could not be confirmed. "
+            "Synced library: 0 written, 0 skipped."
+        ),
+        "removed_files": 1,
+        "removed_torbox_items": 0,
+        "torbox_removal_failed": True,
+        "auto_sync_status": "success",
+        "auto_sync_run_id": 12,
+    }
 
 
 @pytest.mark.asyncio
@@ -278,6 +353,7 @@ async def test_library_remove_entry_can_skip_torbox_removal(
     monkeypatch.setattr(library_api, "TorBoxClient", FakeTorBoxClient)
     monkeypatch.setattr(library_api, "LibraryExclusionRepository", fake_exclusion_repository)
     monkeypatch.setattr(library_api, "remove_library_media", fake_remove_library_media)
+    monkeypatch.setattr(library_api, "auto_sync_after_action", fake_library_auto_sync)
 
     app = create_app()
     override_auth(app)
@@ -457,6 +533,20 @@ async def fake_remove_library_media(  # noqa: PLR0913
     return LibraryRemovalOutcome(
         removed_files=2,
         removed_torbox_items=len(backing_items),
+    )
+
+
+async def fake_library_auto_sync(
+    *,
+    session: object,
+    settings: object,
+    action_message: str,
+) -> AutoSyncOutcome:
+    _ = (session, settings)
+    return AutoSyncOutcome(
+        status="success",
+        sync_run_id=12,
+        message=f"{action_message} Synced library: 0 written, 0 skipped.",
     )
 
 

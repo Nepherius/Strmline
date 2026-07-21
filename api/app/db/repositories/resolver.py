@@ -15,6 +15,7 @@ from app.db.models import (
     TorBoxStoredFile,
 )
 from app.db.repositories.settings import sha256_hex
+from app.operations.metrics import get_operational_metrics
 from app.providers.torbox.client import TorBoxAPIError
 from app.providers.torbox.files import (
     DOWNLOAD_KINDS,
@@ -148,6 +149,8 @@ class PlaybackResolverRepository:
         except TorBoxAPIError:
             pass
 
+        metrics = get_operational_metrics()
+        metrics.resolver_recovery_started()
         try:
             recovered_file = await _recover_torrent_file(
                 torbox_client,
@@ -155,10 +158,15 @@ class PlaybackResolverRepository:
                 saved_file.folder_name or saved_file.file_name,
                 saved_file,
             )
-            return await torbox_client.request_download_link(recovered_file)
-        except TorBoxAPIError as error:
+            target_url = await torbox_client.request_download_link(recovered_file)
+        except (ResolverRecoveryError, TorBoxAPIError) as error:
+            metrics.resolver_recovery_finished(succeeded=False)
+            if isinstance(error, ResolverRecoveryError):
+                raise
             msg = "TorBox playback recovery failed."
             raise ResolverRecoveryError(msg) from error
+        metrics.resolver_recovery_finished(succeeded=True)
+        return target_url
 
     async def _library_entry(self, entry_id: str) -> LibraryEntry | None:
         result = await self._session.execute(

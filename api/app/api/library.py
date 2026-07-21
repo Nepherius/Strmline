@@ -43,11 +43,7 @@ from app.library.health import LibraryHealthCheckResult, check_library_health
 from app.library.metadata_refresh import MetadataRefreshError
 from app.library.metadata_update import refresh_tmdb_metadata
 from app.library.posters import poster_for_tmdb_id
-from app.library.removal_service import (
-    LibraryRemovalProviderError,
-    TorBoxRemovalConfig,
-    remove_library_media,
-)
+from app.library.removal_service import TorBoxRemovalConfig, remove_library_media
 from app.library.summary import (
     LibraryDuplicateGroup,
     LibraryEntrySummary,
@@ -63,6 +59,7 @@ from app.library.validation import (
 from app.providers.tmdb.client import TmdbClientError
 from app.providers.tmdb.posters import TmdbPosterError
 from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
+from app.sync.auto import auto_sync_after_action
 
 router = APIRouter(prefix="/api/library", tags=["library"])
 logger = logging.getLogger(__name__)
@@ -178,6 +175,9 @@ class LibraryRemoveResponse(BaseModel):
     message: str
     removed_files: int
     removed_torbox_items: int
+    torbox_removal_failed: bool = False
+    auto_sync_status: str
+    auto_sync_run_id: int | None
 
 
 class LibraryMetadataRefreshRequest(BaseModel):
@@ -438,33 +438,42 @@ async def remove_library_entry(
             if request.media_item_id is not None
             else await repository.backing_items(relative_path)
         )
-    try:
-        removal = await remove_library_media(
-            session,
-            library_root=library_root,
-            category=category,
-            title=title,
-            relative_prefix=relative_path,
-            backing_items=backing_items,
-            torbox=(
-                TorBoxRemovalConfig(
-                    api_key=torbox_api_key or "",
-                    base_url=settings.torbox_base_url,
-                    timeout=settings.outbound_timeout_seconds,
-                )
-                if request.remove_torbox
-                else None
-            ),
-            client_factory=TorBoxClient,
-        )
-    except LibraryRemovalProviderError as error:
-        logger.warning("TorBox library removal failed.")
-        raise HTTPException(status_code=503, detail=str(error)) from error
+    removal = await remove_library_media(
+        session,
+        library_root=library_root,
+        category=category,
+        title=title,
+        relative_prefix=relative_path,
+        backing_items=backing_items,
+        torbox=(
+            TorBoxRemovalConfig(
+                api_key=torbox_api_key or "",
+                base_url=settings.torbox_base_url,
+                timeout=settings.outbound_timeout_seconds,
+            )
+            if request.remove_torbox
+            else None
+        ),
+        client_factory=TorBoxClient,
+    )
+    action_message = (
+        "Library entry removed. One or more TorBox deletions could not be confirmed."
+        if removal.torbox_removal_failed
+        else "Library entry removed."
+    )
+    auto_sync = await auto_sync_after_action(
+        session=session,
+        settings=settings,
+        action_message=action_message,
+    )
     return LibraryRemoveResponse(
         ok=True,
-        message="Library entry removed.",
+        message=auto_sync.message,
         removed_files=removal.removed_files,
         removed_torbox_items=removal.removed_torbox_items,
+        torbox_removal_failed=removal.torbox_removal_failed,
+        auto_sync_status=auto_sync.status,
+        auto_sync_run_id=auto_sync.sync_run_id,
     )
 
 

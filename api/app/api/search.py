@@ -37,7 +37,6 @@ from app.search.actions import (
     add_stream_to_torbox,
     remove_stream_from_torbox,
 )
-from app.search.auto_sync import auto_sync_after_stream_add
 from app.search.service import (
     TitleResult,
     fetch_imdb_id_from_tmdb,
@@ -45,6 +44,7 @@ from app.search.service import (
     search_titles_via_tmdb,
 )
 from app.search.stream_parser import is_imdb_id
+from app.sync.auto import auto_sync_after_action
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 logger = logging.getLogger(__name__)
@@ -316,7 +316,7 @@ async def add_stream_endpoint(
             message=_safe_action_message(error),
         )
 
-    auto_sync = await auto_sync_after_stream_add(
+    auto_sync = await auto_sync_after_action(
         session=session,
         settings=settings,
         action_message=outcome.message,

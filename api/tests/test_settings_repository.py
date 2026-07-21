@@ -143,6 +143,11 @@ async def test_settings_repository_saves_public_values_and_secrets() -> None:
             season_auto_complete_interval_days=3,
             season_auto_complete_allow_uncached=True,
             season_auto_complete_shows_per_minute=2,
+            torbox_requests_per_minute=180,
+            resolver_negative_cache_seconds=20,
+            resolver_circuit_breaker_failures=4,
+            resolver_circuit_breaker_window_seconds=90,
+            resolver_circuit_breaker_cooldown_seconds=45,
             torbox_api_key="torbox-secret",
             tmdb_api_key="tmdb-secret",
             resolver_token=resolver_secret,
@@ -160,6 +165,11 @@ async def test_settings_repository_saves_public_values_and_secrets() -> None:
     assert saved_settings.season_auto_complete_interval_days == 3
     assert saved_settings.season_auto_complete_allow_uncached is True
     assert saved_settings.season_auto_complete_shows_per_minute == 2
+    assert saved_settings.torbox_requests_per_minute == 180
+    assert saved_settings.resolver_negative_cache_seconds == 20
+    assert saved_settings.resolver_circuit_breaker_failures == 4
+    assert saved_settings.resolver_circuit_breaker_window_seconds == 90
+    assert saved_settings.resolver_circuit_breaker_cooldown_seconds == 45
     credentials = [item for item in session.added if isinstance(item, ProviderCredential)]
     resolver_tokens = [item for item in session.added if isinstance(item, ResolverToken)]
     assert len(credentials) == 4
@@ -230,6 +240,11 @@ async def test_settings_repository_reads_database_values_when_env_is_missing() -
                     season_auto_complete_interval_days=2,
                     season_auto_complete_allow_uncached=True,
                     season_auto_complete_shows_per_minute=2,
+                    torbox_requests_per_minute=180,
+                    resolver_negative_cache_seconds=20,
+                    resolver_circuit_breaker_failures=4,
+                    resolver_circuit_breaker_window_seconds=90,
+                    resolver_circuit_breaker_cooldown_seconds=45,
                 )
             ),
             FakeResult(scalar=1),
@@ -257,6 +272,11 @@ async def test_settings_repository_reads_database_values_when_env_is_missing() -
     assert snapshot.season_auto_complete_interval_days == 2
     assert snapshot.season_auto_complete_allow_uncached is True
     assert snapshot.season_auto_complete_shows_per_minute == 2
+    assert snapshot.torbox_requests_per_minute == 180
+    assert snapshot.resolver_negative_cache_seconds == 20
+    assert snapshot.resolver_circuit_breaker_failures == 4
+    assert snapshot.resolver_circuit_breaker_window_seconds == 90
+    assert snapshot.resolver_circuit_breaker_cooldown_seconds == 45
     assert snapshot.torbox_configured is True
     assert snapshot.tmdb_configured is False
     assert snapshot.resolver_configured is True

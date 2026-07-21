@@ -318,6 +318,28 @@ async def test_direct_torbox_strm_sync_counts_unique_output_paths(tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_torbox_strm_sync_reports_exclusions_still_present_in_torbox(
+    tmp_path: Path,
+) -> None:
+    prefix = "movies/Movie Name (2024)"
+    sync = TorBoxStrmSync(
+        client=FakeTorBoxClient(),
+        api_key="test-token",
+        torbox_base_url="https://api.torbox.app/v1/api",
+        library_root=tmp_path,
+        excluded_prefixes=(prefix, "shows/Already Gone"),
+    )
+
+    result = await sync.run(kinds=("torrents",))
+
+    assert result.scanned_files == 1
+    assert result.written_files == 0
+    assert result.skipped_files == 1
+    assert result.observed_excluded_prefixes == frozenset({prefix})
+    assert result.written_paths == ()
+
+
+@pytest.mark.asyncio
 async def test_torbox_strm_sync_writes_resolver_urls_and_manifest(tmp_path: Path) -> None:
     resolver_token = "resolver-secret"  # noqa: S105
     sync = TorBoxStrmSync(

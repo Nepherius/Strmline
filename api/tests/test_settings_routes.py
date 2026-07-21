@@ -91,6 +91,31 @@ class FakeSettingsRepository:
                 if update.season_auto_complete_shows_per_minute is not None
                 else self.snapshot.season_auto_complete_shows_per_minute
             ),
+            torbox_requests_per_minute=(
+                update.torbox_requests_per_minute
+                if update.torbox_requests_per_minute is not None
+                else self.snapshot.torbox_requests_per_minute
+            ),
+            resolver_negative_cache_seconds=(
+                update.resolver_negative_cache_seconds
+                if update.resolver_negative_cache_seconds is not None
+                else self.snapshot.resolver_negative_cache_seconds
+            ),
+            resolver_circuit_breaker_failures=(
+                update.resolver_circuit_breaker_failures
+                if update.resolver_circuit_breaker_failures is not None
+                else self.snapshot.resolver_circuit_breaker_failures
+            ),
+            resolver_circuit_breaker_window_seconds=(
+                update.resolver_circuit_breaker_window_seconds
+                if update.resolver_circuit_breaker_window_seconds is not None
+                else self.snapshot.resolver_circuit_breaker_window_seconds
+            ),
+            resolver_circuit_breaker_cooldown_seconds=(
+                update.resolver_circuit_breaker_cooldown_seconds
+                if update.resolver_circuit_breaker_cooldown_seconds is not None
+                else self.snapshot.resolver_circuit_breaker_cooldown_seconds
+            ),
             torbox_configured=update.torbox_api_key is not None or self.snapshot.torbox_configured,
             tmdb_configured=update.tmdb_api_key is not None or self.snapshot.tmdb_configured,
             resolver_configured=update.resolver_token is not None
@@ -121,6 +146,11 @@ class FakeSettingsRepository:
             season_auto_complete_interval_days=1,
             season_auto_complete_allow_uncached=False,
             season_auto_complete_shows_per_minute=1,
+            torbox_requests_per_minute=250,
+            resolver_negative_cache_seconds=30,
+            resolver_circuit_breaker_failures=3,
+            resolver_circuit_breaker_window_seconds=120,
+            resolver_circuit_breaker_cooldown_seconds=60,
             torbox_configured=False,
             tmdb_configured=False,
             resolver_configured=False,
@@ -159,6 +189,11 @@ async def test_settings_route_returns_redacted_configuration() -> None:
         "season_auto_complete_interval_days": 1,
         "season_auto_complete_allow_uncached": False,
         "season_auto_complete_shows_per_minute": 1,
+        "torbox_requests_per_minute": 250,
+        "resolver_negative_cache_seconds": 30,
+        "resolver_circuit_breaker_failures": 3,
+        "resolver_circuit_breaker_window_seconds": 120,
+        "resolver_circuit_breaker_cooldown_seconds": 60,
         "torbox_configured": True,
         "tmdb_configured": False,
         "resolver_configured": True,
@@ -194,6 +229,11 @@ async def test_settings_route_saves_secrets_without_returning_them() -> None:
                 "season_auto_complete_interval_days": 3,
                 "season_auto_complete_allow_uncached": True,
                 "season_auto_complete_shows_per_minute": 2,
+                "torbox_requests_per_minute": 180,
+                "resolver_negative_cache_seconds": 20,
+                "resolver_circuit_breaker_failures": 4,
+                "resolver_circuit_breaker_window_seconds": 90,
+                "resolver_circuit_breaker_cooldown_seconds": 45,
                 "torbox_api_key": "torbox-secret",
                 "tmdb_api_key": "tmdb-secret",
                 "resolver_token": "resolver-secret",
@@ -215,6 +255,11 @@ async def test_settings_route_saves_secrets_without_returning_them() -> None:
     assert repository.saved_update.season_auto_complete_interval_days == 3
     assert repository.saved_update.season_auto_complete_allow_uncached is True
     assert repository.saved_update.season_auto_complete_shows_per_minute == 2
+    assert repository.saved_update.torbox_requests_per_minute == 180
+    assert repository.saved_update.resolver_negative_cache_seconds == 20
+    assert repository.saved_update.resolver_circuit_breaker_failures == 4
+    assert repository.saved_update.resolver_circuit_breaker_window_seconds == 90
+    assert repository.saved_update.resolver_circuit_breaker_cooldown_seconds == 45
     assert response.json()["tmdb_configured"] is True
     assert response.json()["tmdb_source"] == "database"
     assert response.json()["aiostreams_configured"] is True

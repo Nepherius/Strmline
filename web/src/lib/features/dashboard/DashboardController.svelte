@@ -18,6 +18,7 @@
     type LibraryPageRequest,
   } from "$lib/api/library";
   import { loadSetupStatus } from "$lib/api/setup";
+  import { loadOperationsMetrics, type OperationsMetrics } from "$lib/api/operations";
   import { loadWatchlist, removeTitleFromWatchlist, type WatchlistItem } from "$lib/api/watchlist";
   import {
     dismissSyncError,
@@ -81,13 +82,17 @@
   let requestSequence = 0;
   let reloadTimer: ReturnType<typeof setTimeout> | undefined;
   let diagnosticsTimer: ReturnType<typeof setTimeout> | undefined;
+  let operationsTimer: ReturnType<typeof setInterval> | undefined;
   let loading = false;
   let syncing = false;
   let checkingHealth = false;
   let error = "";
+  let removalWarning = "";
+  let removalNoticeVariant: "success" | "warning" = "success";
   let syncResult: SyncRunResult | null = null;
   let healthResult: LibraryHealthCheckResult | null = null;
   let syncStatus: SyncStatus | null = null;
+  let operationsMetrics: OperationsMetrics | null = null;
   let validation: LibraryValidation | null = null;
   let duplicateGroups: LibraryDuplicateGroup[] = [];
   let duplicateCount = 0;
@@ -121,6 +126,7 @@
     return () => {
       if (reloadTimer) clearTimeout(reloadTimer);
       if (diagnosticsTimer) clearTimeout(diagnosticsTimer);
+      if (operationsTimer) clearInterval(operationsTimer);
       requestSequence += 1;
     };
   });
@@ -159,6 +165,8 @@
       watchlistItems = nextWatchlist;
       libraryLoaded = true;
       scheduleDiagnosticsLoad();
+      await refreshOperationsMetrics();
+      scheduleOperationsMetricsRefresh();
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Unknown error";
       error = `Dashboard unavailable. ${message}`;
@@ -263,6 +271,21 @@
     }
   }
 
+  async function refreshOperationsMetrics() {
+    try {
+      operationsMetrics = await loadOperationsMetrics();
+    } catch {
+      // Operational metrics are supplementary and must not block the dashboard.
+    }
+  }
+
+  function scheduleOperationsMetricsRefresh() {
+    if (operationsTimer) clearInterval(operationsTimer);
+    operationsTimer = setInterval(() => {
+      void refreshOperationsMetrics();
+    }, 15_000);
+  }
+
   async function runManualSync() {
     syncing = true;
     error = "";
@@ -324,6 +347,7 @@
     if (!confirmed) return;
     removingEntryKey = entry.key;
     error = "";
+    removalWarning = "";
     try {
       const result = await removeLibraryEntry({
         category: entry.category,
@@ -334,6 +358,11 @@
       syncResult = null;
       if (result.ok) {
         await loadDashboard();
+        removalNoticeVariant =
+          result.torbox_removal_failed || result.auto_sync_status !== "success"
+            ? "warning"
+            : "success";
+        removalWarning = result.message;
       } else {
         error = result.message;
       }
@@ -608,6 +637,10 @@
     <Notice variant="error" resetKey={error}>{error}</Notice>
   {/if}
 
+  {#if removalWarning}
+    <Notice variant={removalNoticeVariant} resetKey={removalWarning}>{removalWarning}</Notice>
+  {/if}
+
   {#if syncResult}
     <Notice variant="success" resetKey={String(syncResult.sync_run_id)}
       >Sync #{syncResult.sync_run_id} completed. Library refreshed.</Notice
@@ -642,6 +675,36 @@
         variant={duplicateCount > 0 ? "warn" : "default"}
       />
     </MetricGrid>
+
+    {#if operationsMetrics}
+      <div class="operations-heading">
+        <h2>TorBox operations</h2>
+        <span>Since restart</span>
+      </div>
+      <MetricGrid ariaLabel="TorBox operational metrics" columns={6}>
+        <MetricCard label="API calls" value={operationsMetrics.torbox.requests_total} />
+        <MetricCard
+          label="Last minute"
+          value={`${String(operationsMetrics.torbox.calls_last_minute)} / ${String(operationsMetrics.torbox.request_budget_per_minute)}`}
+        />
+        <MetricCard
+          label="429 responses"
+          value={operationsMetrics.torbox.responses_429}
+          variant={operationsMetrics.torbox.responses_429 > 0 ? "warn" : "default"}
+        />
+        <MetricCard label="Resolver cache hits" value={operationsMetrics.resolver.cache_hits} />
+        <MetricCard
+          label="Recoveries ready"
+          value={operationsMetrics.resolver.recovery_succeeded}
+          variant={operationsMetrics.resolver.recovery_succeeded > 0 ? "ready" : "default"}
+        />
+        <MetricCard
+          label="Recoveries failed"
+          value={operationsMetrics.resolver.recovery_failed}
+          variant={operationsMetrics.resolver.recovery_failed > 0 ? "warn" : "default"}
+        />
+      </MetricGrid>
+    {/if}
 
     <section class="workbench" aria-label="Generated library browser">
       <div class="filters">
@@ -780,6 +843,22 @@
   h2 {
     margin: 0;
     font-size: 15px;
+  }
+
+  .operations-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 22px;
+    color: #f8f5ed;
+  }
+
+  .operations-heading span {
+    color: #aab9af;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
   }
 
   code {

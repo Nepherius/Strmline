@@ -7,10 +7,17 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.resolver import configure_resolver_failure_guard
 from app.core.config import get_settings
 from app.core.logging import configure_debug_logging
 from app.db.dependencies import get_db_session
-from app.db.repositories.settings import AppSettingsRepository, AppSettingsUpdate, PlaybackMode
+from app.db.repositories.settings import (
+    AppSettingsRepository,
+    AppSettingsUpdate,
+    PlaybackMode,
+    SettingsSnapshot,
+)
+from app.providers.torbox.runtime import configure_torbox_request_budget
 from app.sync.scheduler import reschedule_auto_sync_scheduler
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -29,6 +36,11 @@ class SettingsResponse(BaseModel):
     season_auto_complete_interval_days: int = 1
     season_auto_complete_allow_uncached: bool = False
     season_auto_complete_shows_per_minute: int = 1
+    torbox_requests_per_minute: int
+    resolver_negative_cache_seconds: int
+    resolver_circuit_breaker_failures: int
+    resolver_circuit_breaker_window_seconds: int
+    resolver_circuit_breaker_cooldown_seconds: int
     torbox_configured: bool
     tmdb_configured: bool
     resolver_configured: bool
@@ -74,6 +86,7 @@ async def update_settings(
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     configure_debug_logging(enabled=snapshot.debug_logging)
+    configure_operational_runtime(snapshot)
     await reschedule_auto_sync_scheduler(http_request.app)
     return SettingsResponse.model_validate(snapshot, from_attributes=True)
 
@@ -85,5 +98,16 @@ async def clear_saved_settings(
 ) -> SettingsResponse:
     snapshot = await repository.clear_saved_setup()
     configure_debug_logging(enabled=snapshot.debug_logging)
+    configure_operational_runtime(snapshot)
     await reschedule_auto_sync_scheduler(http_request.app)
     return SettingsResponse.model_validate(snapshot, from_attributes=True)
+
+
+def configure_operational_runtime(snapshot: SettingsSnapshot) -> None:
+    configure_torbox_request_budget(snapshot.torbox_requests_per_minute)
+    configure_resolver_failure_guard(
+        negative_cache_seconds=snapshot.resolver_negative_cache_seconds,
+        circuit_failures=snapshot.resolver_circuit_breaker_failures,
+        circuit_window_seconds=snapshot.resolver_circuit_breaker_window_seconds,
+        circuit_cooldown_seconds=snapshot.resolver_circuit_breaker_cooldown_seconds,
+    )

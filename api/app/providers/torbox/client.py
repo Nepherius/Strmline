@@ -6,6 +6,10 @@ from typing import Any, Self, cast
 import httpx
 
 from app.providers.torbox.files import ID_PARAM_BY_KIND, DownloadKind, TorBoxFile
+from app.providers.torbox.runtime import (
+    TorBoxRequestCoordinator,
+    get_torbox_request_coordinator,
+)
 
 DEFAULT_TORBOX_BASE_URL = "https://api.torbox.app/v1/api"
 USER_AGENT = "Strmline/0.1.0"
@@ -28,6 +32,7 @@ class TorBoxClient:
         timeout: float = 20.0,
         http_client: httpx.AsyncClient | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
+        request_coordinator: TorBoxRequestCoordinator | None = None,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
@@ -36,6 +41,7 @@ class TorBoxClient:
             timeout=timeout,
             transport=transport,
         )
+        self._request_coordinator = request_coordinator or get_torbox_request_coordinator()
 
     async def __aenter__(self) -> Self:
         return self
@@ -58,16 +64,12 @@ class TorBoxClient:
         *,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        response = await self._client.get(
-            self._url(path),
+        return await self._request_json(
+            "GET",
+            path,
             headers=self._headers(),
             params=params,
         )
-        payload = self._response_payload(response)
-
-        if response.is_error or payload.get("success") is False:
-            raise self._api_error(response.status_code, payload)
-        return payload
 
     async def post_json(
         self,
@@ -75,16 +77,12 @@ class TorBoxClient:
         *,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
-        response = await self._client.post(
-            self._url(path),
+        return await self._request_json(
+            "POST",
+            path,
             headers={**self._headers(), "Content-Type": "application/json"},
-            json=payload,
+            json_payload=payload,
         )
-        response_payload = self._response_payload(response)
-
-        if response.is_error or response_payload.get("success") is False:
-            raise self._api_error(response.status_code, response_payload)
-        return response_payload
 
     async def post_form(
         self,
@@ -93,16 +91,12 @@ class TorBoxClient:
         data: dict[str, str],
     ) -> dict[str, Any]:
         form_files = {key: (None, value) for key, value in data.items()}
-        response = await self._client.post(
-            self._url(path),
+        return await self._request_json(
+            "POST",
+            path,
             headers=self._headers(),
             files=form_files,
         )
-        payload = self._response_payload(response)
-
-        if response.is_error or payload.get("success") is False:
-            raise self._api_error(response.status_code, payload)
-        return payload
 
     async def list_downloads(
         self, kind: DownloadKind, *, limit: int = 1000
@@ -255,6 +249,39 @@ class TorBoxClient:
             for matched_hash in _item_hashes(item).intersection(normalized_hashes):
                 matches[matched_hash] = item
         return matches
+
+    async def _request_json(
+        self,
+        method: str,
+        path: str,
+        headers: dict[str, str],
+        params: dict[str, Any] | None = None,
+        json_payload: dict[str, Any] | None = None,
+        files: dict[str, tuple[None, str]] | None = None,
+    ) -> dict[str, Any]:
+        await self._request_coordinator.acquire()
+        self._request_coordinator.record_request_started()
+        response: httpx.Response | None = None
+        succeeded = False
+        try:
+            response = await self._client.request(
+                method,
+                self._url(path),
+                headers=headers,
+                params=params,
+                json=json_payload,
+                files=files,
+            )
+            payload = self._response_payload(response)
+            if response.is_error or payload.get("success") is False:
+                raise self._api_error(response.status_code, payload)
+            succeeded = True
+            return payload
+        finally:
+            self._request_coordinator.record_request_finished(
+                status_code=response.status_code if response is not None else None,
+                succeeded=succeeded,
+            )
 
     def _url(self, path: str) -> str:
         normalized_path = path.strip("/")

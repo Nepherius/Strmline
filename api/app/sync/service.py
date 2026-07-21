@@ -156,6 +156,7 @@ async def _execute_sync(
             library_root,
             retained_info_hashes=generated.selected_hashes,
         )
+        await _reconcile_exclusions(session, result)
         await session.commit()
     except Exception as error:
         await session.rollback()
@@ -172,14 +173,13 @@ async def _execute_sync(
         raise SyncExecutionError(
             "Sync persistence failed; generated files were restored."
         ) from error
-    _remove_stale_sync_files(library_root, result, retained_paths)
-    await _cache_missing_sync_posters(settings, library_root, result, generated.tmdb_api_key)
-    logger.debug(
-        "Completed TorBox account sync from %s: %d scanned, %d written, %d skipped.",
+    await _finish_sync(
+        settings,
+        library_root,
+        result,
+        retained_paths,
+        generated.tmdb_api_key,
         source,
-        result.scanned_files,
-        result.written_files,
-        result.skipped_files,
     )
     return SyncRunSummary(
         sync_run_id=sync_run_id,
@@ -188,6 +188,25 @@ async def _execute_sync(
         scanned_files=result.scanned_files,
         written_files=result.written_files,
         skipped_files=result.skipped_files,
+    )
+
+
+async def _finish_sync(
+    settings: Settings,
+    library_root: Path,
+    result: TorBoxStrmSyncResult,
+    retained_paths: set[Path],
+    tmdb_api_key: str | None,
+    source: SyncRunSource,
+) -> None:
+    _remove_stale_sync_files(library_root, result, retained_paths)
+    await _cache_missing_sync_posters(settings, library_root, result, tmdb_api_key)
+    logger.debug(
+        "Completed TorBox account sync from %s: %d scanned, %d written, %d skipped.",
+        source,
+        result.scanned_files,
+        result.written_files,
+        result.skipped_files,
     )
 
 
@@ -346,6 +365,22 @@ def _absent_selected_hashes(
 ) -> frozenset[str]:
     """Retain only selected media that is absent from the current provider result."""
     return selected_hashes - _result_info_hashes(result)
+
+
+def _can_reconcile_exclusions(result: TorBoxStrmSyncResult) -> bool:
+    return not result.partial and not any(
+        diagnostic.phase == "metadata_provider" for diagnostic in result.diagnostics
+    )
+
+
+async def _reconcile_exclusions(
+    session: AsyncSession,
+    result: TorBoxStrmSyncResult,
+) -> None:
+    if _can_reconcile_exclusions(result):
+        _ = await LibraryExclusionRepository(session).clear_unobserved(
+            result.observed_excluded_prefixes
+        )
 
 
 async def _remove_synced_from_watchlist(
