@@ -25,19 +25,23 @@ class FakeSyncLibraryStateRepository:
     def __init__(self, session: object) -> None:
         _ = session
 
-    async def persist_result(self, result: object, library_root: object, **kwargs: object) -> None:
+    async def persist_result(
+        self,
+        result: object,
+        library_root: object,
+        **kwargs: object,
+    ) -> set[Path]:
         _ = result
         _ = library_root
         _ = kwargs
+        return set()
 
-    async def retained_library_paths(
+    async def reusable_files(
         self,
         library_root: Path,
-        info_hashes: frozenset[str],
-    ) -> set[Path]:
+    ) -> dict[tuple[str, str, str], object]:
         _ = library_root
-        _ = info_hashes
-        return set()
+        return {}
 
 
 class FakeSyncRunRepository:
@@ -131,18 +135,6 @@ async def test_sync_service_uses_saved_resolver_token(
 ) -> None:
     FakeLibraryExclusionRepository.cleared = []
     captured: dict[str, object] = {}
-    retained_hash_requests: list[frozenset[str]] = []
-
-    class CapturingLibraryStateRepository(FakeSyncLibraryStateRepository):
-        @override
-        async def retained_library_paths(
-            self,
-            library_root: Path,
-            info_hashes: frozenset[str],
-        ) -> set[Path]:
-            _ = library_root
-            retained_hash_requests.append(info_hashes)
-            return set()
 
     def fake_client_factory(**kwargs: object) -> FakeClient:
         _ = kwargs
@@ -168,7 +160,7 @@ async def test_sync_service_uses_saved_resolver_token(
     monkeypatch.setattr(
         sync_service,
         "SyncLibraryStateRepository",
-        CapturingLibraryStateRepository,
+        FakeSyncLibraryStateRepository,
     )
     monkeypatch.setattr(sync_service, "SyncRunRepository", FakeSyncRunRepository)
     monkeypatch.setattr(
@@ -192,7 +184,6 @@ async def test_sync_service_uses_saved_resolver_token(
     assert captured["anime_classifier"] is not None
     assert captured["classification_overrides"] == ()
     assert captured["excluded_prefixes"] == ("shows/Removed Show",)
-    assert retained_hash_requests == [frozenset()]
     assert FakeLibraryExclusionRepository.cleared == [frozenset()]
     assert summary.sync_run_id == 12
     assert session.committed is True
@@ -288,7 +279,7 @@ async def test_sync_service_restores_files_when_database_persistence_fails(
             result: object,
             library_root: object,
             **kwargs: object,
-        ) -> None:
+        ) -> set[Path]:
             _ = (result, library_root, kwargs)
             raise RuntimeError("database unavailable")
 
@@ -301,10 +292,16 @@ async def test_sync_service_restores_files_when_database_persistence_fails(
     class WritingTorBoxStrmSync:
         def __init__(self, **kwargs: object) -> None:
             self.library_root = cast(Path, kwargs["library_root"])
+            self.mutation_tracker = cast(
+                sync_service.LibraryMutationJournal,
+                kwargs["mutation_tracker"],
+            )
 
         async def run(self) -> TorBoxStrmSyncResult:
             changed = self.library_root / "shows" / "Show" / "Show - S01E01.strm"
             new_file = self.library_root / "shows" / "Show" / "Show - S01E02.strm"
+            self.mutation_tracker.track(changed)
+            self.mutation_tracker.track(new_file)
             _ = changed.write_text("changed\n", encoding="utf-8")
             _ = new_file.write_text("new\n", encoding="utf-8")
             return TorBoxStrmSyncResult(2, 2, 0, (changed, new_file), ())
@@ -455,16 +452,43 @@ async def test_selected_media_identities_backfill_legacy_stream_selections() -> 
 def test_watchlist_identities_include_movies_shows_and_anime() -> None:
     result = SimpleNamespace(
         synced_files=(
-            SimpleNamespace(category="movies", tmdb_id="10"),
-            SimpleNamespace(category="shows", tmdb_id="20"),
-            SimpleNamespace(category="anime", tmdb_id="30"),
-            SimpleNamespace(category="shows", tmdb_id=None),
+            SimpleNamespace(category="movies", tmdb_id="10", reused=False),
+            SimpleNamespace(category="shows", tmdb_id="20", reused=False),
+            SimpleNamespace(category="anime", tmdb_id="30", reused=False),
+            SimpleNamespace(category="shows", tmdb_id=None, reused=False),
         )
     )
 
     assert sync_service._watchlist_identities(  # pyright: ignore[reportPrivateUsage]
         cast(TorBoxStrmSyncResult, result)
     ) == {("movie", 10), ("series", 20), ("series", 30)}
+
+
+def test_poster_health_is_checked_once_per_tmdb_title(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    checked: list[str] = []
+
+    def fake_poster_for_tmdb_id(root: Path, tmdb_id: str) -> None:
+        _ = root
+        checked.append(tmdb_id)
+
+    monkeypatch.setattr(sync_service, "poster_for_tmdb_id", fake_poster_for_tmdb_id)
+    result = SimpleNamespace(
+        synced_files=(
+            SimpleNamespace(tmdb_id="20", tmdb_poster_path="/show.jpg", reused=True),
+            SimpleNamespace(tmdb_id="20", tmdb_poster_path="/show.jpg", reused=True),
+        )
+    )
+
+    sources = sync_service._poster_sources_needing_check(  # pyright: ignore[reportPrivateUsage]
+        tmp_path,
+        cast(TorBoxStrmSyncResult, result),
+    )
+
+    assert checked == ["20"]
+    assert len(sources) == 1
 
 
 def test_manual_source_binding_overrides_stale_stream_selection_identity() -> None:
@@ -564,28 +588,12 @@ def test_stale_files_are_removed_only_by_post_commit_reconciliation(tmp_path: Pa
     sync_service._remove_stale_sync_files(  # pyright: ignore[reportPrivateUsage]
         tmp_path,
         result,
-        {preserved},
+        {stale},
     )
 
     assert current.exists() is True
     assert preserved.exists() is True
     assert stale.exists() is False
-
-
-def test_only_selected_hashes_absent_from_current_sync_are_retained() -> None:
-    result = SimpleNamespace(
-        synced_files=(
-            SimpleNamespace(info_hash="current-hash"),
-            SimpleNamespace(info_hash=None),
-        )
-    )
-
-    retained = sync_service._absent_selected_hashes(  # pyright: ignore[reportPrivateUsage]
-        frozenset({"current-hash", "temporarily-absent-hash"}),
-        cast(TorBoxStrmSyncResult, result),
-    )
-
-    assert retained == frozenset({"temporarily-absent-hash"})
 
 
 def fake_torbox_strm_sync(captured: dict[str, object]) -> type:

@@ -284,10 +284,10 @@ async def test_repeat_sync_keeps_one_media_and_library_hierarchy(tmp_path: Path)
         async with factory() as session:
             repository = SyncLibraryStateRepository(session)
             _ = await SyncRunRepository(session).record_success(result)
-            await repository.persist_result(result, tmp_path)
+            _ = await repository.persist_result(result, tmp_path)
             await session.commit()
             _ = await SyncRunRepository(session).record_success(result)
-            await repository.persist_result(result, tmp_path)
+            _ = await repository.persist_result(result, tmp_path)
             await session.commit()
 
             counts: list[int] = []

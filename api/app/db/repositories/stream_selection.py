@@ -65,6 +65,18 @@ class StreamSelectionRepository:
         )
         return tuple(_record(selection) for selection in result.scalars())
 
+    async def selected_for_torbox_item(
+        self,
+        torrent_id: str,
+    ) -> tuple[StreamSelectionRecord, ...]:
+        result = await self._session.execute(
+            select(StreamSelection).where(
+                StreamSelection.status == "selected",
+                StreamSelection.torbox_torrent_id == torrent_id,
+            )
+        )
+        return tuple(_record(selection) for selection in result.scalars())
+
     async def upsert(self, write: StreamSelectionWrite) -> StreamSelectionRecord:
         selection = await self._selection(write.stream_key)
         if selection is None:

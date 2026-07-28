@@ -257,6 +257,14 @@ class FakeAnimeClassifier:
         return self.is_anime
 
 
+class CountingMutationTracker:
+    def __init__(self) -> None:
+        self.paths: list[Path] = []
+
+    def track(self, path: Path) -> None:
+        self.paths.append(path)
+
+
 @pytest.mark.asyncio
 async def test_direct_torbox_strm_sync_writes_playable_strm_files(tmp_path: Path) -> None:
     sync = TorBoxStrmSync(
@@ -286,6 +294,79 @@ async def test_direct_torbox_strm_sync_writes_playable_strm_files(tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_full_sync_reuses_healthy_unchanged_files_without_reclassification(
+    tmp_path: Path,
+) -> None:
+    first_classifier = FakeAnimeClassifier(is_anime=False)
+    first = await TorBoxStrmSync(
+        client=FakeTorBoxClient(),
+        api_key="test-token",
+        torbox_base_url="https://api.torbox.app/v1/api",
+        library_root=tmp_path,
+        anime_classifier=first_classifier,
+    ).run(kinds=("torrents",))
+    reusable = {
+        (
+            first.synced_files[0].provider,
+            first.synced_files[0].provider_item_id,
+            first.synced_files[0].provider_file_id,
+        ): first.synced_files[0]
+    }
+    second_classifier = FakeAnimeClassifier(is_anime=False)
+    mutations = CountingMutationTracker()
+
+    second = await TorBoxStrmSync(
+        client=FakeTorBoxClient(),
+        api_key="test-token",
+        torbox_base_url="https://api.torbox.app/v1/api",
+        library_root=tmp_path,
+        anime_classifier=second_classifier,
+        reusable_files=reusable,
+        mutation_tracker=mutations,
+    ).run(kinds=("torrents",))
+
+    assert first_classifier.calls == [("Movie Name", 2024)]
+    assert second_classifier.calls == []
+    assert second.reused_files == 1
+    assert second.synced_files[0].reused is True
+    assert mutations.paths == []
+
+
+@pytest.mark.asyncio
+async def test_full_sync_rebuilds_a_missing_generated_path(tmp_path: Path) -> None:
+    first = await TorBoxStrmSync(
+        client=FakeTorBoxClient(),
+        api_key="test-token",
+        torbox_base_url="https://api.torbox.app/v1/api",
+        library_root=tmp_path,
+    ).run(kinds=("torrents",))
+    synced_file = first.synced_files[0]
+    reusable = {
+        (synced_file.provider, synced_file.provider_item_id, synced_file.provider_file_id): (
+            synced_file
+        )
+    }
+    synced_file.path.unlink()
+    classifier = FakeAnimeClassifier(is_anime=False)
+    mutations = CountingMutationTracker()
+
+    second = await TorBoxStrmSync(
+        client=FakeTorBoxClient(),
+        api_key="test-token",
+        torbox_base_url="https://api.torbox.app/v1/api",
+        library_root=tmp_path,
+        anime_classifier=classifier,
+        reusable_files=reusable,
+        mutation_tracker=mutations,
+    ).run(kinds=("torrents",))
+
+    assert second.reused_files == 0
+    assert second.synced_files[0].reused is False
+    assert synced_file.path.is_file()
+    assert mutations.paths == [synced_file.path]
+
+
+@pytest.mark.asyncio
 async def test_direct_torbox_strm_sync_can_limit_written_files(tmp_path: Path) -> None:
     sync = TorBoxStrmSync(
         client=MultiFileTorBoxClient(),
@@ -299,6 +380,21 @@ async def test_direct_torbox_strm_sync_can_limit_written_files(tmp_path: Path) -
     assert result.scanned_files == 1
     assert result.written_files == 1
     assert len(result.written_paths) == 1
+
+
+@pytest.mark.asyncio
+async def test_torbox_strm_sync_can_mark_targeted_result_partial(tmp_path: Path) -> None:
+    sync = TorBoxStrmSync(
+        client=FakeTorBoxClient(),
+        api_key="test-token",
+        torbox_base_url="https://api.torbox.app/v1/api",
+        library_root=tmp_path,
+    )
+
+    result = await sync.run(kinds=("torrents",), partial=True)
+
+    assert result.partial is True
+    assert result.written_files == 1
 
 
 @pytest.mark.asyncio

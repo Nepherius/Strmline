@@ -423,7 +423,7 @@ async def _persist_sync_result(
     session_factory = build_session_factory(database_url)
     async with session_factory() as session:
         sync_run_id = await SyncRunRepository(session).record_success(result)
-        await SyncLibraryStateRepository(session).persist_result(result, output_root)
+        _ = await SyncLibraryStateRepository(session).persist_result(result, output_root)
         await session.commit()
         return sync_run_id
 

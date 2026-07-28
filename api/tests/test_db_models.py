@@ -144,10 +144,12 @@ def test_media_identity_is_normalized_and_provider_scoped() -> None:
 
 def test_library_entries_reference_normalized_torbox_files() -> None:
     columns = set(LibraryEntry.__table__.columns.keys())
+    generated_columns = set(GeneratedFile.__table__.columns.keys())
 
     assert "torbox_file_id" in columns
     assert {"provider", "provider_item_id", "provider_file_id"}.isdisjoint(columns)
     assert "external_id" in set(TorBoxStoredFile.__table__.columns.keys())
+    assert "processing_fingerprint" in generated_columns
     assert TorBoxStoredFile.library_entries.property.passive_deletes == "all"
 
 

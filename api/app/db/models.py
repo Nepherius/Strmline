@@ -622,6 +622,7 @@ class GeneratedFile(Base):
     )
     relative_path: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    processing_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     generated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utc_now,

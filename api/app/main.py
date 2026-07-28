@@ -29,6 +29,7 @@ from app.core.error_logging import ErrorLogWriter
 from app.core.logging import configure_debug_logging
 from app.db.dependencies import get_session_factory
 from app.db.repositories.settings import AppSettingsRepository
+from app.providers.aiostreams.result_cache import clear_aiostreams_result_cache
 from app.providers.torbox.runtime import clear_torbox_runtime, get_torbox_request_coordinator
 from app.static_ui import mount_static_ui
 from app.sync.scheduler import shutdown_auto_sync_scheduler, start_auto_sync_scheduler
@@ -57,6 +58,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         await start_auto_sync_scheduler(app)
         yield
     finally:
+        clear_aiostreams_result_cache()
         clear_resolved_target_cache()
         clear_torbox_runtime()
         await shutdown_auto_sync_scheduler(app)

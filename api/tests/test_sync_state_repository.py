@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -99,13 +100,14 @@ async def test_sync_state_repository_records_generated_library_state(tmp_path: P
                 provider_item_id="1",
                 provider_file_id="2",
                 content_hash="abc123",
+                processing_fingerprint="def456",
             ),
         ),
     )
     session = FakeSession([FakeResult() for _ in range(12)])
     library_root = _resolved(tmp_path)
 
-    await SyncLibraryStateRepository(cast(AsyncSession, session)).persist_result(
+    _ = await SyncLibraryStateRepository(cast(AsyncSession, session)).persist_result(
         result,
         library_root,
     )
@@ -119,6 +121,29 @@ async def test_sync_state_repository_records_generated_library_state(tmp_path: P
     generated_file = next(item for item in session.added if isinstance(item, GeneratedFile))
     assert generated_file.relative_path == "movies/Movie Name (2024)/Movie Name (2024).strm"
     assert generated_file.content_hash == "abc123"
+    assert generated_file.processing_fingerprint == "def456"
+
+
+@pytest.mark.asyncio
+async def test_sync_state_repository_does_not_upsert_reused_files(tmp_path: Path) -> None:
+    synced_file = _sync_result(tmp_path, partial=True).synced_files[0]
+    reused_result = TorBoxStrmSyncResult(
+        scanned_files=1,
+        written_files=1,
+        skipped_files=0,
+        written_paths=(synced_file.path,),
+        synced_files=(replace(synced_file, reused=True),),
+        partial=True,
+        reused_files=1,
+    )
+    session = FakeSession([FakeResult(scalars=[])])
+
+    _ = await SyncLibraryStateRepository(cast(AsyncSession, session)).persist_result(
+        reused_result,
+        _resolved(tmp_path),
+    )
+
+    assert session.added == []
 
 
 @pytest.mark.asyncio
@@ -283,12 +308,13 @@ async def test_sync_state_repository_removes_stale_generated_files(tmp_path: Pat
         ]
     )
 
-    await SyncLibraryStateRepository(cast(AsyncSession, session)).persist_result(
+    stale_paths = await SyncLibraryStateRepository(cast(AsyncSession, session)).persist_result(
         result,
         _resolved(tmp_path),
     )
 
     assert stale_file.exists() is True
+    assert stale_paths == {_resolved(stale_file)}
     assert session.deleted == [stale_record]
 
 
@@ -300,7 +326,7 @@ async def test_sync_state_repository_keeps_stale_files_for_partial_runs(tmp_path
     result = _sync_result(tmp_path, partial=True)
     session = FakeSession([FakeResult() for _ in range(9)])
 
-    await SyncLibraryStateRepository(cast(AsyncSession, session)).persist_result(
+    _ = await SyncLibraryStateRepository(cast(AsyncSession, session)).persist_result(
         result,
         _resolved(tmp_path),
     )
@@ -332,27 +358,15 @@ async def test_sync_state_repository_keeps_selected_hash_when_torbox_source_is_a
         ]
     )
 
-    await SyncLibraryStateRepository(cast(AsyncSession, session)).persist_result(
+    stale_paths = await SyncLibraryStateRepository(cast(AsyncSession, session)).persist_result(
         result,
         _resolved(tmp_path),
         retained_info_hashes=frozenset({"abc123"}),
     )
 
     assert virtual_file.exists() is True
+    assert stale_paths == set()
     assert virtual_record not in session.deleted
-
-
-@pytest.mark.asyncio
-async def test_sync_state_repository_returns_retained_library_paths(tmp_path: Path) -> None:
-    relative_path = "movies/Saved Movie (2024)/Saved Movie (2024).strm"
-    session = FakeSession([FakeResult(scalars=[relative_path])])
-
-    paths = await SyncLibraryStateRepository(cast(AsyncSession, session)).retained_library_paths(
-        _resolved(tmp_path),
-        frozenset({"abc123"}),
-    )
-
-    assert paths == {(tmp_path / relative_path).resolve(strict=False)}
 
 
 def _resolved(path: Path) -> Path:

@@ -15,7 +15,6 @@ from app.db.repositories.stream_selection import StreamSelectionRecord, StreamSe
 from app.main import create_app
 from app.providers.aiostreams.client import AioStreamsClient
 from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
-from app.sync.auto import AutoSyncOutcome
 from tests.conftest import override_auth
 
 
@@ -200,7 +199,7 @@ async def test_add_stream_adds_torrent_and_marks_selection(
 
     monkeypatch.setattr(AioStreamsClient, "_get_json", mock_aiostreams_get_json)
     monkeypatch.setattr(TorBoxClient, "create_torrent", mock_create_torrent)
-    monkeypatch.setattr(search_api, "auto_sync_after_action", mock_sync_success)
+    monkeypatch.setattr(search_api, "enqueue_post_add_sync", mock_enqueue_success)
 
     async with _client_with_fake_session() as client:
         stream = (
@@ -224,8 +223,8 @@ async def test_add_stream_adds_torrent_and_marks_selection(
 
     payload = add_response.json()
     assert payload["torbox_torrent_id"] == "777"
-    assert payload["auto_sync_status"] == "success"
-    assert payload["auto_sync_run_id"] == 12
+    assert payload["auto_sync_status"] == "queued"
+    assert payload["auto_sync_run_id"] is None
     assert seen_create["cached"] is True
     assert str(seen_create["magnet"]).startswith("magnet:?xt=urn:btih:")
     selection = FakeStreamSelectionRepository.records[stream["stream_key"]]
@@ -289,7 +288,7 @@ async def test_add_stream_triggers_aiostreams_torbox_url(
     monkeypatch.setattr(AioStreamsClient, "_get_json", mock_aiostreams_get_json)
     monkeypatch.setattr(AioStreamsClient, "trigger_stream_url", mock_trigger_stream_url)
     monkeypatch.setattr(TorBoxClient, "list_downloads", mock_list_downloads)
-    monkeypatch.setattr(search_api, "auto_sync_after_action", mock_sync_success)
+    monkeypatch.setattr(search_api, "enqueue_post_add_sync", mock_enqueue_success)
 
     async with _client_with_fake_session() as client:
         stream = (
@@ -309,14 +308,14 @@ async def test_add_stream_triggers_aiostreams_torbox_url(
 
     payload = add_response.json()
     assert payload["torbox_torrent_id"] == "888"
-    assert payload["auto_sync_status"] == "success"
+    assert payload["auto_sync_status"] == "queued"
     assert triggered_urls == ["https://example.invalid/play"]
     selection = FakeStreamSelectionRepository.records[stream["stream_key"]]
     assert selection.info_hash == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 
 @pytest.mark.asyncio
-async def test_add_stream_keeps_selection_when_auto_sync_fails(
+async def test_add_stream_keeps_selection_when_sync_cannot_be_queued(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     FakeStreamSelectionRepository.records = {}
@@ -340,17 +339,9 @@ async def test_add_stream_keeps_selection_when_auto_sync_fails(
         _ = (self, magnet, name, add_only_if_cached)
         return {"torrent_id": 777}
 
-    async def mock_sync_failure(*args: object, **kwargs: object) -> AutoSyncOutcome:
-        _ = (args, kwargs)
-        return AutoSyncOutcome(
-            status="failed",
-            sync_run_id=None,
-            message="Added. Automatic sync failed: Library root is not configured.",
-        )
-
     monkeypatch.setattr(AioStreamsClient, "_get_json", mock_aiostreams_get_json)
     monkeypatch.setattr(TorBoxClient, "create_torrent", mock_create_torrent)
-    monkeypatch.setattr(search_api, "auto_sync_after_action", mock_sync_failure)
+    monkeypatch.setattr(search_api, "enqueue_post_add_sync", mock_enqueue_failure)
 
     async with _client_with_fake_session() as client:
         stream = (
@@ -371,9 +362,9 @@ async def test_add_stream_keeps_selection_when_auto_sync_fails(
     payload = response.json()
     assert payload["ok"] is True
     assert payload["selected"] is True
-    assert payload["auto_sync_status"] == "failed"
+    assert payload["auto_sync_status"] == "not_queued"
     assert payload["auto_sync_run_id"] is None
-    assert "Automatic sync failed" in payload["message"]
+    assert "next sync" in payload["message"]
 
 
 @pytest.mark.asyncio
@@ -475,10 +466,11 @@ async def test_remove_stream_is_not_blocked_by_torbox_failure(
     assert stream_key not in FakeStreamSelectionRepository.records
 
 
-async def mock_sync_success(*args: object, **kwargs: object) -> AutoSyncOutcome:
+def mock_enqueue_success(*args: object, **kwargs: object) -> bool:
     _ = (args, kwargs)
-    return AutoSyncOutcome(
-        status="success",
-        sync_run_id=12,
-        message="Added. Synced library: 1 written, 0 skipped.",
-    )
+    return True
+
+
+def mock_enqueue_failure(*args: object, **kwargs: object) -> bool:
+    _ = (args, kwargs)
+    return False

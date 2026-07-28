@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
+from time import perf_counter
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.provider_config import (
@@ -44,7 +45,7 @@ from app.search.service import (
     search_titles_via_tmdb,
 )
 from app.search.stream_parser import is_imdb_id
-from app.sync.auto import auto_sync_after_action
+from app.sync.scheduler import enqueue_post_add_sync
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 logger = logging.getLogger(__name__)
@@ -242,8 +243,10 @@ async def search_streams_endpoint(
 @router.post("/streams/add", response_model=StreamActionResponse)
 async def add_stream_endpoint(
     request: StreamActionRequest,
+    http_request: Request,
     session: Annotated[AsyncSession | None, Depends(get_optional_db_session)],
 ) -> StreamActionResponse:
+    started_at = perf_counter()
     logger.debug("Starting stream add media_type=%s.", request.media_type)
     if session is None:
         return _action_response(
@@ -280,6 +283,7 @@ async def add_stream_endpoint(
         base_url=aiostreams_url,
         timeout_seconds=settings.outbound_timeout_seconds,
     )
+    action_started_at = perf_counter()
     try:
         async with TorBoxClient(
             api_key=torbox_api_key,
@@ -316,25 +320,35 @@ async def add_stream_endpoint(
             message=_safe_action_message(error),
         )
 
-    auto_sync = await auto_sync_after_action(
-        session=session,
-        settings=settings,
-        action_message=outcome.message,
+    queued = enqueue_post_add_sync(
+        http_request.app,
+        outcome.torbox_torrent_id,
+    )
+    auto_sync_status = "queued" if queued else "not_queued"
+    message = (
+        f"{outcome.message} Library update queued."
+        if queued
+        else f"{outcome.message} Library update will occur on the next sync."
     )
     logger.debug(
-        "Stream add completed selected=%s auto_sync_status=%s.",
+        (
+            "Stream add accepted selected=%s auto_sync_status=%s "
+            "action_duration_ms=%.1f total_duration_ms=%.1f."
+        ),
         outcome.selected,
-        auto_sync.status,
+        auto_sync_status,
+        (perf_counter() - action_started_at) * 1000,
+        (perf_counter() - started_at) * 1000,
     )
 
     return StreamActionResponse(
         ok=True,
-        message=auto_sync.message,
+        message=message,
         stream_key=outcome.stream_key,
         selected=outcome.selected,
         torbox_torrent_id=outcome.torbox_torrent_id,
-        auto_sync_status=auto_sync.status,
-        auto_sync_run_id=auto_sync.sync_run_id,
+        auto_sync_status=auto_sync_status,
+        auto_sync_run_id=None,
     )
 
 

@@ -9,6 +9,7 @@ from typing import cast
 
 import pytest
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from app.core.config import Settings
@@ -16,11 +17,14 @@ from app.db.repositories.settings import SettingsSnapshot
 from app.sync import scheduler as scheduler_module
 from app.sync.scheduler import (
     AUTO_SYNC_JOB_ID,
+    QUEUED_SYNC_JOB_ID,
     SEASON_COMPLETION_JOB_ID,
     AsyncSessionFactory,
     AutoSyncScheduler,
+    ItemSyncRunner,
     SyncRunner,
 )
+from app.sync.service import SyncAlreadyRunningError
 
 
 class FakeSessionContext:
@@ -53,8 +57,8 @@ class FakeScheduler:
         self,
         job: Callable[[], Awaitable[None]],
         *,
-        trigger: IntervalTrigger,
-        next_run_time: datetime,
+        trigger: IntervalTrigger | DateTrigger,
+        next_run_time: datetime | None = None,
         **options: object,
     ) -> object:
         job_id = options["id"]
@@ -139,6 +143,84 @@ async def test_auto_sync_scheduler_runs_sync_with_auto_source() -> None:
     await auto_sync.run_once()
 
     assert captured_kwargs["source"] == "auto"
+
+
+@pytest.mark.asyncio
+async def test_post_add_sync_is_queued_and_targets_each_torrent_once() -> None:
+    backend = FakeScheduler()
+    backend.start()
+    captured_ids: list[str] = []
+
+    async def fake_item_sync(*args: object, **kwargs: object) -> object:
+        _ = args
+        torrent_id = kwargs["torrent_id"]
+        assert isinstance(torrent_id, str)
+        captured_ids.append(torrent_id)
+        return object()
+
+    auto_sync = AutoSyncScheduler(
+        session_factory=cast(AsyncSessionFactory, FakeSessionFactory()),
+        scheduler=cast(AsyncIOScheduler, backend),
+        settings_provider=Settings,
+        item_sync_runner=cast(ItemSyncRunner, fake_item_sync),
+    )
+
+    assert auto_sync.enqueue_post_add_sync("777") is True
+    assert auto_sync.enqueue_post_add_sync("777") is True
+    job = backend.jobs[QUEUED_SYNC_JOB_ID]
+    assert isinstance(job["trigger"], DateTrigger)
+
+    queued_job = cast(Callable[[], Awaitable[None]], job["job"])
+    await queued_job()
+
+    assert captured_ids == ["777"]
+
+
+@pytest.mark.asyncio
+async def test_post_add_sync_retries_when_another_sync_holds_the_lock() -> None:
+    backend = FakeScheduler()
+    backend.start()
+    attempts = 0
+
+    async def fake_item_sync(*args: object, **kwargs: object) -> object:
+        nonlocal attempts
+        _ = (args, kwargs)
+        attempts += 1
+        if attempts == 1:
+            raise SyncAlreadyRunningError
+        return object()
+
+    auto_sync = AutoSyncScheduler(
+        session_factory=cast(AsyncSessionFactory, FakeSessionFactory()),
+        scheduler=cast(AsyncIOScheduler, backend),
+        settings_provider=Settings,
+        item_sync_runner=cast(ItemSyncRunner, fake_item_sync),
+    )
+
+    assert auto_sync.enqueue_post_add_sync("777") is True
+    first_job = cast(
+        Callable[[], Awaitable[None]],
+        backend.jobs[QUEUED_SYNC_JOB_ID]["job"],
+    )
+    await first_job()
+
+    retry_job = backend.jobs[QUEUED_SYNC_JOB_ID]
+    retry_trigger = retry_job["trigger"]
+    assert isinstance(retry_trigger, DateTrigger)
+
+    await cast(Callable[[], Awaitable[None]], retry_job["job"])()
+
+    assert attempts == 2
+
+
+def test_post_add_sync_is_not_queued_before_scheduler_start() -> None:
+    auto_sync = AutoSyncScheduler(
+        session_factory=cast(AsyncSessionFactory, FakeSessionFactory()),
+        scheduler=cast(AsyncIOScheduler, FakeScheduler()),
+        settings_provider=Settings,
+    )
+
+    assert auto_sync.enqueue_post_add_sync("777") is False
 
 
 @pytest.mark.asyncio

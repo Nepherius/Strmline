@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import (
     GeneratedFile,
     LibraryEntry,
+    MediaExternalIdentity,
     MediaItem,
     TorBoxItem,
     TorBoxStoredFile,
@@ -43,18 +44,21 @@ class SyncLibraryStateRepository:
         library_root: Path,
         *,
         retained_info_hashes: frozenset[str] | None = None,
-    ) -> None:
+    ) -> set[Path]:
         identity_repository = MediaIdentityRepository(self._session)
 
         for synced_file in result.synced_files:
+            if synced_file.reused:
+                continue
             media_item = await self._media_item(synced_file, identity_repository)
             torbox_file = await self._torbox_file(synced_file)
             library_entry = await self._library_entry(media_item, torbox_file, synced_file)
             await self._generated_file(library_entry, synced_file, library_root)
 
+        stale_paths: set[Path] = set()
         if not result.partial:
             retained_info_hashes = retained_info_hashes or frozenset()
-            await self._remove_stale_generated_files(
+            stale_paths = await self._remove_stale_generated_files(
                 result,
                 library_root,
                 retained_info_hashes,
@@ -62,23 +66,62 @@ class SyncLibraryStateRepository:
             await self._remove_stale_torbox_sources(result)
 
         _ = await identity_repository.delete_orphaned_media()
+        return stale_paths
 
-    async def retained_library_paths(
+    async def reusable_files(
         self,
         library_root: Path,
-        info_hashes: frozenset[str],
-    ) -> set[Path]:
-        if not info_hashes:
-            return set()
+    ) -> dict[tuple[str, str, str], SyncedStrmFile]:
         result = await self._session.execute(
-            select(GeneratedFile.relative_path)
-            .join(LibraryEntry)
-            .where(LibraryEntry.info_hash.in_(info_hashes))
+            select(LibraryEntry, MediaItem, GeneratedFile, MediaExternalIdentity)
+            .join(MediaItem, MediaItem.id == LibraryEntry.media_item_id)
+            .join(GeneratedFile, GeneratedFile.library_entry_id == LibraryEntry.id)
+            .outerjoin(
+                MediaExternalIdentity,
+                (MediaExternalIdentity.media_item_id == MediaItem.id)
+                & (MediaExternalIdentity.provider == "tmdb"),
+            )
+            .where(
+                LibraryEntry.source_kind.is_not(None),
+                LibraryEntry.source_item_id.is_not(None),
+                LibraryEntry.source_file_id.is_not(None),
+            )
         )
-        return {
-            ensure_within_root(library_root, library_root / relative_path)
-            for relative_path in result.scalars()
-        }
+        reusable: dict[tuple[str, str, str], SyncedStrmFile] = {}
+        for library_entry, media_item, generated_file, external_identity in result.all():
+            source_kind = library_entry.source_kind
+            source_item_id = library_entry.source_item_id
+            source_file_id = library_entry.source_file_id
+            if source_kind is None or source_item_id is None or source_file_id is None:
+                continue
+            path = ensure_within_root(
+                library_root,
+                library_root / generated_file.relative_path,
+            )
+            reusable[(source_kind, source_item_id, source_file_id)] = SyncedStrmFile(
+                path=path,
+                entry_id=library_entry.opaque_id,
+                category=library_entry.category,
+                title=media_item.title,
+                year=media_item.year,
+                season_number=library_entry.season_number,
+                episode_number=library_entry.episode_number,
+                provider=source_kind,
+                provider_item_id=source_item_id,
+                provider_file_id=source_file_id,
+                provider_item_name=library_entry.source_item_name or "",
+                provider_file_name=library_entry.source_file_name or "",
+                provider_file_path=library_entry.source_file_path or "",
+                provider_file_mime_type=library_entry.source_file_mime_type or "",
+                provider_file_size=library_entry.source_file_size,
+                info_hash=library_entry.info_hash,
+                content_hash=generated_file.content_hash,
+                tmdb_id=(external_identity.external_id if external_identity is not None else None),
+                tmdb_poster_path=media_item.poster_path,
+                source_title=library_entry.source_item_name or media_item.title,
+                processing_fingerprint=generated_file.processing_fingerprint,
+            )
+        return reusable
 
     async def _media_item(
         self,
@@ -233,19 +276,21 @@ class SyncLibraryStateRepository:
                     library_entry_id=library_entry.id,
                     relative_path=relative_path,
                     content_hash=synced_file.content_hash,
+                    processing_fingerprint=synced_file.processing_fingerprint,
                 )
             )
             return
 
         generated_file.library_entry_id = library_entry.id
         generated_file.content_hash = synced_file.content_hash
+        generated_file.processing_fingerprint = synced_file.processing_fingerprint
 
     async def _remove_stale_generated_files(
         self,
         result: TorBoxStrmSyncResult,
         library_root: Path,
         retained_info_hashes: frozenset[str],
-    ) -> None:
+    ) -> set[Path]:
         current_paths = {
             _relative_generated_path(library_root, synced_file.path)
             for synced_file in result.synced_files
@@ -265,13 +310,21 @@ class SyncLibraryStateRepository:
             )
             retained_paths = set(retained_result.scalars())
         stale_result = await self._session.execute(select(GeneratedFile))
+        stale_paths: set[Path] = set()
         for generated_file in stale_result.scalars():
             if (
                 generated_file.relative_path in current_paths
                 or generated_file.relative_path in retained_paths
             ):
                 continue
+            stale_paths.add(
+                ensure_within_root(
+                    library_root,
+                    library_root / generated_file.relative_path,
+                )
+            )
             await self._session.delete(generated_file)
+        return stale_paths
 
     async def _remove_stale_torbox_sources(self, result: TorBoxStrmSyncResult) -> None:
         current_sources = {

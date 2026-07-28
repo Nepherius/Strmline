@@ -17,9 +17,9 @@ from app.db.repositories.sync_runs import SyncRunRepository, SyncRunSource
 from app.db.repositories.sync_state import SyncLibraryStateRepository
 from app.db.repositories.tmdb_cache import TmdbCacheRepository
 from app.db.repositories.watchlist import WatchlistRepository
-from app.library.posters import cache_missing_posters
-from app.library.stale_cleanup import remove_stale_strm_files
-from app.library.sync_snapshot import LibrarySyncSnapshot
+from app.library.mutation_journal import LibraryMutationJournal
+from app.library.posters import cache_missing_posters, poster_for_tmdb_id
+from app.library.stale_cleanup import remove_stale_strm_paths
 from app.providers.aiostreams.client import AioStreamsClient
 from app.providers.tmdb.client import TmdbClient
 from app.providers.tmdb.metadata import TmdbMetadataService
@@ -29,7 +29,12 @@ from app.search.actions import ensure_selected_streams_in_torbox
 from app.sync.anime_classification import build_anilist_anime_classifier
 from app.sync.identity_inputs import identity_inputs as _identity_inputs
 from app.sync.media_identity import MediaIdentityResolver
-from app.sync.torbox_strm import ResolverUrlConfig, TorBoxStrmSync, TorBoxStrmSyncResult
+from app.sync.torbox_strm import (
+    ResolverUrlConfig,
+    SyncedStrmFile,
+    TorBoxStrmSync,
+    TorBoxStrmSyncResult,
+)
 
 
 class SyncAlreadyRunningError(RuntimeError):
@@ -121,7 +126,11 @@ async def _execute_sync(
     # End the configuration read transaction before any provider request begins.
     await session.commit()
 
-    file_snapshot = LibrarySyncSnapshot.capture(library_root)
+    reusable_files, mutation_journal = await _incremental_context(
+        session,
+        sync_state,
+        library_root,
+    )
     try:
         generated = await _generate_sync_files(
             session,
@@ -131,10 +140,12 @@ async def _execute_sync(
             library_root=library_root,
             resolver=resolver,
             client_factory=client_factory,
+            reusable_files=reusable_files,
+            mutation_journal=mutation_journal,
         )
     except Exception as error:
         await session.rollback()
-        file_snapshot.restore()
+        mutation_journal.restore()
         _ = await sync_runs.record_failure(
             phase="torbox_sync",
             message=_safe_failure_message(error),
@@ -145,22 +156,21 @@ async def _execute_sync(
 
     result = generated.result
     try:
-        retained_paths = await sync_state.retained_library_paths(
-            library_root,
-            _absent_selected_hashes(generated.selected_hashes, result),
-        )
         await _remove_synced_from_watchlist(session, result)
         sync_run_id = await sync_runs.record_success(result, source=source)
-        await sync_state.persist_result(
+        stale_paths = await sync_state.persist_result(
             result,
             library_root,
             retained_info_hashes=generated.selected_hashes,
         )
         await _reconcile_exclusions(session, result)
+        for stale_path in stale_paths:
+            mutation_journal.track(stale_path)
+        _remove_stale_sync_files(library_root, result, stale_paths)
         await session.commit()
     except Exception as error:
         await session.rollback()
-        file_snapshot.restore()
+        mutation_journal.restore()
         _ = await sync_runs.record_failure(
             phase="persistence",
             message="Database persistence failed; generated files were restored.",
@@ -177,7 +187,6 @@ async def _execute_sync(
         settings,
         library_root,
         result,
-        retained_paths,
         generated.tmdb_api_key,
         source,
     )
@@ -191,21 +200,30 @@ async def _execute_sync(
     )
 
 
+async def _incremental_context(
+    session: AsyncSession,
+    sync_state: SyncLibraryStateRepository,
+    library_root: Path,
+) -> tuple[dict[tuple[str, str, str], SyncedStrmFile], LibraryMutationJournal]:
+    reusable_files = await sync_state.reusable_files(library_root)
+    await session.commit()
+    return reusable_files, LibraryMutationJournal.create(library_root)
+
+
 async def _finish_sync(
     settings: Settings,
     library_root: Path,
     result: TorBoxStrmSyncResult,
-    retained_paths: set[Path],
     tmdb_api_key: str | None,
     source: SyncRunSource,
 ) -> None:
-    _remove_stale_sync_files(library_root, result, retained_paths)
     await _cache_missing_sync_posters(settings, library_root, result, tmdb_api_key)
     logger.debug(
-        "Completed TorBox account sync from %s: %d scanned, %d written, %d skipped.",
+        ("Completed TorBox account sync from %s: %d scanned, %d written, %d reused, %d skipped."),
         source,
         result.scanned_files,
         result.written_files,
+        result.reused_files,
         result.skipped_files,
     )
 
@@ -219,6 +237,8 @@ async def _generate_sync_files(  # noqa: PLR0913
     library_root: Path,
     resolver: ResolverUrlConfig | None,
     client_factory: TorBoxClientFactory,
+    reusable_files: dict[tuple[str, str, str], SyncedStrmFile],
+    mutation_journal: LibraryMutationJournal,
 ) -> _GeneratedSync:
     async with client_factory(
         api_key=api_key,
@@ -259,6 +279,7 @@ async def _generate_sync_files(  # noqa: PLR0913
             selections,
             selected_streams,
             identity_resolver,
+            enrich=False,
         )
         classification_overrides = await ClassificationOverrideRepository(session).list_all()
         excluded_prefixes = await LibraryExclusionRepository(session).prefixes()
@@ -276,6 +297,8 @@ async def _generate_sync_files(  # noqa: PLR0913
             media_identity_resolver=identity_resolver,
             torrent_hashes=torrent_hashes,
             identity_inputs=identities,
+            reusable_files=reusable_files,
+            mutation_tracker=mutation_journal,
         ).run()
     return _GeneratedSync(
         result=result,
@@ -309,9 +332,10 @@ async def _cache_missing_sync_posters(
 ) -> None:
     if tmdb_api_key is None:
         return
+    poster_sources = _poster_sources_needing_check(library_root, result)
     poster_result = await cache_missing_posters(
         library_root,
-        result.synced_files,
+        poster_sources,
         TmdbPosterClient(timeout_seconds=settings.outbound_timeout_seconds),
     )
     logger.debug(
@@ -322,17 +346,38 @@ async def _cache_missing_sync_posters(
     )
 
 
+def _poster_sources_needing_check(
+    library_root: Path,
+    result: TorBoxStrmSyncResult,
+) -> tuple[SyncedStrmFile, ...]:
+    sources: list[SyncedStrmFile] = []
+    seen_tmdb_ids: set[str] = set()
+    for synced_file in result.synced_files:
+        tmdb_id = synced_file.tmdb_id
+        if tmdb_id is None or tmdb_id in seen_tmdb_ids:
+            continue
+        seen_tmdb_ids.add(tmdb_id)
+        if not synced_file.reused or _poster_is_missing(library_root, synced_file):
+            sources.append(synced_file)
+    return tuple(sources)
+
+
+def _poster_is_missing(library_root: Path, synced_file: SyncedStrmFile) -> bool:
+    return (
+        synced_file.tmdb_id is not None
+        and synced_file.tmdb_poster_path is not None
+        and poster_for_tmdb_id(library_root, synced_file.tmdb_id) is None
+    )
+
+
 def _remove_stale_sync_files(
     library_root: Path,
     result: TorBoxStrmSyncResult,
-    preserved_paths: set[Path],
+    stale_paths: set[Path],
 ) -> None:
     if result.partial:
         return
-    remove_stale_strm_files(
-        library_root,
-        set(result.written_paths) | preserved_paths,
-    )
+    remove_stale_strm_paths(library_root, stale_paths)
 
 
 def _library_root(snapshot: SettingsSnapshot) -> Path:
@@ -344,27 +389,13 @@ def _library_root(snapshot: SettingsSnapshot) -> Path:
 def _watchlist_identities(result: TorBoxStrmSyncResult) -> set[tuple[str, int]]:
     identities: set[tuple[str, int]] = set()
     for synced_file in result.synced_files:
+        if synced_file.reused:
+            continue
         if synced_file.tmdb_id is None or not synced_file.tmdb_id.isdecimal():
             continue
         media_type = "movie" if synced_file.category == "movies" else "series"
         identities.add((media_type, int(synced_file.tmdb_id)))
     return identities
-
-
-def _result_info_hashes(result: TorBoxStrmSyncResult) -> frozenset[str]:
-    return frozenset(
-        synced_file.info_hash
-        for synced_file in result.synced_files
-        if synced_file.info_hash is not None
-    )
-
-
-def _absent_selected_hashes(
-    selected_hashes: frozenset[str],
-    result: TorBoxStrmSyncResult,
-) -> frozenset[str]:
-    """Retain only selected media that is absent from the current provider result."""
-    return selected_hashes - _result_info_hashes(result)
 
 
 def _can_reconcile_exclusions(result: TorBoxStrmSyncResult) -> bool:

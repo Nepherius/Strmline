@@ -56,6 +56,8 @@ async def identity_inputs(
     selection_repository: StreamSelectionRepository,
     selected_streams: tuple[StreamSelectionRecord, ...],
     resolver: MediaIdentityResolver,
+    *,
+    enrich: bool = True,
 ) -> IdentityInputs:
     by_torrent_id, by_info_hash = await selected_media_identities(
         selection_repository,
@@ -69,12 +71,13 @@ async def identity_inputs(
         await identity_repository.source_bindings(),
     )
     by_alias = alias_identities(await identity_repository.alias_bindings())
-    await enrich_missing_metadata(
-        resolver,
-        by_torrent_id,
-        by_info_hash,
-        by_alias,
-    )
+    if enrich:
+        await enrich_missing_metadata(
+            resolver,
+            by_torrent_id,
+            by_info_hash,
+            by_alias,
+        )
     return IdentityInputs(
         by_torrent_id=by_torrent_id,
         by_info_hash=by_info_hash,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -32,9 +33,15 @@ def resolver_playback_url(base_url: str, token: str, entry_id: str) -> str:
     return f"{base_url.rstrip('/')}/play/{entry_id}?token={token}"
 
 
-def write_manifest_entries(library_root: Path, entries: list[ResolverManifestEntry]) -> Path:
-    manifest_path = _manifest_path(library_root)
-    existing_entries = _read_entries(manifest_path)
+def write_manifest_entries(
+    library_root: Path,
+    entries: list[ResolverManifestEntry],
+    *,
+    before_write: Callable[[Path], None] | None = None,
+    replace_existing: bool = False,
+) -> Path:
+    manifest_path = resolver_manifest_path(library_root)
+    existing_entries = {} if replace_existing else _read_entries(manifest_path)
     for entry in entries:
         existing_entries[entry.entry_id] = entry.target_url
 
@@ -42,15 +49,16 @@ def write_manifest_entries(library_root: Path, entries: list[ResolverManifestEnt
         "version": 1,
         "entries": existing_entries,
     }
-    atomic_write_text(
-        manifest_path,
-        json.dumps(payload, indent=2, sort_keys=True) + "\n",
-    )
+    content = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    if not manifest_path.is_file() or manifest_path.read_text(encoding="utf-8") != content:
+        if before_write is not None:
+            before_write(manifest_path)
+        atomic_write_text(manifest_path, content)
     return manifest_path
 
 
 def resolve_manifest_target(library_root: Path, entry_id: str) -> str:
-    entries = _read_entries(_manifest_path(library_root))
+    entries = _read_entries(resolver_manifest_path(library_root))
     target_url = entries.get(entry_id)
     if target_url is None:
         msg = "Resolver entry was not found."
@@ -58,7 +66,7 @@ def resolve_manifest_target(library_root: Path, entry_id: str) -> str:
     return target_url
 
 
-def _manifest_path(library_root: Path) -> Path:
+def resolver_manifest_path(library_root: Path) -> Path:
     return ensure_within_root(library_root, library_root / MANIFEST_RELATIVE_PATH)
 
 

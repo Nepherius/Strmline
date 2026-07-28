@@ -71,6 +71,31 @@ async def test_aiostreams_client_reads_streams() -> None:
 
 
 @pytest.mark.asyncio
+async def test_aiostreams_client_reuses_recent_stream_results() -> None:
+    requests = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        return httpx.Response(
+            200,
+            json={"streams": [{"name": "Torrent", "infoHash": "abc123"}]},
+        )
+
+    client = AioStreamsClient(
+        base_url="https://cache.example/addon",
+        timeout_seconds=5,
+        transport=httpx.MockTransport(handler),
+    )
+
+    first = await client.streams(media_type="movie", media_id="tt123")
+    second = await client.streams(media_type="movie", media_id="tt123")
+
+    assert second is first
+    assert requests == 1
+
+
+@pytest.mark.asyncio
 async def test_aiostreams_client_rejects_invalid_stream_payload() -> None:
     def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"streams": {}})

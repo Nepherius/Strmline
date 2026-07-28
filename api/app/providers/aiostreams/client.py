@@ -7,6 +7,8 @@ from urllib.parse import quote, urlparse
 
 import httpx
 
+from app.providers.aiostreams.result_cache import get_aiostreams_result_cache
+
 
 class AioStreamsClientError(RuntimeError):
     """Raised when a safe AIOStreams request fails."""
@@ -60,9 +62,19 @@ class AioStreamsClient:
         return _manifest_from_payload(payload)
 
     async def streams(self, *, media_type: str, media_id: str) -> tuple[AioStreamsStream, ...]:
+        cache = get_aiostreams_result_cache()
+        cache_key = self._stream_cache_key(media_type, media_id)
+        cached = cast(tuple[AioStreamsStream, ...] | None, cache.get(cache_key))
+        if cached is not None:
+            return cached
         stream_path = f"stream/{quote(media_type, safe='')}/{quote(media_id, safe='')}.json"
         payload = await self._get_json(_join_url(self._base_url, stream_path))
-        return _streams_from_payload(payload)
+        streams = _streams_from_payload(payload)
+        cache.put(cache_key, streams)
+        return streams
+
+    def _stream_cache_key(self, media_type: str, media_id: str) -> str:
+        return "\x1f".join((self._base_url, media_type, media_id))
 
     async def trigger_stream_url(self, url: str) -> AioStreamsTriggerResult:
         if not _is_safe_trigger_url(url):

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+import json
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from app.domain.media_identity import IdentityAuthority, ResolutionStatus
 from app.domain.normalization import normalize_title_for_identity
@@ -14,8 +16,8 @@ from app.library.classification_override import (
 )
 from app.library.entries import LibraryCategory, LibraryEntry
 from app.library.naming import library_entry_from_file_name
-from app.library.paths import library_entry_relative_path
-from app.library.strm_writer import write_strm_file
+from app.library.paths import ensure_within_root, library_entry_relative_path
+from app.library.strm_writer import strm_file_path, write_strm_file
 from app.providers.torbox.files import (
     DOWNLOAD_KINDS,
     DownloadKind,
@@ -32,6 +34,8 @@ from app.resolver.manifest import (
 )
 from app.sync.identity_inputs import IdentityInputs
 from app.sync.media_identity import MediaIdentity
+
+MetadataLoader = Callable[[str, str], Awaitable[MediaIdentity | None]]
 
 
 class TorBoxDownloadClient(Protocol):
@@ -59,6 +63,12 @@ class MediaIdentityLookup(Protocol):
         ...
 
 
+class MutationTracker(Protocol):
+    def track(self, path: Path) -> None:
+        """Capture a path before synchronization mutates it."""
+        ...
+
+
 @dataclass(frozen=True, slots=True)
 class TorBoxStrmSyncResult:
     scanned_files: int
@@ -70,6 +80,7 @@ class TorBoxStrmSyncResult:
     partial: bool = False
     diagnostics: tuple[SyncDiagnostic, ...] = ()
     observed_excluded_prefixes: frozenset[str] = frozenset()
+    reused_files: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +115,8 @@ class SyncedStrmFile:
     identity_authority: IdentityAuthority = IdentityAuthority.FALLBACK
     identity_confidence: int | None = None
     identity_resolver_version: str | None = None
+    processing_fingerprint: str | None = None
+    reused: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,6 +146,8 @@ class TorBoxStrmSync:
         media_identity_resolver: MediaIdentityLookup | None = None,
         torrent_hashes: dict[str, str] | None = None,
         identity_inputs: IdentityInputs | None = None,
+        reusable_files: dict[tuple[str, str, str], SyncedStrmFile] | None = None,
+        mutation_tracker: MutationTracker | None = None,
     ) -> None:
         self._client = client
         self._api_key = api_key
@@ -153,12 +168,16 @@ class TorBoxStrmSync:
             for info_hash, identity in identities.by_info_hash.items()
         }
         self._media_identity_by_alias = identities.by_alias
+        self._reusable_files = reusable_files or {}
+        self._mutation_tracker = mutation_tracker
+        self._processing_fingerprint = _processing_fingerprint(classification_overrides)
 
-    async def run(
+    async def run(  # noqa: C901, PLR0915
         self,
         kinds: tuple[DownloadKind, ...] = DOWNLOAD_KINDS,
         *,
         max_files: int | None = None,
+        partial: bool = False,
     ) -> TorBoxStrmSyncResult:
         if max_files is not None and max_files < 1:
             msg = "max_files must be positive."
@@ -170,6 +189,7 @@ class TorBoxStrmSync:
         observations = _SyncObservations(set(), set())
         scanned_files = 0
         skipped_files = 0
+        reused_files = 0
 
         for kind in kinds:
             downloads = await self._client.list_downloads(kind)
@@ -186,6 +206,7 @@ class TorBoxStrmSync:
                         manifest_entries,
                         observations,
                         partial=True,
+                        reused_files=reused_files,
                     )
                 scanned_files += 1
                 entry_id = resolver_entry_id(torbox_file)
@@ -194,6 +215,26 @@ class TorBoxStrmSync:
                     torbox_file.item_id
                 )
                 selected_identity = self._selected_media_identity(torbox_file.item_id, info_hash)
+                reusable = self._reusable_file(
+                    torbox_file,
+                    entry_id=entry_id,
+                    playback_url=playback_url,
+                    info_hash=info_hash,
+                    selected_identity=selected_identity,
+                )
+                if reusable is not None:
+                    matching_exclusions = _matching_excluded_prefixes(
+                        _library_entry_from_synced_file(reusable, playback_url),
+                        self._excluded_prefixes,
+                    )
+                    if matching_exclusions:
+                        observations.excluded_prefixes.update(matching_exclusions)
+                        skipped_files += 1
+                        continue
+                    written_paths.append(reusable.path)
+                    synced_files.append(replace(reusable, reused=True))
+                    reused_files += 1
+                    continue
                 entry = library_entry_from_file_name(
                     torbox_file.library_name,
                     playback_url,
@@ -227,6 +268,8 @@ class TorBoxStrmSync:
                     observations.excluded_prefixes.update(matching_exclusions)
                     skipped_files += 1
                     continue
+                if self._mutation_tracker is not None:
+                    self._mutation_tracker.track(strm_file_path(self._library_root, entry))
                 written_path = write_strm_file(self._library_root, entry)
                 written_paths.append(written_path)
                 synced_files.append(
@@ -240,6 +283,7 @@ class TorBoxStrmSync:
                         tmdb_poster_path=tmdb_poster_path,
                         source_title=source_title,
                         identity=resolved_identity,
+                        processing_fingerprint=self._processing_fingerprint,
                     )
                 )
 
@@ -249,7 +293,40 @@ class TorBoxStrmSync:
             synced_files,
             manifest_entries,
             observations,
+            partial=partial,
+            reused_files=reused_files,
         )
+
+    def _reusable_file(
+        self,
+        torbox_file: TorBoxFile,
+        *,
+        entry_id: str,
+        playback_url: str,
+        info_hash: str | None,
+        selected_identity: MediaIdentity | None,
+    ) -> SyncedStrmFile | None:
+        cached = self._reusable_files.get(
+            (torbox_file.kind, torbox_file.item_id, torbox_file.file_id)
+        )
+        if cached is None:
+            return None
+        expected_hash = _content_hash(playback_url)
+        metadata_matches = (
+            cached.entry_id == entry_id
+            and cached.processing_fingerprint == self._processing_fingerprint
+            and _same_source_file(cached, torbox_file, info_hash)
+            and _same_identity(cached, selected_identity)
+            and cached.content_hash == expected_hash
+        )
+        if not metadata_matches:
+            return None
+        safe_path = ensure_within_root(self._library_root, cached.path)
+        try:
+            content_matches = safe_path.read_text(encoding="utf-8") == f"{playback_url}\n"
+        except (OSError, UnicodeError):
+            return None
+        return cached if content_matches else None
 
     def _with_classification_override(self, entry: LibraryEntry) -> LibraryEntry:
         override = self._classification_overrides.get(source_prefix_for_entry(entry))
@@ -284,6 +361,7 @@ class TorBoxStrmSync:
             # whether it originated from migration or fallback discovery. Retry it.
             identity = None
         if identity is not None:
+            identity = await self._enriched_identity(identity)
             entry = _entry_with_identity(entry, identity)
         if identity is None or identity.library_category is None:
             entry = await self._with_anime_classification(entry)
@@ -296,6 +374,32 @@ class TorBoxStrmSync:
             category=entry.category,
         )
         return _entry_with_identity(entry, identity), identity
+
+    async def _enriched_identity(self, identity: MediaIdentity) -> MediaIdentity:
+        if (
+            self._media_identity_resolver is None
+            or identity.tmdb_id is None
+            or (identity.year is not None and identity.poster_path is not None)
+        ):
+            return identity
+        metadata_loader = getattr(
+            self._media_identity_resolver,
+            "metadata_for_tmdb_id",
+            None,
+        )
+        if not callable(metadata_loader):
+            return identity
+        metadata = await cast(MetadataLoader, metadata_loader)(
+            identity.tmdb_id,
+            identity.media_type,
+        )
+        if metadata is None:
+            return identity
+        return replace(
+            identity,
+            year=identity.year if identity.year is not None else metadata.year,
+            poster_path=identity.poster_path or metadata.poster_path,
+        )
 
     async def _with_anime_classification(self, entry: LibraryEntry) -> LibraryEntry:
         if self._anime_classifier is None or entry.category == "anime":
@@ -335,7 +439,7 @@ class TorBoxStrmSync:
         )
         return resolver_playback_url(self._resolver.base_url, self._resolver.token, entry_id)
 
-    def _result(
+    def _result(  # noqa: PLR0913
         self,
         counts: tuple[int, int],
         written_paths: list[Path],
@@ -344,11 +448,19 @@ class TorBoxStrmSync:
         observations: _SyncObservations,
         *,
         partial: bool = False,
+        reused_files: int = 0,
     ) -> TorBoxStrmSyncResult:
         scanned_files, skipped_files = counts
         manifest_path = None
-        if manifest_entries:
-            manifest_path = write_manifest_entries(self._library_root, manifest_entries)
+        if manifest_entries or (self._resolver is not None and not partial):
+            manifest_path = write_manifest_entries(
+                self._library_root,
+                manifest_entries,
+                before_write=(
+                    self._mutation_tracker.track if self._mutation_tracker is not None else None
+                ),
+                replace_existing=not partial,
+            )
         unique_written_paths = set(written_paths)
         return TorBoxStrmSyncResult(
             scanned_files=scanned_files,
@@ -369,6 +481,7 @@ class TorBoxStrmSync:
                 )
             ),
             observed_excluded_prefixes=frozenset(observations.excluded_prefixes),
+            reused_files=reused_files,
         )
 
 
@@ -401,6 +514,7 @@ def _synced_file(  # noqa: PLR0913
     tmdb_poster_path: str | None = None,
     source_title: str = "",
     identity: MediaIdentity | None = None,
+    processing_fingerprint: str | None = None,
 ) -> SyncedStrmFile:
     return SyncedStrmFile(
         path=path,
@@ -419,7 +533,7 @@ def _synced_file(  # noqa: PLR0913
         provider_file_mime_type=torbox_file.mime_type,
         provider_file_size=torbox_file.size,
         info_hash=info_hash,
-        content_hash=hashlib.sha256(entry.resolver_url.encode("utf-8")).hexdigest(),
+        content_hash=_content_hash(entry.resolver_url),
         tmdb_id=tmdb_id,
         tmdb_poster_path=tmdb_poster_path,
         source_title=source_title or entry.title,
@@ -428,6 +542,77 @@ def _synced_file(  # noqa: PLR0913
         ),
         identity_confidence=identity.confidence if identity is not None else None,
         identity_resolver_version=(identity.resolver_version if identity is not None else None),
+        processing_fingerprint=processing_fingerprint,
+    )
+
+
+def _content_hash(playback_url: str) -> str:
+    return hashlib.sha256(playback_url.encode("utf-8")).hexdigest()
+
+
+def _processing_fingerprint(
+    overrides: tuple[LibraryClassificationOverride, ...],
+) -> str:
+    payload = {
+        "pipeline": "strmline-library-v2",
+        "classification_overrides": sorted(
+            (
+                override.source_category,
+                override.source_prefix,
+                override.title,
+                override.target_category,
+            )
+            for override in overrides
+        ),
+    }
+    encoded = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _same_source_file(
+    cached: SyncedStrmFile,
+    current: TorBoxFile,
+    info_hash: str | None,
+) -> bool:
+    return (
+        cached.provider == current.kind
+        and cached.provider_item_id == current.item_id
+        and cached.provider_file_id == current.file_id
+        and cached.provider_item_name == current.folder_name
+        and cached.provider_file_name == current.file_name
+        and cached.provider_file_path == current.path
+        and cached.provider_file_mime_type == current.mime_type
+        and cached.provider_file_size == current.size
+        and cached.info_hash == info_hash
+    )
+
+
+def _same_identity(
+    cached: SyncedStrmFile,
+    current: MediaIdentity | None,
+) -> bool:
+    if current is None:
+        return cached.tmdb_id is None
+    return (
+        cached.tmdb_id == current.tmdb_id
+        and cached.title == current.title
+        and cached.year == current.year
+        and cached.tmdb_poster_path == current.poster_path
+        and (current.library_category is None or cached.category == current.library_category)
+    )
+
+
+def _library_entry_from_synced_file(
+    synced_file: SyncedStrmFile,
+    playback_url: str,
+) -> LibraryEntry:
+    return LibraryEntry(
+        category=cast(LibraryCategory, synced_file.category),
+        title=synced_file.title,
+        year=synced_file.year,
+        season_number=synced_file.season_number,
+        episode_number=synced_file.episode_number,
+        resolver_url=playback_url,
     )
 
 
