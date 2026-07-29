@@ -79,15 +79,23 @@ class FakeSyncStateRepository:
     def __init__(self, session: object) -> None:
         _ = session
 
+    async def reusable_files(
+        self,
+        library_root: Path,
+    ) -> dict[tuple[str, str, str], object]:
+        FakeState.reusable_root = library_root
+        return {}
+
     async def persist_result(
         self,
         result: TorBoxStrmSyncResult,
         library_root: Path,
         **kwargs: object,
-    ) -> None:
+    ) -> set[Path]:
         FakeState.persisted_result = result
         FakeState.persisted_root = library_root
         FakeState.persisted_kwargs = kwargs
+        return set()
 
 
 class FakeStreamSelectionRepository:
@@ -172,6 +180,7 @@ class FakeState:
     persisted_result: ClassVar[TorBoxStrmSyncResult | None] = None
     persisted_root: ClassVar[Path | None] = None
     persisted_kwargs: ClassVar[dict[str, object]] = {}
+    reusable_root: ClassVar[Path | None] = None
     selected_torrent_id: ClassVar[str | None] = None
     snapshot_root: ClassVar[Path | None] = None
     restored: ClassVar[bool] = False
@@ -238,6 +247,7 @@ async def test_item_sync_only_persists_partial_target_result(
     assert FakeState.run_kinds == ("torrents",)
     assert FakeState.run_partial is True
     assert FakeState.persisted_result is not None
+    assert FakeState.reusable_root == tmp_path
     assert FakeState.persisted_result.partial is True
     assert FakeState.persisted_kwargs == {}
     assert FakeState.persisted_root == tmp_path

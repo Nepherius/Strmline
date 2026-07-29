@@ -34,6 +34,53 @@ class FakeTorBoxClient:
         ]
 
 
+MORTAL_KOMBAT_RELEASES: list[dict[str, Any]] = [
+    {
+        "id": 101,
+        "name": "Mortal.Kombat.2021.2160p.HMAX.WEB-DL.DDP5.1.Atmos.HDR.x265-TEPES.DUAL-G4RiS",
+        "cached": True,
+        "files": [
+            {
+                "id": 201,
+                "short_name": (
+                    "Mortal.Kombat.2021.2160p.HMAX.WEB-DL.DDP5.1.Atmos."
+                    "HDR.x265-TEPES.DUAL-G4RiS.mkv"
+                ),
+                "mimetype": "video/x-matroska",
+                "size": 16_000_000_000,
+            }
+        ],
+    },
+    {
+        "id": 102,
+        "name": "Mortal.Kombat.2021.2160p.BluRay.HEVC.TrueHD.7.1.Atmos-CYBER",
+        "cached": True,
+        "files": [
+            {
+                "id": 202,
+                "short_name": ("Mortal.Kombat.2021.2160p.BluRay.HEVC.TrueHD.7.1.Atmos-CYBER.mkv"),
+                "mimetype": "video/x-matroska",
+                "size": 61_000_000_000,
+            }
+        ],
+    },
+]
+
+
+class ReleaseTorBoxClient:
+    def __init__(self, downloads: list[dict[str, Any]]) -> None:
+        self._downloads = downloads
+
+    async def list_downloads(
+        self,
+        kind: DownloadKind,
+        *,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        _ = limit
+        return self._downloads if kind == "torrents" else []
+
+
 class MultiFileTorBoxClient:
     async def list_downloads(
         self, kind: DownloadKind, *, limit: int = 1000
@@ -367,6 +414,61 @@ async def test_full_sync_rebuilds_a_missing_generated_path(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
+async def test_targeted_then_full_sync_preserves_multiple_movie_versions(
+    tmp_path: Path,
+) -> None:
+    first = await TorBoxStrmSync(
+        client=ReleaseTorBoxClient(MORTAL_KOMBAT_RELEASES[:1]),
+        api_key="test-token",
+        torbox_base_url="https://api.torbox.app/v1/api",
+        library_root=tmp_path,
+    ).run(kinds=("torrents",), partial=True)
+    first_file = first.synced_files[0]
+    reusable = {
+        (first_file.provider, first_file.provider_item_id, first_file.provider_file_id): first_file
+    }
+
+    second = await TorBoxStrmSync(
+        client=ReleaseTorBoxClient(MORTAL_KOMBAT_RELEASES[1:]),
+        api_key="test-token",
+        torbox_base_url="https://api.torbox.app/v1/api",
+        library_root=tmp_path,
+        reusable_files=reusable,
+    ).run(kinds=("torrents",), partial=True)
+    second_file = second.synced_files[0]
+
+    canonical = tmp_path / "movies" / "Mortal Kombat (2021)" / "Mortal Kombat (2021).strm"
+    alternate = (
+        tmp_path
+        / "movies"
+        / "Mortal Kombat (2021)"
+        / "Mortal Kombat (2021) - 2160p BluRay HEVC.strm"
+    )
+    assert first_file.path == canonical
+    assert second_file.path == alternate
+    assert canonical.is_file()
+    assert alternate.is_file()
+    assert "torrent_id=101" in canonical.read_text(encoding="utf-8")
+    assert "torrent_id=102" in alternate.read_text(encoding="utf-8")
+
+    reusable[(second_file.provider, second_file.provider_item_id, second_file.provider_file_id)] = (
+        second_file
+    )
+    full = await TorBoxStrmSync(
+        client=ReleaseTorBoxClient(MORTAL_KOMBAT_RELEASES),
+        api_key="test-token",
+        torbox_base_url="https://api.torbox.app/v1/api",
+        library_root=tmp_path,
+        reusable_files=reusable,
+    ).run(kinds=("torrents",))
+
+    assert full.reused_files == 2
+    assert set(full.written_paths) == {canonical, alternate}
+    assert canonical.is_file()
+    assert alternate.is_file()
+
+
+@pytest.mark.asyncio
 async def test_direct_torbox_strm_sync_can_limit_written_files(tmp_path: Path) -> None:
     sync = TorBoxStrmSync(
         client=MultiFileTorBoxClient(),
@@ -398,7 +500,7 @@ async def test_torbox_strm_sync_can_mark_targeted_result_partial(tmp_path: Path)
 
 
 @pytest.mark.asyncio
-async def test_direct_torbox_strm_sync_counts_unique_output_paths(tmp_path: Path) -> None:
+async def test_direct_torbox_strm_sync_allocates_duplicate_output_paths(tmp_path: Path) -> None:
     sync = TorBoxStrmSync(
         client=DuplicatePathTorBoxClient(),
         api_key="test-token",
@@ -409,8 +511,9 @@ async def test_direct_torbox_strm_sync_counts_unique_output_paths(tmp_path: Path
     result = await sync.run(kinds=("torrents",))
 
     assert result.scanned_files == 2
-    assert result.written_files == 1
+    assert result.written_files == 2
     assert len(result.written_paths) == 2
+    assert len(set(result.written_paths)) == 2
 
 
 @pytest.mark.asyncio

@@ -18,6 +18,7 @@ from app.library.entries import LibraryCategory, LibraryEntry
 from app.library.naming import library_entry_from_file_name
 from app.library.paths import ensure_within_root, library_entry_relative_path
 from app.library.strm_writer import strm_file_path, write_strm_file
+from app.library.version_paths import alternate_version_path
 from app.providers.torbox.files import (
     DOWNLOAD_KINDS,
     DownloadKind,
@@ -36,6 +37,7 @@ from app.sync.identity_inputs import IdentityInputs
 from app.sync.media_identity import MediaIdentity
 
 MetadataLoader = Callable[[str, str], Awaitable[MediaIdentity | None]]
+SourceFileKey = tuple[str, str, str]
 
 
 class TorBoxDownloadClient(Protocol):
@@ -146,7 +148,7 @@ class TorBoxStrmSync:
         media_identity_resolver: MediaIdentityLookup | None = None,
         torrent_hashes: dict[str, str] | None = None,
         identity_inputs: IdentityInputs | None = None,
-        reusable_files: dict[tuple[str, str, str], SyncedStrmFile] | None = None,
+        reusable_files: dict[SourceFileKey, SyncedStrmFile] | None = None,
         mutation_tracker: MutationTracker | None = None,
     ) -> None:
         self._client = client
@@ -169,6 +171,10 @@ class TorBoxStrmSync:
         }
         self._media_identity_by_alias = identities.by_alias
         self._reusable_files = reusable_files or {}
+        self._claimed_paths = {
+            ensure_within_root(self._library_root, synced_file.path): source_key
+            for source_key, synced_file in self._reusable_files.items()
+        }
         self._mutation_tracker = mutation_tracker
         self._processing_fingerprint = _processing_fingerprint(classification_overrides)
 
@@ -268,9 +274,14 @@ class TorBoxStrmSync:
                     observations.excluded_prefixes.update(matching_exclusions)
                     skipped_files += 1
                     continue
+                target_path = self._target_path(entry, torbox_file, entry_id)
                 if self._mutation_tracker is not None:
-                    self._mutation_tracker.track(strm_file_path(self._library_root, entry))
-                written_path = write_strm_file(self._library_root, entry)
+                    self._mutation_tracker.track(target_path)
+                written_path = write_strm_file(
+                    self._library_root,
+                    entry,
+                    target_path=target_path,
+                )
                 written_paths.append(written_path)
                 synced_files.append(
                     _synced_file(
@@ -327,6 +338,44 @@ class TorBoxStrmSync:
         except (OSError, UnicodeError):
             return None
         return cached if content_matches else None
+
+    def _target_path(
+        self,
+        entry: LibraryEntry,
+        torbox_file: TorBoxFile,
+        entry_id: str,
+    ) -> Path:
+        source_key = _source_file_key(torbox_file)
+        cached = self._reusable_files.get(source_key)
+        if cached is not None:
+            cached_path = ensure_within_root(self._library_root, cached.path)
+            if self._claimed_paths.get(cached_path) in (None, source_key):
+                self._claimed_paths[cached_path] = source_key
+                return cached_path
+
+        canonical_path = strm_file_path(self._library_root, entry)
+        if self._claimed_paths.get(canonical_path) in (None, source_key):
+            self._claimed_paths[canonical_path] = source_key
+            return canonical_path
+
+        source_name = " ".join(
+            value for value in (torbox_file.folder_name, torbox_file.file_name) if value
+        )
+        alternate_path = ensure_within_root(
+            self._library_root,
+            alternate_version_path(canonical_path, source_name),
+        )
+        if self._claimed_paths.get(alternate_path) not in (None, source_key):
+            alternate_path = ensure_within_root(
+                self._library_root,
+                alternate_version_path(
+                    canonical_path,
+                    source_name,
+                    unique_suffix=entry_id[:8],
+                ),
+            )
+        self._claimed_paths[alternate_path] = source_key
+        return alternate_path
 
     def _with_classification_override(self, entry: LibraryEntry) -> LibraryEntry:
         override = self._classification_overrides.get(source_prefix_for_entry(entry))
@@ -585,6 +634,10 @@ def _same_source_file(
         and cached.provider_file_size == current.size
         and cached.info_hash == info_hash
     )
+
+
+def _source_file_key(torbox_file: TorBoxFile) -> SourceFileKey:
+    return torbox_file.kind, torbox_file.item_id, torbox_file.file_id
 
 
 def _same_identity(

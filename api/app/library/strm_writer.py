@@ -7,8 +7,17 @@ from app.library.entries import LibraryEntry
 from app.library.paths import ensure_within_root, library_entry_relative_path
 
 
-def write_strm_file(library_root: Path, entry: LibraryEntry) -> Path:
-    target_path = strm_file_path(library_root, entry)
+def write_strm_file(
+    library_root: Path,
+    entry: LibraryEntry,
+    *,
+    target_path: Path | None = None,
+) -> Path:
+    target_path = (
+        strm_file_path(library_root, entry)
+        if target_path is None
+        else ensure_within_root(library_root, target_path)
+    )
     content = f"{entry.resolver_url}\n"
 
     if target_path.exists() and target_path.read_text(encoding="utf-8") == content:

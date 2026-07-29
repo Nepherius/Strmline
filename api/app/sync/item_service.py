@@ -90,6 +90,7 @@ async def _execute_item_sync(
     client_factory: TorBoxClientFactory,
 ) -> SyncRunSummary:
     sync_runs = SyncRunRepository(session)
+    sync_state = SyncLibraryStateRepository(session)
     settings_repository = AppSettingsRepository(session, settings)
     snapshot = await settings_repository.snapshot_with_env()
     try:
@@ -106,6 +107,7 @@ async def _execute_item_sync(
         await session.commit()
         raise
 
+    reusable_files = await sync_state.reusable_files(library_root)
     await session.commit()
     mutation_journal = LibraryMutationJournal.create(library_root)
     try:
@@ -119,6 +121,7 @@ async def _execute_item_sync(
             torrent_id=torrent_id,
             client_factory=client_factory,
             mutation_journal=mutation_journal,
+            reusable_files=reusable_files,
         )
     except Exception as error:
         await session.rollback()
@@ -134,7 +137,7 @@ async def _execute_item_sync(
 
     try:
         sync_run_id = await sync_runs.record_success(result, source="auto")
-        _ = await SyncLibraryStateRepository(session).persist_result(result, library_root)
+        _ = await sync_state.persist_result(result, library_root)
         await session.commit()
     except Exception as error:
         await session.rollback()
@@ -180,6 +183,7 @@ async def _generate_item_files(  # noqa: PLR0913
     torrent_id: str,
     client_factory: TorBoxClientFactory,
     mutation_journal: LibraryMutationJournal,
+    reusable_files: dict[tuple[str, str, str], SyncedStrmFile],
 ) -> tuple[TorBoxStrmSyncResult, str | None]:
     async with client_factory(
         api_key=api_key,
@@ -218,6 +222,7 @@ async def _generate_item_files(  # noqa: PLR0913
             media_identity_resolver=identity_resolver,
             torrent_hashes={torrent_id: info_hash} if info_hash is not None else {},
             identity_inputs=identity_inputs,
+            reusable_files=reusable_files,
             mutation_tracker=mutation_journal,
         ).run(kinds=("torrents",), partial=True)
     return result, tmdb_api_key
