@@ -9,6 +9,7 @@ from time import monotonic
 
 from app.operations.defaults import TORBOX_REQUESTS_PER_MINUTE
 from app.operations.metrics import OperationalMetrics, get_operational_metrics
+from app.providers.torbox.manifest_cache import clear_torbox_manifest_cache
 
 RATE_WINDOW_SECONDS = 60.0
 
@@ -85,4 +86,5 @@ def configure_torbox_request_budget(requests_per_minute: int) -> None:
 
 
 def clear_torbox_runtime() -> None:
+    clear_torbox_manifest_cache()
     get_torbox_request_coordinator.cache_clear()

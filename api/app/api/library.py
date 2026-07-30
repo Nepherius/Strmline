@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Annotated, Literal
 
 import httpx
@@ -13,6 +13,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import FileResponse
 
+from app.api.file_manifests import (
+    LibraryManifestFile,
+    MediaFileManifestResponse,
+    library_manifest_response,
+)
 from app.api.library_classification import (
     delete_media_classification,
     save_media_classification,
@@ -291,6 +296,23 @@ async def library_entries(
     )
 
 
+@router.get(
+    "/entries/{media_item_id}/files",
+    response_model=MediaFileManifestResponse,
+)
+async def library_entry_files(
+    media_item_id: int,
+    category: Annotated[Literal["movies", "shows", "anime"], Query()],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> MediaFileManifestResponse:
+    rows = await MediaMetadataRepository(session).file_manifest(media_item_id, category)
+    files = tuple(_library_manifest_file(row) for row in rows)
+    return library_manifest_response(
+        files,
+        collapse_episode_versions=category in {"shows", "anime"},
+    )
+
+
 @router.post("/health/check", response_model=LibraryHealthCheckResponse)
 async def run_library_health_check(
     session: Annotated[AsyncSession, Depends(get_db_session)],
@@ -321,6 +343,35 @@ async def run_library_health_check(
             detail="TorBox availability check failed; existing health statuses were preserved.",
         ) from error
     return _health_check_response(result)
+
+
+def _library_manifest_file(row: tuple[object, ...]) -> LibraryManifestFile:
+    (
+        library_entry_id,
+        source_kind,
+        source_item_id,
+        name,
+        path,
+        size,
+        mime_type,
+        season,
+        episode,
+    ) = row
+    source_key = (
+        f"{source_kind}:{source_item_id}"
+        if source_kind is not None and source_item_id is not None
+        else None
+    )
+    return LibraryManifestFile(
+        library_entry_id=int(str(library_entry_id)),
+        source_key=source_key,
+        name=str(name or PurePath(str(path)).name),
+        path=str(path),
+        size=int(str(size)) if size is not None else None,
+        mime_type=str(mime_type) if mime_type is not None else None,
+        season=int(str(season)) if season is not None else None,
+        episode=int(str(episode)) if episode is not None else None,
+    )
 
 
 @router.get("/validation", response_model=LibraryValidationResponse)

@@ -1,5 +1,8 @@
 <script lang="ts">
-  import type { ClassificationOverride } from "$lib/api/library";
+  import { onMount } from "svelte";
+  import { loadLibraryEntryFiles, type ClassificationOverride } from "$lib/api/library";
+  import MediaFileList from "$lib/components/media/MediaFileList.svelte";
+  import type { MediaFileManifest } from "$lib/domain/fileManifest";
   import {
     categoryLabels,
     type LibraryCategory,
@@ -25,6 +28,34 @@
   export let onSearchWatchlist: (entry: LibraryEntry) => void;
 
   let tmdbDialogOpen = false;
+  let fileManifest: MediaFileManifest | null = null;
+  let loadingFiles = false;
+
+  onMount(() => {
+    if (entry.category !== "watchlist" && entry.media_item_id != null) {
+      void loadFiles();
+    }
+  });
+
+  async function loadFiles(): Promise<void> {
+    if (entry.category === "watchlist" || entry.media_item_id == null) return;
+    loadingFiles = true;
+    try {
+      fileManifest = await loadLibraryEntryFiles(entry.media_item_id, entry.category);
+    } catch (error) {
+      fileManifest = {
+        ok: false,
+        available: false,
+        message: error instanceof Error ? error.message : "Could not load included files.",
+        total_files: 0,
+        displayed_files: 0,
+        source_count: 0,
+        files: [],
+      };
+    } finally {
+      loadingFiles = false;
+    }
+  }
 
   async function moveEntry(
     nextEntry: LibraryEntry,
@@ -149,6 +180,17 @@
       </dl>
     </div>
 
+    {#if entry.category !== "watchlist"}
+      <section class="included-files" aria-labelledby="included-files-heading">
+        <h3 id="included-files-heading">Included files</h3>
+        {#if loadingFiles}
+          <p class="files-loading">Loading included files…</p>
+        {:else if fileManifest}
+          <MediaFileList manifest={fileManifest} />
+        {/if}
+      </section>
+    {/if}
+
     <footer>
       {#if entry.category === "watchlist"}
         <div class="watchlist-actions">
@@ -212,12 +254,14 @@
     position: relative;
     inset: auto;
     display: grid;
-    width: min(620px, 100%);
+    width: min(760px, 100%);
+    max-height: calc(100vh - 36px);
     gap: 18px;
     border: 1px solid #3b4840;
     border-radius: 6px;
     margin: 0;
     padding: 18px;
+    overflow: auto;
     background: #202620;
     color: #f8f5ed;
     box-shadow: 0 18px 50px rgb(0 0 0 / 36%);
@@ -248,6 +292,27 @@
     margin: 4px 0 0;
     overflow-wrap: anywhere;
     font-size: 20px;
+  }
+
+  .included-files {
+    min-width: 0;
+  }
+
+  .included-files h3 {
+    margin: 0 0 8px;
+    color: #aab9af;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+
+  .files-loading {
+    border: 1px solid #3b4840;
+    border-radius: 6px;
+    margin: 0;
+    padding: 14px;
+    color: #aab9af;
+    font-size: 13px;
   }
 
   header button {

@@ -11,8 +11,10 @@
   export let pending = false;
   export let onAdd: (stream: StreamSearchResult) => Promise<void>;
   export let onRemove: (stream: StreamSearchResult) => Promise<void>;
+  export let onInspect: (stream: StreamSearchResult) => Promise<void>;
 
   $: hasAction = stream.selected || stream.addable;
+  $: canInspect = stream.has_info_hash || stream.selected;
 
   function handleAction() {
     if (pending || !hasAction) return;
@@ -58,22 +60,35 @@
       <span>{formatLanguage(stream.parsed)}</span>
     </div>
   </div>
-  {#if hasAction}
+  {#if hasAction || canInspect}
     <div class="stream-actions">
-      <button
-        type="button"
-        class:remove={stream.selected}
-        disabled={pending}
-        on:click={handleAction}
-      >
-        {#if pending}
-          Working
-        {:else if stream.selected}
-          Remove
-        {:else}
-          Add
-        {/if}
-      </button>
+      {#if canInspect}
+        <button
+          type="button"
+          class="files-action"
+          disabled={pending}
+          title="View included files"
+          on:click={() => void onInspect(stream)}
+        >
+          Files
+        </button>
+      {/if}
+      {#if hasAction}
+        <button
+          type="button"
+          class:remove={stream.selected}
+          disabled={pending}
+          on:click={handleAction}
+        >
+          {#if pending}
+            Working
+          {:else if stream.selected}
+            Remove
+          {:else}
+            Add
+          {/if}
+        </button>
+      {/if}
     </div>
   {/if}
 </div>
@@ -95,6 +110,8 @@
   }
 
   .stream-actions {
+    display: flex;
+    gap: 8px;
     margin-left: 16px;
     flex: 0 0 auto;
   }
@@ -114,6 +131,13 @@
     border-color: var(--danger-border);
     background: var(--danger-surface);
     color: var(--danger-text);
+  }
+
+  .stream-actions button.files-action {
+    min-width: 72px;
+    border-color: var(--border);
+    background: var(--surface-raised);
+    color: var(--text-soft);
   }
 
   .stream-actions button:disabled {
@@ -206,6 +230,8 @@
     }
 
     .stream-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       margin-left: 0;
       margin-top: 12px;
     }

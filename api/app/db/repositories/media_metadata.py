@@ -12,7 +12,13 @@ from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.db.models import GeneratedFile, LibraryEntry, MediaExternalIdentity, MediaItem
+from app.db.models import (
+    GeneratedFile,
+    LibraryEntry,
+    MediaExternalIdentity,
+    MediaItem,
+    TorBoxStoredFile,
+)
 from app.db.repositories.media_identity import MediaIdentityRepository
 
 ENTRY_PATH_PARTS = 2
@@ -182,6 +188,57 @@ class MediaMetadataRepository:
             total_files=total_files,
             category_counts=category_counts,
         )
+
+    async def file_manifest(
+        self,
+        media_item_id: int,
+        category: str,
+    ) -> tuple[tuple[object, ...], ...]:
+        source_name = func.coalesce(
+            LibraryEntry.source_file_name,
+            TorBoxStoredFile.file_name,
+        )
+        source_path = func.coalesce(
+            LibraryEntry.source_file_path,
+            TorBoxStoredFile.path,
+            GeneratedFile.relative_path,
+        )
+        source_size = func.coalesce(
+            LibraryEntry.source_file_size,
+            TorBoxStoredFile.size,
+        )
+        source_mime_type = func.coalesce(
+            LibraryEntry.source_file_mime_type,
+            TorBoxStoredFile.mime_type,
+        )
+        result = await self._session.execute(
+            select(
+                LibraryEntry.id,
+                LibraryEntry.source_kind,
+                LibraryEntry.source_item_id,
+                source_name,
+                source_path,
+                source_size,
+                source_mime_type,
+                LibraryEntry.season_number,
+                LibraryEntry.episode_number,
+            )
+            .distinct()
+            .select_from(LibraryEntry)
+            .join(GeneratedFile, GeneratedFile.library_entry_id == LibraryEntry.id)
+            .outerjoin(TorBoxStoredFile, TorBoxStoredFile.id == LibraryEntry.torbox_file_id)
+            .where(
+                LibraryEntry.media_item_id == media_item_id,
+                LibraryEntry.category == category,
+            )
+            .order_by(
+                LibraryEntry.season_number.asc().nulls_last(),
+                LibraryEntry.episode_number.asc().nulls_last(),
+                source_path.asc(),
+                LibraryEntry.id.asc(),
+            )
+        )
+        return tuple(tuple(row) for row in result.all())
 
     async def _library_counts(self) -> tuple[dict[str, int], int]:
         result = await self._session.execute(

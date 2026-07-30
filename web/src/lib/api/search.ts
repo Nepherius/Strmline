@@ -1,4 +1,5 @@
 import { fetchJson } from "$lib/api/client";
+import type { MediaFileManifest } from "$lib/domain/fileManifest";
 import type { StreamSearchResult, TitleSearchResult } from "$lib/domain/search/types";
 
 export interface TitleSearchResponse {
@@ -78,5 +79,20 @@ export function removeStreamFromTorBox(streamKey: string): Promise<StreamActionR
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ stream_key: streamKey }),
+  });
+}
+
+export function loadStreamFiles(payload: StreamActionPayload): Promise<MediaFileManifest> {
+  return fetchJson<MediaFileManifest>("/api/search/streams/files", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      media_type: payload.media_type,
+      imdb_id: payload.imdb_id,
+      tmdb_id: payload.tmdb_id,
+      season: payload.season,
+      episode: payload.episode,
+      stream_key: payload.stream_key,
+    }),
   });
 }

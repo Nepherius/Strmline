@@ -42,6 +42,10 @@ class StreamActionRequest(StreamSearchRequest):
     )
 
 
+class StreamFilesRequest(StreamSearchRequest):
+    stream_key: str = Field(min_length=1, max_length=64)
+
+
 class StreamRemoveRequest(BaseModel):
     stream_key: str = Field(min_length=1, max_length=64)
 

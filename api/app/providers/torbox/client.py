@@ -6,6 +6,11 @@ from typing import Any, Self, cast
 import httpx
 
 from app.providers.torbox.files import ID_PARAM_BY_KIND, DownloadKind, TorBoxFile
+from app.providers.torbox.manifest_cache import get_torbox_manifest_cache
+from app.providers.torbox.manifests import (
+    TorBoxTorrentManifest,
+    torrent_manifest_from_cached_payload,
+)
 from app.providers.torbox.runtime import (
     TorBoxRequestCoordinator,
     get_torbox_request_coordinator,
@@ -159,6 +164,24 @@ class TorBoxClient:
     async def check_cached_strict(self, hashes: list[str]) -> dict[str, bool]:
         """Check cached availability without converting provider failures to misses."""
         return await self._check_cached(hashes, suppress_errors=False)
+
+    async def cached_torrent_manifest(self, info_hash: str) -> TorBoxTorrentManifest | None:
+        normalized_hash = info_hash.strip().casefold()
+        cache = get_torbox_manifest_cache()
+        found, cached = cache.get(normalized_hash)
+        if found:
+            return cached
+        payload = await self.get_json(
+            "/torrents/checkcached",
+            params={
+                "hash": normalized_hash,
+                "format": "object",
+                "list_files": True,
+            },
+        )
+        manifest = torrent_manifest_from_cached_payload(payload, normalized_hash)
+        cache.put(normalized_hash, manifest)
+        return manifest
 
     async def _check_cached(
         self,

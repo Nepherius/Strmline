@@ -108,6 +108,59 @@ async def test_library_entries_defaults_to_fifty_and_reports_more_pages(
 
 
 @pytest.mark.asyncio
+async def test_library_entry_files_collapses_episode_versions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeRepository:
+        def __init__(self, _session: AsyncSession) -> None:
+            pass
+
+        async def file_manifest(
+            self,
+            media_item_id: int,
+            category: str,
+        ) -> tuple[tuple[object, ...], ...]:
+            assert media_item_id == 42
+            assert category == "shows"
+            return (
+                (
+                    1,
+                    "torrents",
+                    "10",
+                    "Show.S01E01.1080p.mkv",
+                    "Show/Show.S01E01.1080p.mkv",
+                    100,
+                    "video/x-matroska",
+                    1,
+                    1,
+                ),
+                (
+                    2,
+                    "torrents",
+                    "11",
+                    "Show.S01E01.2160p.mkv",
+                    "Show/Show.S01E01.2160p.mkv",
+                    200,
+                    "video/x-matroska",
+                    1,
+                    1,
+                ),
+            )
+
+    monkeypatch.setattr(library_api, "MediaMetadataRepository", FakeRepository)
+
+    response = await library_api.library_entry_files(
+        42,
+        "shows",
+        AsyncMock(spec=AsyncSession),
+    )
+
+    assert response.total_files == 2
+    assert response.displayed_files == 1
+    assert response.files[0].version_count == 2
+
+
+@pytest.mark.asyncio
 async def test_library_health_check_persists_provider_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -186,6 +186,48 @@ async def test_torbox_client_creates_torrent_with_cached_only_form() -> None:
 
 
 @pytest.mark.asyncio
+async def test_torbox_client_loads_and_caches_torrent_file_manifest() -> None:
+    seen_urls: list[str] = []
+    info_hash = "a" * 40
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_urls.append(str(request.url))
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "data": {
+                    info_hash: {
+                        "name": "Season Pack",
+                        "files": [
+                            {
+                                "id": 1,
+                                "name": "Season 01/Show.S01E01.mkv",
+                                "size": 100,
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        client = TorBoxClient(api_key="secret-token", http_client=http_client)
+
+        first = await client.cached_torrent_manifest(info_hash.upper())
+        second = await client.cached_torrent_manifest(info_hash)
+
+    assert first == second
+    assert first is not None
+    assert first.files[0].name == "Show.S01E01.mkv"
+    assert len(seen_urls) == 1
+    assert f"hash={info_hash}" in seen_urls[0]
+    assert "format=object" in seen_urls[0]
+    assert "list_files=true" in seen_urls[0]
+
+
+@pytest.mark.asyncio
 async def test_torbox_client_deletes_torrent_with_control_endpoint() -> None:
     seen_json: dict[str, object] = {}
 

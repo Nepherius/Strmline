@@ -9,6 +9,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.file_manifests import (
+    MediaFileManifestResponse,
+    torbox_manifest_response,
+    unavailable_manifest,
+)
 from app.api.provider_config import (
     effective_aiostreams_url,
     effective_tmdb_key,
@@ -17,6 +22,7 @@ from app.api.provider_config import (
 from app.api.search_models import (
     StreamActionRequest,
     StreamActionResponse,
+    StreamFilesRequest,
     StreamRemoveRequest,
     StreamSearchRequest,
     StreamSearchResponse,
@@ -26,17 +32,22 @@ from app.api.search_models import (
 from app.core.config import Settings, get_settings
 from app.db.dependencies import get_optional_db_session
 from app.db.repositories.library_exclusion import LibraryExclusionRepository
-from app.db.repositories.stream_selection import StreamSelectionRepository
+from app.db.repositories.stream_selection import StreamSelectionRecord, StreamSelectionRepository
 from app.db.repositories.tmdb_cache import TmdbCacheRepository
 from app.providers.aiostreams.client import AioStreamsClient, AioStreamsClientError
 from app.providers.tmdb.client import TmdbClient, TmdbClientError
 from app.providers.tmdb.metadata import TmdbMetadataService
 from app.providers.torbox.client import TorBoxAPIError, TorBoxClient
+from app.providers.torbox.manifests import (
+    TorBoxTorrentManifest,
+    torrent_manifest_from_download,
+)
 from app.search.actions import (
     StreamActionError,
     StreamActionTarget,
     add_stream_to_torbox,
     remove_stream_from_torbox,
+    selected_aiostreams_stream,
 )
 from app.search.service import (
     TitleResult,
@@ -44,11 +55,16 @@ from app.search.service import (
     search_streams,
     search_titles_via_tmdb,
 )
+from app.search.stream_identity import stream_identity
 from app.search.stream_parser import is_imdb_id
 from app.sync.scheduler import enqueue_post_add_sync
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 logger = logging.getLogger(__name__)
+
+
+class StreamFileLookupConfigurationError(RuntimeError):
+    """Raised when stream file lookup is not configured."""
 
 
 @router.post("/titles", response_model=TitleSearchResponse)
@@ -352,6 +368,96 @@ async def add_stream_endpoint(
     )
 
 
+@router.post("/streams/files", response_model=MediaFileManifestResponse)
+async def stream_files_endpoint(
+    request: StreamFilesRequest,
+    session: Annotated[AsyncSession | None, Depends(get_optional_db_session)],
+) -> MediaFileManifestResponse:
+    if session is None:
+        return unavailable_manifest("Database is not configured.", ok=False)
+    try:
+        manifest = await _load_stream_file_manifest(request, session)
+    except StreamFileLookupConfigurationError as error:
+        return unavailable_manifest(str(error), ok=False)
+    except (AioStreamsClientError, StreamActionError, TorBoxAPIError) as error:
+        return unavailable_manifest(_stream_file_error(error), ok=False)
+
+    if manifest is None:
+        return unavailable_manifest(
+            "The file list is unavailable until TorBox can identify this torrent.",
+        )
+    return torbox_manifest_response(manifest)
+
+
+def _stream_file_error(error: Exception) -> str:
+    if isinstance(error, AioStreamsClientError):
+        return "AIOStreams stream lookup failed."
+    if isinstance(error, StreamActionError):
+        return "This stream result is no longer available. Refresh the search and try again."
+    logger.error("TorBox stream file lookup failed.", exc_info=error)
+    return "TorBox file lookup failed."
+
+
+async def _load_stream_file_manifest(
+    request: StreamFilesRequest,
+    session: AsyncSession,
+) -> TorBoxTorrentManifest | None:
+    settings = get_settings()
+    media_id = await _action_media_id(request, session, settings)
+    if media_id is None:
+        raise StreamFileLookupConfigurationError("Could not resolve IMDB ID.")
+    aiostreams_url = await effective_aiostreams_url(session, settings)
+    torbox_api_key = await effective_torbox_key(session, settings)
+    if aiostreams_url is None:
+        raise StreamFileLookupConfigurationError("AIOStreams is not configured.")
+    if torbox_api_key is None:
+        raise StreamFileLookupConfigurationError("TorBox API key is not configured.")
+
+    stream = await selected_aiostreams_stream(
+        AioStreamsClient(
+            base_url=aiostreams_url,
+            timeout_seconds=settings.outbound_timeout_seconds,
+        ),
+        StreamActionTarget(
+            media_type=request.media_type,
+            media_id=media_id,
+            stream_key=request.stream_key,
+        ),
+    )
+    identity = stream_identity(
+        stream,
+        media_type=request.media_type,
+        media_id=media_id,
+    )
+    selection = await StreamSelectionRepository(session).get(request.stream_key)
+    async with TorBoxClient(
+        api_key=torbox_api_key,
+        base_url=settings.torbox_base_url,
+        timeout=settings.outbound_timeout_seconds,
+    ) as torbox_client:
+        manifest = await _selected_download_manifest(torbox_client, selection, identity.info_hash)
+        info_hash = identity.info_hash or (selection.info_hash if selection is not None else None)
+        if manifest is None and info_hash is not None:
+            return await torbox_client.cached_torrent_manifest(info_hash)
+        return manifest
+
+
+async def _selected_download_manifest(
+    torbox_client: TorBoxClient,
+    selection: StreamSelectionRecord | None,
+    identity_info_hash: str | None,
+) -> TorBoxTorrentManifest | None:
+    if selection is None or selection.torbox_torrent_id is None:
+        return None
+    download = await torbox_client.get_download("torrents", selection.torbox_torrent_id)
+    if download is None:
+        return None
+    return torrent_manifest_from_download(
+        download,
+        selection.info_hash or identity_info_hash,
+    )
+
+
 @router.post("/streams/remove", response_model=StreamActionResponse)
 async def remove_stream_endpoint(
     request: StreamRemoveRequest,
@@ -412,7 +518,7 @@ def _build_stremio_id(imdb_id: str, season: int | None, episode: int | None) -> 
 
 
 async def _action_media_id(
-    request: StreamActionRequest,
+    request: StreamSearchRequest,
     session: AsyncSession,
     settings: Settings,
 ) -> str | None:

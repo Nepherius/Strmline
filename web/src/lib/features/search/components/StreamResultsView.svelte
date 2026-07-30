@@ -1,7 +1,10 @@
 <script lang="ts">
+  import { loadStreamFiles } from "$lib/api/search";
+  import MediaFileDialog from "$lib/components/media/MediaFileDialog.svelte";
   import Notice from "$lib/components/ui/Notice.svelte";
   import TextField from "$lib/components/ui/TextField.svelte";
   import type { TitleSearchResult, StreamSearchResult } from "$lib/domain/search/types";
+  import type { MediaFileManifest } from "$lib/domain/fileManifest";
   import { filterStreams, type StreamFilterMode } from "$lib/domain/search/streamFilters";
   import { sortStreamResults, type StreamSortMode } from "$lib/domain/search/streamSort";
   import StreamResultItem from "./StreamResultItem.svelte";
@@ -31,6 +34,9 @@
   let visibleLimit = 100;
   let lookupTimer: ReturnType<typeof setTimeout> | null = null;
   let lastLookupFilter = "";
+  let inspectedStream: StreamSearchResult | null = null;
+  let fileManifest: MediaFileManifest | null = null;
+  let loadingFiles = false;
 
   $: queueEpisodeLookup(filterRegex);
   $: filteredResult = filterStreams(streamResults, filterRegex, filterMode);
@@ -49,6 +55,35 @@
       lastLookupFilter = trimmed;
       void onStreamFilterChange(trimmed);
     }, 350);
+  }
+
+  async function inspectStream(stream: StreamSearchResult): Promise<void> {
+    inspectedStream = stream;
+    fileManifest = null;
+    loadingFiles = true;
+    try {
+      fileManifest = await loadStreamFiles({
+        media_type: selectedTitle.media_type,
+        imdb_id: selectedTitle.imdb_id,
+        tmdb_id: selectedTitle.tmdb_id !== 0 ? selectedTitle.tmdb_id : null,
+        season: stream.season,
+        episode: stream.episode,
+        stream_key: stream.stream_key,
+      });
+    } catch (caughtError) {
+      fileManifest = {
+        ok: false,
+        available: false,
+        message:
+          caughtError instanceof Error ? caughtError.message : "Could not load included files.",
+        total_files: 0,
+        displayed_files: 0,
+        source_count: 0,
+        files: [],
+      };
+    } finally {
+      loadingFiles = false;
+    }
   }
 </script>
 
@@ -177,6 +212,7 @@
         pending={pendingStreamKeys.includes(stream.stream_key)}
         onAdd={onAddStream}
         onRemove={onRemoveStream}
+        onInspect={inspectStream}
       />
     {/each}
   </div>
@@ -188,6 +224,18 @@
   {/if}
 {:else}
   <p class="no-results">No stream candidates found for this selection.</p>
+{/if}
+
+{#if inspectedStream}
+  <MediaFileDialog
+    title={inspectedStream.title}
+    loading={loadingFiles}
+    manifest={fileManifest}
+    onClose={() => {
+      inspectedStream = null;
+      fileManifest = null;
+    }}
+  />
 {/if}
 
 <style>

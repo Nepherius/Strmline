@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api import search as search_api
+from app.api.search_models import StreamFilesRequest
 from app.core.config import get_settings
 from app.main import create_app
 from app.providers.aiostreams.client import AioStreamsClient
 from app.providers.tmdb.client import TmdbClient
+from app.providers.torbox.manifests import TorBoxManifestFile, TorBoxTorrentManifest
 from tests.conftest import override_auth
 
 
@@ -84,6 +89,67 @@ def _mock_aiostreams_direct_torbox_streams_response() -> dict[str, Any]:
             }
         ]
     }
+
+
+@pytest.mark.asyncio
+async def test_stream_files_endpoint_returns_cached_torrent_contents(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = TorBoxTorrentManifest(
+        info_hash="a" * 40,
+        name="Season Pack",
+        files=(
+            TorBoxManifestFile(
+                external_id="1",
+                name="Show.S01E01.mkv",
+                path="Season 01/Show.S01E01.mkv",
+                size=100,
+                mime_type="video/x-matroska",
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        search_api,
+        "_load_stream_file_manifest",
+        AsyncMock(return_value=manifest),
+    )
+
+    response = await search_api.stream_files_endpoint(
+        StreamFilesRequest(
+            media_type="series",
+            imdb_id="tt1234567",
+            stream_key="a" * 32,
+        ),
+        AsyncMock(spec=AsyncSession),
+    )
+
+    assert response.available is True
+    assert response.total_files == 1
+    assert response.files[0].name == "Show.S01E01.mkv"
+
+
+@pytest.mark.asyncio
+async def test_stream_files_endpoint_reports_unavailable_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        search_api,
+        "_load_stream_file_manifest",
+        AsyncMock(return_value=None),
+    )
+
+    response = await search_api.stream_files_endpoint(
+        StreamFilesRequest(
+            media_type="movie",
+            imdb_id="tt1234567",
+            stream_key="b" * 32,
+        ),
+        AsyncMock(spec=AsyncSession),
+    )
+
+    assert response.ok is True
+    assert response.available is False
+    assert "unavailable" in response.message
 
 
 @pytest.mark.asyncio

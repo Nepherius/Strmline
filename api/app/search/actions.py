@@ -60,7 +60,7 @@ async def add_stream_to_torbox(
     target: StreamActionTarget,
     add_only_if_cached: bool = True,
 ) -> StreamActionOutcome:
-    stream = await _selected_aiostreams_stream(aiostreams_client, target)
+    stream = await selected_aiostreams_stream(aiostreams_client, target)
     identity = stream_identity(stream, media_type=target.media_type, media_id=target.media_id)
     if not identity.addable:
         msg = "This stream cannot be added because it does not expose a TorBox action."
@@ -203,7 +203,7 @@ async def _trigger_saved_aiostreams_action(
         stream_key=selection.stream_key,
     )
     try:
-        stream = await _selected_aiostreams_stream(aiostreams_client, target)
+        stream = await selected_aiostreams_stream(aiostreams_client, target)
         identity = stream_identity(
             stream,
             media_type=selection.media_type,
@@ -228,7 +228,7 @@ async def _trigger_saved_aiostreams_action(
     )
 
 
-async def _selected_aiostreams_stream(
+async def selected_aiostreams_stream(
     aiostreams_client: AioStreamsClient,
     target: StreamActionTarget,
 ) -> AioStreamsStream:

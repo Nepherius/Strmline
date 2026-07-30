@@ -1,4 +1,5 @@
 import { fetchJson, fetchNoContent } from "$lib/api/client";
+import type { MediaFileManifest } from "$lib/domain/fileManifest";
 import type {
   LibraryCategory,
   LibraryDiagnostics,
@@ -103,6 +104,16 @@ export function loadLibraryEntries(request: LibraryPageRequest = {}): Promise<Li
   if (request.cursor) params.set("cursor", request.cursor);
   if (request.category) params.set("category", request.category);
   return fetchJson<LibraryEntryPage>(`/api/library/entries?${params.toString()}`);
+}
+
+export function loadLibraryEntryFiles(
+  mediaItemId: number,
+  category: LibraryCategory,
+): Promise<MediaFileManifest> {
+  const params = new URLSearchParams({ category });
+  return fetchJson<MediaFileManifest>(
+    `/api/library/entries/${String(mediaItemId)}/files?${params.toString()}`,
+  );
 }
 
 export function loadLibraryValidation(): Promise<LibraryValidation> {

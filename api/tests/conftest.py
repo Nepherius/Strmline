@@ -8,11 +8,13 @@ from fastapi import FastAPI
 from app.api.dependencies import get_current_user, get_current_user_or_anonymous_if_no_users
 from app.db.models import User
 from app.providers.aiostreams.result_cache import clear_aiostreams_result_cache
+from app.providers.torbox.manifest_cache import clear_torbox_manifest_cache
 
 
 @pytest.fixture(autouse=True)
 def reset_process_local_caches() -> None:
     clear_aiostreams_result_cache()
+    clear_torbox_manifest_cache()
 
 
 async def _fake_authenticated_user() -> User:
