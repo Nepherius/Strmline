@@ -3,11 +3,14 @@ from __future__ import annotations
 import ipaddress
 from dataclasses import dataclass
 from typing import Any, cast
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlencode, urlparse, urlunparse
+from uuid import UUID
 
 import httpx
 
 from app.providers.aiostreams.result_cache import get_aiostreams_result_cache
+
+AIOSTREAMS_CREDENTIAL_SEGMENTS = 2
 
 
 class AioStreamsClientError(RuntimeError):
@@ -45,6 +48,13 @@ class AioStreamsTriggerResult:
     redirected: bool
 
 
+@dataclass(frozen=True, slots=True)
+class AioStreamsSearchApi:
+    url: str
+    username: str
+    password: str
+
+
 class AioStreamsClient:
     def __init__(
         self,
@@ -67,11 +77,56 @@ class AioStreamsClient:
         cached = cast(tuple[AioStreamsStream, ...] | None, cache.get(cache_key))
         if cached is not None:
             return cached
-        stream_path = f"stream/{quote(media_type, safe='')}/{quote(media_id, safe='')}.json"
-        payload = await self._get_json(_join_url(self._base_url, stream_path))
-        streams = _streams_from_payload(payload)
+        search_api = _search_api_from_manifest_url(self._base_url)
+        if search_api is not None:
+            try:
+                streams = await self._search_api_streams(
+                    search_api,
+                    media_type=media_type,
+                    media_id=media_id,
+                )
+            except AioStreamsClientError:
+                streams = await self._legacy_streams(
+                    media_type=media_type,
+                    media_id=media_id,
+                )
+        else:
+            streams = await self._legacy_streams(
+                media_type=media_type,
+                media_id=media_id,
+            )
         cache.put(cache_key, streams)
         return streams
+
+    async def _search_api_streams(
+        self,
+        search_api: AioStreamsSearchApi,
+        *,
+        media_type: str,
+        media_id: str,
+    ) -> tuple[AioStreamsStream, ...]:
+        query = urlencode(
+            {
+                "type": media_type,
+                "id": media_id,
+                "format": "true",
+            }
+        )
+        payload = await self._get_json(
+            f"{search_api.url}?{query}",
+            auth=(search_api.username, search_api.password),
+        )
+        return _search_api_streams_from_payload(payload)
+
+    async def _legacy_streams(
+        self,
+        *,
+        media_type: str,
+        media_id: str,
+    ) -> tuple[AioStreamsStream, ...]:
+        stream_path = f"stream/{quote(media_type, safe='')}/{quote(media_id, safe='')}.json"
+        payload = await self._get_json(_join_url(self._base_url, stream_path))
+        return _streams_from_payload(payload)
 
     def _stream_cache_key(self, media_type: str, media_id: str) -> str:
         return "\x1f".join((self._base_url, media_type, media_id))
@@ -101,13 +156,18 @@ class AioStreamsClient:
         except httpx.HTTPError as error:
             raise AioStreamsClientError("AIOStreams stream trigger failed.") from error
 
-    async def _get_json(self, url: str) -> dict[str, Any]:
+    async def _get_json(
+        self,
+        url: str,
+        *,
+        auth: tuple[str, str] | None = None,
+    ) -> dict[str, Any]:
         try:
             async with httpx.AsyncClient(
                 timeout=self._timeout_seconds,
                 transport=self._transport,
             ) as client:
-                response = await client.get(url)
+                response = await client.get(url, auth=auth)
         except httpx.HTTPError as error:
             raise AioStreamsClientError("AIOStreams request failed.") from error
         if response.is_error:
@@ -126,6 +186,65 @@ def _join_url(base_url: str, path: str) -> str:
         return base_url
     normalized_base = base_url.removesuffix("/manifest.json")
     return f"{normalized_base}/{path.lstrip('/')}"
+
+
+def _search_api_from_manifest_url(base_url: str) -> AioStreamsSearchApi | None:
+    parsed = urlparse(base_url)
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    if not segments or segments[-1].casefold() != "manifest.json":
+        return None
+
+    manifest_index = len(segments) - 1
+    try:
+        stremio_index = max(
+            index
+            for index, segment in enumerate(segments[:manifest_index])
+            if segment.casefold() == "stremio"
+        )
+    except ValueError:
+        stremio_index = -1
+
+    if stremio_index >= 0:
+        credential_segments = segments[stremio_index + 1 : manifest_index]
+        api_prefix = segments[:stremio_index]
+    else:
+        credentials_start = max(
+            0,
+            manifest_index - AIOSTREAMS_CREDENTIAL_SEGMENTS,
+        )
+        credential_segments = segments[credentials_start:manifest_index]
+        api_prefix = segments[:credentials_start]
+
+    if len(credential_segments) != AIOSTREAMS_CREDENTIAL_SEGMENTS:
+        return None
+    username, password = credential_segments
+    if not _is_uuid(username) or not password:
+        return None
+
+    api_path = "/" + "/".join((*api_prefix, "api", "v1", "search"))
+    api_url = urlunparse(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            api_path,
+            "",
+            "",
+            "",
+        )
+    )
+    return AioStreamsSearchApi(
+        url=api_url,
+        username=username,
+        password=password,
+    )
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        _ = UUID(value)
+    except ValueError:
+        return False
+    return True
 
 
 def _is_safe_trigger_url(url: str) -> bool:
@@ -170,6 +289,49 @@ def _streams_from_payload(payload: dict[str, Any]) -> tuple[AioStreamsStream, ..
         _stream_from_payload(cast(dict[str, Any], raw_stream))
         for raw_stream in cast(list[object], raw_streams)
         if isinstance(raw_stream, dict)
+    )
+
+
+def _search_api_streams_from_payload(
+    payload: dict[str, Any],
+) -> tuple[AioStreamsStream, ...]:
+    if payload.get("success") is not True:
+        raise AioStreamsClientError("AIOStreams Search API request failed.")
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise AioStreamsClientError("AIOStreams Search API response did not include data.")
+    raw_results = data.get("results")
+    if not isinstance(raw_results, list):
+        raise AioStreamsClientError("AIOStreams Search API response did not include results.")
+    return tuple(
+        _stream_from_search_api_result(cast(dict[str, Any], result))
+        for result in cast(list[object], raw_results)
+        if isinstance(result, dict)
+    )
+
+
+def _stream_from_search_api_result(payload: dict[str, Any]) -> AioStreamsStream:
+    filename = _optional_str(payload.get("filename"))
+    seeders = _optional_int(payload.get("seeders"))
+    video_size = _optional_int(payload.get("size"))
+    behavior_hints: dict[str, Any] = {}
+    if filename is not None:
+        behavior_hints["filename"] = filename
+    if seeders is not None:
+        behavior_hints["seeders"] = seeders
+    if video_size is not None:
+        behavior_hints["videoSize"] = video_size
+
+    return AioStreamsStream(
+        name=_optional_str(payload.get("name")) or _optional_str(payload.get("addon")),
+        title=filename,
+        description=_optional_str(payload.get("description"))
+        or _optional_str(payload.get("message")),
+        url=_optional_str(payload.get("url")),
+        info_hash=_optional_str(payload.get("infoHash")),
+        file_idx=_optional_int(payload.get("fileIdx")),
+        behavior_hints=behavior_hints,
+        raw=payload,
     )
 
 

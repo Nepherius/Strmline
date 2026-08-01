@@ -6,6 +6,8 @@ from app.providers.aiostreams.client import (
     AioStreamsClientError,
 )
 
+USER_UUID = "12345678-1234-5678-1234-567812345678"
+
 
 @pytest.mark.asyncio
 async def test_aiostreams_client_reads_manifest() -> None:
@@ -68,6 +70,91 @@ async def test_aiostreams_client_reads_streams() -> None:
     assert streams[0].url == "https://stream.example/video.mkv"
     assert streams[1].info_hash == "abc123"
     assert streams[1].file_idx == 2
+
+
+@pytest.mark.asyncio
+async def test_aiostreams_client_prefers_structured_search_api() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/search"
+        assert dict(request.url.params) == {
+            "type": "movie",
+            "id": "tt123",
+            "format": "true",
+        }
+        assert request.headers["authorization"].startswith("Basic ")
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "detail": None,
+                "error": None,
+                "data": {
+                    "filtered": 0,
+                    "statistics": [],
+                    "errors": [],
+                    "results": [
+                        {
+                            "name": "Instant TB",
+                            "description": "Cached TorBox result",
+                            "infoHash": "ab" * 20,
+                            "fileIdx": 2,
+                            "filename": "Example.Movie.2160p.mkv",
+                            "size": 12_345,
+                            "seeders": 42,
+                            "cached": True,
+                            "service": "torbox",
+                            "addon": "TorBox Search",
+                            "url": "https://stream.example/action",
+                        }
+                    ],
+                },
+            },
+        )
+
+    streams = await AioStreamsClient(
+        base_url=(f"https://example.test/stremio/{USER_UUID}/encrypted-password/manifest.json"),
+        timeout_seconds=5,
+        transport=httpx.MockTransport(handler),
+    ).streams(media_type="movie", media_id="tt123")
+
+    assert len(streams) == 1
+    assert streams[0].info_hash == "ab" * 20
+    assert streams[0].file_idx == 2
+    assert streams[0].behavior_hints == {
+        "filename": "Example.Movie.2160p.mkv",
+        "seeders": 42,
+        "videoSize": 12_345,
+    }
+    assert streams[0].raw["cached"] is True
+
+
+@pytest.mark.asyncio
+async def test_aiostreams_client_falls_back_when_search_api_is_unavailable() -> None:
+    paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        if request.url.path == "/api/v1/search":
+            return httpx.Response(404)
+        assert request.url.path == (
+            f"/stremio/{USER_UUID}/encrypted-password/stream/movie/tt123.json"
+        )
+        return httpx.Response(
+            200,
+            json={"streams": [{"name": "Torrent", "infoHash": "cd" * 20}]},
+        )
+
+    streams = await AioStreamsClient(
+        base_url=(f"https://example.test/stremio/{USER_UUID}/encrypted-password/manifest.json"),
+        timeout_seconds=5,
+        transport=httpx.MockTransport(handler),
+    ).streams(media_type="movie", media_id="tt123")
+
+    assert streams[0].info_hash == "cd" * 20
+    assert paths == [
+        "/api/v1/search",
+        f"/stremio/{USER_UUID}/encrypted-password/stream/movie/tt123.json",
+    ]
 
 
 @pytest.mark.asyncio

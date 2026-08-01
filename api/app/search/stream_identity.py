@@ -108,6 +108,9 @@ def _action_url(stream: AioStreamsStream) -> str | None:
 
 
 def _looks_like_torbox_action_stream(stream: AioStreamsStream) -> bool:
+    service = stream.raw.get("service")
+    if isinstance(service, str) and service.casefold() == "torbox":
+        return True
     combined = " ".join(
         field
         for field in (stream.name, stream.title, stream.description)

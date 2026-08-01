@@ -394,7 +394,7 @@
     <TextField
       bind:value={values.aiostreamsBaseUrl}
       autocomplete="off"
-      helpText="Optional Stremio-compatible AIOStreams manifest URL used for search and season auto-complete."
+      helpText="Optional full per-user AIOStreams manifest URL. Standard UUID/password URLs also enable structured search and file inspection."
       label="AIOStreams URL (optional)"
       placeholder={settings?.aiostreams_configured ? "******" : "https://.../manifest.json"}
       type="password"

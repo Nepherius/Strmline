@@ -60,37 +60,39 @@
       <span>{formatLanguage(stream.parsed)}</span>
     </div>
   </div>
-  {#if hasAction || canInspect}
-    <div class="stream-actions">
-      {#if canInspect}
-        <button
-          type="button"
-          class="files-action"
-          disabled={pending}
-          title="View included files"
-          on:click={() => void onInspect(stream)}
-        >
-          Files
-        </button>
-      {/if}
-      {#if hasAction}
-        <button
-          type="button"
-          class:remove={stream.selected}
-          disabled={pending}
-          on:click={handleAction}
-        >
-          {#if pending}
-            Working
-          {:else if stream.selected}
-            Remove
-          {:else}
-            Add
-          {/if}
-        </button>
-      {/if}
-    </div>
-  {/if}
+  <div class="stream-actions">
+    <span
+      class="files-control"
+      title={canInspect
+        ? "View included files"
+        : "No torrent hash was supplied. Use a current AIOStreams version and its full per-user manifest URL."}
+    >
+      <button
+        type="button"
+        class="files-action"
+        disabled={pending || !canInspect}
+        on:click={() => void onInspect(stream)}
+      >
+        Files
+      </button>
+    </span>
+    {#if hasAction}
+      <button
+        type="button"
+        class:remove={stream.selected}
+        disabled={pending}
+        on:click={handleAction}
+      >
+        {#if pending}
+          Working
+        {:else if stream.selected}
+          Remove
+        {:else}
+          Add
+        {/if}
+      </button>
+    {/if}
+  </div>
 </div>
 
 <style>
@@ -138,6 +140,10 @@
     border-color: var(--border);
     background: var(--surface-raised);
     color: var(--text-soft);
+  }
+
+  .files-control {
+    display: flex;
   }
 
   .stream-actions button:disabled {

@@ -83,7 +83,10 @@ Hover over a chip for its explanation. Strmline compares each distinct info hash
 - A TorBox account and API key.
 - A writable host directory for the generated library.
 - A TMDB API key is optional but recommended for metadata, artwork, and reliable media matching.
-- An AIOStreams base URL is optional and enables stream search and season auto-completion.
+- A full per-user AIOStreams manifest URL is optional and enables stream search and season
+  auto-completion. Standard UUID/password manifest URLs also let Strmline use AIOStreams'
+  structured Search API for torrent hashes and on-demand file inspection; older or aliased URLs
+  continue through the Stremio-compatible fallback.
 
 ## Quick Start
 

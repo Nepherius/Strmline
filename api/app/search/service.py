@@ -178,9 +178,9 @@ def _build_stream_result(
         stream_key=identity.stream_key,
         title=label,
         parsed=parsed,
-        cached=None,
+        cached=_bool_or_none(stream.raw.get("cached")),
         has_url=stream.url is not None,
-        has_info_hash=stream.info_hash is not None,
+        has_info_hash=identity.info_hash is not None,
         addable=identity.addable,
         provider_label=_provider_label_from_stream(stream),
         seeders=safe_seeders,
@@ -200,6 +200,10 @@ def _str_or_none(value: object) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
 
 
+def _bool_or_none(value: object) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
 def _provider_label_from_stream(stream: AioStreamsStream) -> str | None:
     combined = " ".join(
         field
@@ -213,6 +217,10 @@ def _provider_label_from_stream(stream: AioStreamsStream) -> str | None:
         return "Cast TB"
     if "dl with tb" in normalized:
         return "DL with TB"
+    service = _str_or_none(stream.raw.get("service"))
+    if service is not None and service.casefold() == "torbox":
+        cached = _bool_or_none(stream.raw.get("cached"))
+        return "Instant TB" if cached is True else "TorBox"
     return None
 
 
